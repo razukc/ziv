@@ -86,6 +86,11 @@ def get_agent():
 class TaskRequest(BaseModel):
     task: str
     robot: str = "unitree-g1"
+    # Optional existing pipeline used as the seed for a variation compose:
+    # the agent adapts it to the (possibly reworded) task/robot instead of
+    # decomposing from scratch. Inline only — callers send the displayed
+    # pipeline, so no extra store round-trip is needed.
+    seed_pipeline: Optional[dict] = None
 
 
 class PipelineRefRequest(TaskRequest):
@@ -207,7 +212,7 @@ def search_skills_endpoint(query: str):
 def compose_pipeline(request: TaskRequest):
     try:
         a = get_agent()
-        pipeline = a.decompose_task(request.task, request.robot)
+        pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
         pipeline_id = store_pipeline(pipeline)
         explanation = a.explain_pipeline(pipeline)
         return TaskResponse(pipeline=pipeline, explanation=explanation, pipeline_id=pipeline_id)
@@ -222,7 +227,7 @@ def compose_pipeline_silent(request: TaskRequest):
     """Compose pipeline without explanation (faster, cheaper)."""
     try:
         a = get_agent()
-        pipeline = a.decompose_task(request.task, request.robot)
+        pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
         pipeline_id = store_pipeline(pipeline)
         return {"pipeline": pipeline, "pipeline_id": pipeline_id}
     except Exception as e:
@@ -252,7 +257,7 @@ async def compose_pipeline_stream(request: TaskRequest):
             # Phase 2: Generate pipeline
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})}\n\n"
 
-            pipeline = a.decompose_task(request.task, request.robot)
+            pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
             pipeline_id = store_pipeline(pipeline)
 
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})}\n\n"

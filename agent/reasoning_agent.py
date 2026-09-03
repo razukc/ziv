@@ -29,10 +29,15 @@ class ReasoningAgent:
             lines.append(f"  Tags: {', '.join(s['tags'])}")
         return "\n".join(lines)
 
-    def decompose_task(self, task_description, robot_type="unitree-g1"):
+    def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None):
         """
         Given a natural language task description, decompose it into
         subtasks and select the appropriate NVIDIA skills for each.
+
+        When ``seed_pipeline`` is provided (an existing composed pipeline),
+        the agent produces a VARIATION of it for the new task/robot: steps
+        and skills that still apply are kept, the rest are adapted or
+        dropped — instead of decomposing the task from scratch.
         """
         system_prompt = f"""You are SkillForge, an AI agent that composes robot skill pipelines.
 
@@ -73,6 +78,16 @@ Rules:
 """
 
         user_msg = f"Task: {task_description}\nRobot: {robot_type}"
+        if seed_pipeline is not None:
+            user_msg += (
+                "\n\nAn existing plan is provided below. Produce a VARIATION of it that "
+                "fits the new task and robot above."
+                + json.dumps(seed_pipeline, indent=2)
+                + "\n\nVariation rules: keep the steps and skills that still apply, adapt or "
+                "drop the ones that don't, and word each step for the new task. The new "
+                "task and robot take precedence over the existing plan. Return the full "
+                "JSON structure with skills ONLY from the catalog above."
+            )
 
         response = self.client.chat.completions.create(
             model=self.model,

@@ -58,3 +58,36 @@ def test_compose_empty_task_rejected(client, fake_agent):
     r = client.post("/api/compose", json={"task": "", "robot": "unitree-g1"})
     # Empty task still flows to the agent in the API; the UI validates before sending.
     assert r.status_code in (200, 500)
+
+
+def test_compose_variation_passes_seed(client, fake_agent, sample_pipeline):
+    """A variation compose carries the seed pipeline into the agent, and the
+    reworded task/robot override the seed's originals in the response."""
+    r = client.post("/api/compose", json={
+        "task": "Pick up the blue cup from the shelf",
+        "robot": "1x-neo",
+        "seed_pipeline": sample_pipeline,
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert fake_agent.last_seed == sample_pipeline, "agent did not receive the seed pipeline"
+    assert data["pipeline"]["task"] == "Pick up the blue cup from the shelf"
+    assert data["pipeline"]["robot"] == "1x-neo"
+    assert data["pipeline_id"].startswith("p")
+
+
+def test_compose_stream_variation_passes_seed(client, fake_agent, sample_pipeline):
+    r = client.post("/api/compose/stream", json={
+        "task": "Wipe the counter with a different robot",
+        "robot": "unitree-r1",
+        "seed_pipeline": sample_pipeline,
+    })
+    assert r.status_code == 200
+    assert '"type": "pipeline"' in r.text
+    assert fake_agent.last_seed == sample_pipeline, "stream compose did not pass the seed"
+
+
+def test_compose_without_seed_sends_none(client, fake_agent):
+    r = client.post("/api/compose", json={"task": "Walk to the door", "robot": "unitree-g1"})
+    assert r.status_code == 200
+    assert fake_agent.last_seed is None

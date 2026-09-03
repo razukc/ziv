@@ -148,11 +148,20 @@ export default function Home() {
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<Pipeline | null>(null);
   const [edited, setEdited] = useState(false);
+  // "Create variation": compose a NEW pipeline adapted from the displayed one.
+  const [variationOpen, setVariationOpen] = useState(false);
+  const [variationTask, setVariationTask] = useState("");
+  const [variationRobot, setVariationRobot] = useState("unitree-g1");
+  // Fires the compose once the reworded task/robot have committed to state
+  // (the compose handlers read state synchronously, so firing them straight
+  // from the submit handler would compose the PREVIOUS task).
+  const [pendingVariation, setPendingVariation] = useState<{ seed: Pipeline | null } | null>(null);
 
   const inputRef = useRef<HTMLDivElement>(null);
   const processingRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const variationRef = useRef<HTMLDivElement>(null);
 
   // Cleanup abort controller on unmount
   useEffect(() => {
@@ -223,6 +232,17 @@ export default function Home() {
     } catch { /* storage unavailable or quota exceeded */ }
   }, [history]);
 
+  // Run a submitted variation compose (handlers declared below are read at
+  // effect time, after this render's task/robot states are in place).
+  useEffect(() => {
+    if (!pendingVariation) return;
+    const { seed } = pendingVariation;
+    setPendingVariation(null);
+    if (mockMode) handleComposeMock(seed);
+    else handleComposeLive(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVariation]);
+
   const getMockData = (): ComposeResponse => buildMockResult(task, robot);
   const getMockThinking = (): ThinkingStep[] => mockThinking(robot);
   const getMockLogs = (): ExecutionLog[] => mockLogs(task, robot);
@@ -264,10 +284,11 @@ export default function Home() {
     setEditMode(false);
     setDraft(null);
     setEdited(false);
+    setVariationOpen(false);
   };
 
 
-  const handleComposeMock = async () => {
+  const handleComposeMock = async (_seed?: Pipeline | null) => {
     const v = validateTask(task);
     if (v) { setValidation(v); return; }
     setValidation("");
@@ -298,7 +319,7 @@ export default function Home() {
     scrollTo(resultsRef, 300);
   };
 
-  const handleComposeLive = async () => {
+  const handleComposeLive = async (seed?: Pipeline | null) => {
     const v = validateTask(task);
     if (v) { setValidation(v); return; }
     setValidation("");
@@ -311,7 +332,7 @@ export default function Home() {
     const timeout = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const res = await startComposeStream(task, robot, controller.signal);
+      const res = await startComposeStream(task, robot, controller.signal, seed ?? null);
       clearTimeout(timeout);
 
       if (res.status === 429) throw new Error("rate limited — nebium api quota exceeded, try again in a few minutes");
@@ -453,11 +474,34 @@ export default function Home() {
     scrollTo(resultsRef, 300);
   };
 
+  // --- Create variation: reword the task / pick a robot, compose seeded ------
+  const beginVariation = () => {
+    const base = displayPipeline ?? result?.pipeline;
+    if (!base) return;
+    setVariationTask(base.task || "");
+    setVariationRobot(base.robot || robot);
+    setVariationOpen(true);
+    scrollTo(variationRef, 80);
+  };
+
+  const cancelVariation = () => setVariationOpen(false);
+
+  const submitVariation = () => {
+    if (!variationTask.trim()) return;
+    // Capture the original BEFORE the compose flow resets the result.
+    const seed = displayPipeline ?? result?.pipeline ?? null;
+    setVariationOpen(false);
+    setTask(variationTask);
+    setRobot(variationRobot);
+    setPendingVariation({ seed });
+  };
+
   // --- Pipeline editing: reorder / remove steps, then re-export LLM-free ------
   const beginEdit = () => {
     if (!result) return;
     setDraft(structuredClone(result.pipeline));
     setEditMode(true);
+    setVariationOpen(false);
   };
 
   const doneEditing = () => {
@@ -776,7 +820,7 @@ export default function Home() {
                       ))}
                     </div>
                     <button
-                      onClick={handleCompose}
+                      onClick={() => handleCompose()}
                       disabled={!task.trim()}
                       className="glow-btn"
                       style={{
@@ -1005,11 +1049,87 @@ export default function Home() {
                 {/* Plain-language explanation of the plan */}
                 <PlainSummary pipeline={displayPipeline!} />
 
+                {/* Variation composer — seeds a new compose from the displayed plan */}
+                {variationOpen && (
+                  <div
+                    ref={variationRef}
+                    className="fade-in-up"
+                    style={{ marginBottom: "14px", background: "var(--bg-card)", border: "1px solid var(--acc-line)", borderRadius: "6px", padding: "14px" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--acc)", fontFamily: "var(--font-mono)" }}>🧬 create variation</span>
+                      <button
+                        onClick={cancelVariation}
+                        title="close variation composer"
+                        style={{ background: "none", border: "1px solid var(--line)", borderRadius: "3px", padding: "1px 8px", color: "var(--text-dim)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)" }}
+                      >✕</button>
+                    </div>
+                    <div style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: "8px" }}>
+                      {mockMode
+                        ? "composes from this robot's demo data — reword the task or switch robots"
+                        : "the real LLM adapts the plan below — steps that still apply are kept, the rest are reworked"}
+                    </div>
+                    <div style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: "6px", letterSpacing: "0.5px" }}>// reword_the_task</div>
+                    <textarea
+                      data-testid="variation-task"
+                      value={variationTask}
+                      onChange={(e) => setVariationTask(e.target.value)}
+                      rows={2}
+                      placeholder="reword the task for this variation..."
+                      style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-inset)", border: "1px solid var(--line)", borderRadius: "4px", padding: "8px 10px", color: "var(--text-1)", fontSize: "12px", fontFamily: "var(--font-mono)", resize: "vertical", marginBottom: "10px" }}
+                    />
+                    <div style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: "6px", letterSpacing: "0.5px" }}>// variation_robot</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", marginBottom: "12px" }}>
+                      {ROBOT_OPTIONS.map(ro => {
+                        const active = ro.value === variationRobot;
+                        return (
+                          <button
+                            key={ro.value}
+                            data-testid={`variation-robot-${ro.value}`}
+                            onClick={() => setVariationRobot(ro.value)}
+                            title={`${ro.desc} — ${ro.type}`}
+                            style={{
+                              display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", cursor: "pointer",
+                              background: active ? "var(--acc-soft-2)" : "none",
+                              border: active ? "1px solid var(--acc-line-hi)" : "1px solid var(--line)",
+                              borderRadius: "4px", fontFamily: "var(--font-mono)", fontSize: "10px",
+                              color: active ? "var(--acc)" : "var(--text-2)",
+                            }}
+                          >
+                            <span style={{ fontSize: "13px" }}>{ro.icon}</span>
+                            {ro.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                      <button onClick={cancelVariation} style={{ background: "none", border: "1px solid var(--line)", borderRadius: "4px", padding: "5px 12px", color: "var(--text-dim)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)" }}>
+                        cancel
+                      </button>
+                      <button
+                        onClick={submitVariation}
+                        disabled={!variationTask.trim()}
+                        className="glow-btn"
+                        style={{
+                          background: !variationTask.trim() ? "var(--bg-disabled)" : "var(--acc-grad)",
+                          color: !variationTask.trim() ? "var(--text-dim)" : "var(--inverse)",
+                          border: "none", borderRadius: "4px", padding: "5px 14px", fontSize: "10px", fontWeight: 700,
+                          fontFamily: "var(--font-mono)", cursor: !variationTask.trim() ? "not-allowed" : "pointer",
+                          boxShadow: variationTask.trim() ? "var(--btn-shadow)" : "none", opacity: !variationTask.trim() ? 0.5 : 1,
+                        }}
+                      >
+                        compose variation
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Timeline (with human edit controls) */}
                 <PipelineTimeline
                   pipeline={displayPipeline!}
                   editMode={editMode}
                   onBeginEdit={beginEdit}
+                  onBeginVariation={beginVariation}
                   onDoneEdit={doneEditing}
                   onCancelEdit={cancelEditing}
                   onMoveStep={moveStep}

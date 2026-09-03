@@ -70,12 +70,17 @@ export interface ComposeStreamResult extends ComposeResponse {
  * Open the POST /api/compose/stream request. Resolves once response headers
  * arrive (i.e. after the server has the request), so the caller can apply a
  * header-wait timeout before consuming events.
+ *
+ * ``seed`` is an existing pipeline the compose should adapt as a VARIATION
+ * (reworded task / different robot) instead of decomposing from scratch.
  */
-export async function startComposeStream(task: string, robot: string, signal?: AbortSignal): Promise<Response> {
+export async function startComposeStream(task: string, robot: string, signal?: AbortSignal, seed?: Pipeline | null): Promise<Response> {
+  const body: Record<string, unknown> = { task, robot };
+  if (seed) body.seed_pipeline = seed;
   return fetch("/api/compose/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task, robot }),
+    body: JSON.stringify(body),
     signal,
   });
 }

@@ -17,15 +17,17 @@ interface PipelineTimelineProps {
   pipeline: Pipeline;
   editMode: boolean;
   onBeginEdit: () => void;
+  onBeginVariation: () => void;
   onDoneEdit: () => void;
   onCancelEdit: () => void;
   onMoveStep: (index: number, dir: -1 | 1) => void;
   onRemoveStep: (index: number) => void;
 }
 
-/** Ordered pipeline steps with the human edit controls (reorder/remove). */
+/** Ordered pipeline steps with the human edit controls (reorder/remove) and
+ *  the create-variation entry point. */
 export default function PipelineTimeline({
-  pipeline, editMode, onBeginEdit, onDoneEdit, onCancelEdit, onMoveStep, onRemoveStep,
+  pipeline, editMode, onBeginEdit, onBeginVariation, onDoneEdit, onCancelEdit, onMoveStep, onRemoveStep,
 }: PipelineTimelineProps) {
   const stepCount = pipeline.subtasks.length;
   return (
@@ -35,14 +37,25 @@ export default function PipelineTimeline({
         <span style={{ fontSize: "10px", color: "var(--text-faint)", background: "var(--line)", padding: "2px 6px", borderRadius: "3px", fontFamily: "var(--font-mono)" }}>{pipeline.task_type}</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
           {!editMode ? (
-            <button
-              onClick={onBeginEdit}
-              style={{ background: "none", border: "1px solid var(--line)", borderRadius: "3px", padding: "3px 10px", color: "var(--text-2)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)", transition: "all 0.15s ease" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acc)"; e.currentTarget.style.color = "var(--acc)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--text-2)"; }}
-            >
-              ✏️ edit steps
-            </button>
+            <>
+              <button
+                onClick={onBeginVariation}
+                title="compose a new pipeline adapted from this one"
+                style={{ background: "none", border: "1px solid var(--line)", borderRadius: "3px", padding: "3px 10px", color: "var(--text-2)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)", transition: "all 0.15s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acc)"; e.currentTarget.style.color = "var(--acc)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--text-2)"; }}
+              >
+                🧬 create variation
+              </button>
+              <button
+                onClick={onBeginEdit}
+                style={{ background: "none", border: "1px solid var(--line)", borderRadius: "3px", padding: "3px 10px", color: "var(--text-2)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)", transition: "all 0.15s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acc)"; e.currentTarget.style.color = "var(--acc)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--text-2)"; }}
+              >
+                ✏️ edit steps
+              </button>
+            </>
           ) : (
             <>
               <button onClick={onDoneEdit} style={{ ...editBtnStyle, background: "var(--acc-soft-2)", borderColor: "var(--acc-line-hi)" }}>done</button>
