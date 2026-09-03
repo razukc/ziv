@@ -6,9 +6,22 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
-## [Unreleased]
+## [pre-v0.1.2] — 2026-09-03 — seeded variations
 
-Nothing yet — the next iteration lands here.
+Feature commit: `cede1d9` (feat: compose seeded pipeline variations).
+
+### Added
+- **Create variation flow** — a "🧬 create variation" action on the pipeline
+  header opens a composer prefilled with the displayed plan's task and robot;
+  rewording the task or switching robots composes a NEW pipeline. Each
+  variation lands as its own history entry; the original stays available.
+- **Seeded compose (backend)** — optional `seed_pipeline` field on
+  `/api/compose`, `/api/compose/silent`, and `/api/compose/stream`; the agent
+  prompt now produces a VARIATION, keeping steps/skills that still apply and
+  adapting or dropping the rest for the new task/robot.
+- **Tests** — 3 hermetic tests for seed propagation (compose + stream),
+  plus a browser E2E for the mock variation flow. Suite counts: 45 hermetic,
+  4 browser E2E.
 
 ## [pre-v0.1.1] — 2026-09-03 — iterable pipelines
 

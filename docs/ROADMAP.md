@@ -16,9 +16,8 @@ actively working them.
       (`pre-v0.1.1`, 2026-09-03)
 - [ ] **Product name decision** — SkillForge is a working title; pick the
       public name and do the repo-wide rename before the public repo / 0.1.0
-- [ ] **Fork-as-variation** — from a reopened pipeline, reword the task or
-      pick a different robot and compose a new pipeline seeded with the
-      original's context
+- [x] **Fork-as-variation** — reword the task / pick a robot and compose a
+      new pipeline seeded from the current one (`pre-v0.1.2`, 2026-09-03)
 - [ ] **Resume failed live composes** — keep partial thinking/logs on screen
       after a failed or timed-out live call and offer a one-click retry that
       reuses them instead of wiping state
