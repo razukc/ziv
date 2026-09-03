@@ -11,11 +11,13 @@ interface PipelineHistoryProps {
   onToggleCompare: (id: string) => void;
   onClearCompare: () => void;
   onToggleExpand: (id: string) => void;
+  onOpen: (item: HistoryItem) => void;
 }
 
-/** Session pipeline history with expandable cards and side-by-side compare. */
+/** Persistent pipeline history with expandable cards, side-by-side compare,
+ *  and reopen-in-editor so past composes can be tweaked and re-exported. */
 export default function PipelineHistory({
-  history, compareIds, expandedHistory, onToggleCompare, onClearCompare, onToggleExpand,
+  history, compareIds, expandedHistory, onToggleCompare, onClearCompare, onToggleExpand, onOpen,
 }: PipelineHistoryProps) {
   return (
     <div style={{ marginTop: "40px" }} className="fade-in-up">
@@ -88,6 +90,28 @@ export default function PipelineHistory({
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: "4px" }}>
                   {new Date(item.timestamp).toLocaleTimeString()}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "6px" }}>
+                  <button
+                    title="open in editor — restore this pipeline and tweak steps"
+                    onClick={(e) => { e.stopPropagation(); onOpen(item); }}
+                    style={{
+                      background: "var(--acc-soft-2)", border: "1px solid var(--acc-line-hi)",
+                      borderRadius: "3px", padding: "2px 8px", color: "var(--acc)",
+                      fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)", fontWeight: 600,
+                    }}
+                  >
+                    ↪ open in editor
+                  </button>
+                  {item.kind === "live" && item.pipelineId ? (
+                    <span title="composed live — stored in the shared store" style={{ fontSize: "9px", color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+                      live · {item.pipelineId.slice(0, 9)}
+                    </span>
+                  ) : (
+                    <span title="demo pipeline — stored in this browser only" style={{ fontSize: "9px", color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+                      mock · local
+                    </span>
+                  )}
                 </div>
               </div>
 

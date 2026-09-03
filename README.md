@@ -16,7 +16,7 @@
 - **ROS2 export** — Generate buildable packages with package.xml, CMakeLists, launch files
 - **Package validation** — Automated checks for XML, cmake, Python, and JSON syntax
 - **Pipeline editing** — Reorder, swap, or remove steps and re-export without an LLM call
-- **Pipeline history** — Compare multiple pipelines side-by-side
+- **Pipeline history** — Composed pipelines persist across reloads (localStorage for mock, Redis ids for live); reopen any one to tweak and re-export, or compare side-by-side
 - **Skill browser** — Explore the 9 NVIDIA skills with metadata
 - **Mock mode** — Full demo without backend (switch in the compose box)
 - **Responsive design** — Works on desktop, tablet, and mobile
@@ -195,7 +195,7 @@ python -m pytest
 
 42 hermetic tests in ~10s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
 
-Plus two live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the other drives the editable pipeline view (reorder/remove steps, re-export). They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
+Plus three live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
 
 ---
 

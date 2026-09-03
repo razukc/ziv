@@ -42,6 +42,44 @@ import type {
 } from "../lib/types";
 
 
+const HISTORY_KEY = "sf-history-v1";
+const HISTORY_CAP = 30;
+
+// History entries are append-ordered (oldest first; the panel renders newest
+// first). Live entries are deduped by their Redis pipeline id so reopening the
+// same share link doesn't stack duplicates, and the list is capped so the
+// localStorage snapshot stays small.
+function upsertHistory(list: HistoryItem[], entry: HistoryItem, cap = HISTORY_CAP): HistoryItem[] {
+  if (entry.kind === "live" && entry.pipelineId) {
+    const dup = list.findIndex(e => e.kind === "live" && e.pipelineId === entry.pipelineId);
+    if (dup !== -1) {
+      const next = [...list];
+      next[dup] = entry;
+      return next;
+    }
+  }
+  const next = [...list, entry];
+  return next.length > cap ? next.slice(next.length - cap) : next;
+}
+
+function loadHistory(): HistoryItem[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HistoryItem[];
+    if (!Array.isArray(parsed)) return [];
+    // Tolerate entries persisted before the provenance fields existed.
+    return parsed.map(e => ({
+      ...e,
+      kind: e.kind === "live" ? "live" : "mock",
+      pipelineId: typeof e.pipelineId === "string" ? e.pipelineId : undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+
 export default function Home() {
   const [task, setTask] = useState("");
   const [robot, setRobot] = useState("unitree-g1");
@@ -159,7 +197,7 @@ export default function Home() {
         setResult(sharedResult);
         setPhase("results");
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
-        setHistory(prev => [{ id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", result: sharedResult, timestamp: Date.now() }, ...prev]);
+        setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
         scrollTo(resultsRef, 300);
       })
       .catch(() => {
@@ -167,6 +205,23 @@ export default function Home() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persist pipeline history locally so composed pipelines survive reloads.
+  // Mock pipelines have no server copy (this snapshot is the only record);
+  // live pipelines keep their Redis id and are refreshed on reopen.
+  const historyLoaded = useRef(false);
+  useEffect(() => {
+    setHistory(loadHistory());
+    historyLoaded.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!historyLoaded.current) return;
+    try {
+      const trimmed = history.length > HISTORY_CAP ? history.slice(history.length - HISTORY_CAP) : history;
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+    } catch { /* storage unavailable or quota exceeded */ }
+  }, [history]);
 
   const getMockData = (): ComposeResponse => buildMockResult(task, robot);
   const getMockThinking = (): ThinkingStep[] => mockThinking(robot);
@@ -239,7 +294,7 @@ export default function Home() {
     setPipelineId(mockPipelineId(robot));
     setResult(mockResult);
     setPhase("results");
-    setHistory(prev => [...prev, { id: `h-${Date.now()}`, task, robot, result: mockResult, timestamp: Date.now() }]);
+    setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "mock", result: mockResult, timestamp: Date.now() }));
     scrollTo(resultsRef, 300);
   };
 
@@ -279,7 +334,7 @@ export default function Home() {
       window.history.replaceState(null, "", `#p=${final.pipelineId}`);
       setResult(final);
       setPhase("results");
-      setHistory(prev => [...prev, { id: `h-${Date.now()}`, task, robot, result: final, timestamp: Date.now() }]);
+      setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now() }));
       scrollTo(resultsRef, 300);
     } catch (e) {
       clearTimeout(timeout);
@@ -354,6 +409,50 @@ export default function Home() {
     });
   };
 
+  // Reopen a past pipeline from history: restore the results view (task,
+  // robot, pipeline) so the user can tweak steps and re-export LLM-free.
+  // Live entries are refreshed from the Redis store by id when possible;
+  // expired/unreachable entries fall back to the stored snapshot so work is
+  // never lost — the re-export path then publishes the inline pipeline under
+  // a fresh id.
+  const handleOpenHistory = async (item: HistoryItem) => {
+    setError("");
+    setValidation("");
+    setExportedPkg(null);
+    setLinkCopied(false);
+    setValidationReport(null);
+    setExpandedSteps(new Set());
+    setThinkingSteps([]);
+    setExecutionLogs([]);
+    setActiveTab("analysis");
+    setTask(item.task);
+    setRobot(item.robot);
+    setLastComposed({ task: item.task, robot: item.robot });
+
+    let adopted = item.result;
+    let pid = "";
+    if (item.kind === "live" && item.pipelineId) {
+      pid = item.pipelineId;
+      try {
+        const fresh = await fetchPipeline(item.pipelineId);
+        adopted = { pipeline: fresh, explanation: (fresh as { explanation?: string }).explanation || item.result.explanation };
+      } catch {
+        // Redis copy expired (7-day TTL) or backend unreachable — keep the
+        // stored snapshot; re-export publishes it under a fresh id.
+        pid = "";
+      }
+    }
+
+    setDraft(null);
+    setEdited(false);
+    setEditMode(false);
+    setResult(adopted);
+    setPipelineId(pid);
+    setPhase("results");
+    window.history.replaceState(null, "", pid ? `#p=${pid}` : window.location.pathname);
+    scrollTo(resultsRef, 300);
+  };
+
   // --- Pipeline editing: reorder / remove steps, then re-export LLM-free ------
   const beginEdit = () => {
     if (!result) return;
@@ -400,8 +499,11 @@ export default function Home() {
       // resolves pipeline_id before the inline payload, so keeping it would
       // re-export the original. Omitting it forces the inline (edited) pipeline
       // to be stored and exported — no LLM call.
-      const payload = edited
-        ? { task, robot, pipeline: displayPipeline }
+      // No valid server id (mock pipeline, or a live entry whose Redis copy
+      // expired) means the inline pipeline is authoritative — sending a stale
+      // pipeline_id would make the backend re-export the wrong original.
+      const payload = edited || !pipelineId
+        ? { task, robot, pipeline: displayPipeline ?? result.pipeline }
         : { task, robot, pipeline_id: pipelineId, pipeline: result.pipeline };
       const data = await exportPackage(payload);
       setValidationReport(null);
@@ -1158,6 +1260,7 @@ export default function Home() {
               onToggleCompare={toggleCompareItem}
               onClearCompare={clearCompare}
               onToggleExpand={toggleHistoryItem}
+              onOpen={handleOpenHistory}
             />
           )}
 

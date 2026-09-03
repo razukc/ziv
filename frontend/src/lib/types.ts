@@ -73,12 +73,20 @@ export interface ExportedPackage {
   metadata: Record<string, unknown>;
 }
 
+export type PipelineSource = "mock" | "live";
+
 export interface HistoryItem {
   id: string;
   task: string;
   robot: string;
   result: ComposeResponse;
   timestamp: number;
+  /** Where the pipeline's durable copy lives: mock pipelines exist only in
+   *  this browser (persisted to localStorage); live pipelines carry a
+   *  Redis-backed pipeline id so the store is the source of truth. */
+  kind: PipelineSource;
+  /** Redis-backed pipeline id for live entries (share link / re-export). */
+  pipelineId?: string;
 }
 
 export type Tab = "analysis" | "json" | "thinking" | "logs";
