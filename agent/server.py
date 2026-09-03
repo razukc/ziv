@@ -1,0 +1,397 @@
+import os
+import json
+import asyncio
+import time
+import threading
+from datetime import datetime, timezone
+from typing import Optional, Annotated
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel
+
+from reasoning_agent import ReasoningAgent
+from skill_registry import SKILL_CATALOG, list_all_skills, get_skill, search_skills
+from pipeline_store import PipelineStore, PIPELINE_STORE_MAX, PIPELINE_STORE_TTL_SECONDS
+from ros2_package import build_ros2_package
+from validation import validate_package
+
+load_dotenv()
+
+app = FastAPI(title="SkillForge API", version="0.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+agent = None
+
+
+# ---------------------------------------------------------------------------
+# Pipeline store.
+#
+# The PipelineStore class itself lives in pipeline_store.py; this module owns
+# the process-wide instance and thin helpers so routes (and tests that swap
+# the store) keep one indirection point.
+# ---------------------------------------------------------------------------
+PIPELINE_STORE = PipelineStore()
+
+
+def store_pipeline(pipeline: dict) -> str:
+    """Store a pipeline and return its stable content-hash id."""
+    return PIPELINE_STORE.store(pipeline)
+
+
+def load_pipeline_store():
+    """(Re)load the local fallback store from disk (no-op in Redis mode)."""
+    if not PIPELINE_STORE.is_remote:
+        PIPELINE_STORE._load_from_disk()
+
+
+def save_pipeline_store():
+    """Persist the local fallback store to disk (no-op in Redis mode)."""
+    if not PIPELINE_STORE.is_remote:
+        PIPELINE_STORE._save_to_disk()
+
+
+# Health checks ping Redis through the REST API; cache the result briefly so
+# frequent LB polls don't burn Upstash request quota.
+REDIS_HEALTH_CACHE_TTL_SECONDS = 15
+_redis_health_cache = {"mono": None, "ok": None, "at_iso": None}
+
+# Per-client rate limit for share-link resolution (GET /api/pipeline/{id}).
+# Deters ID enumeration/scraping. Fixed window per peer IP, enforced
+# in-process: with multiple server instances each enforces its own window.
+SHARE_LINK_RATE_LIMIT = 30                 # requests per window per client
+SHARE_LINK_RATE_WINDOW_SECONDS = 60
+_share_link_limiter_lock = threading.Lock()
+_share_link_limiter: dict = {}  # client_key -> [window_start_monotonic, count]
+
+
+def get_agent():
+    global agent
+    if agent is None:
+        api_key = os.environ.get("NEBIUS_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="NEBIUS_API_KEY not set")
+        agent = ReasoningAgent()
+    return agent
+
+
+class TaskRequest(BaseModel):
+    task: str
+    robot: str = "unitree-g1"
+
+
+class PipelineRefRequest(TaskRequest):
+    """Accepts an optional pre-generated pipeline (by id or inline) so downstream
+    endpoints don't re-invoke the LLM and risk getting a different pipeline
+    than the one already shown in the UI.
+    """
+    pipeline_id: str = ""
+    pipeline: Optional[dict] = None
+
+    def resolve_pipeline(self, agent):
+        """Resolve (pipeline, pipeline_id): stored, inline, or freshly composed.
+
+        The pipeline_id is the referenced one when it exists in the store,
+        otherwise a freshly computed content-hash id for the resolved
+        pipeline (stored so share links keep working). Only the fallback
+        branch touches the LLM.
+        """
+        if self.pipeline_id and PIPELINE_STORE.get(self.pipeline_id) is not None:
+            return PIPELINE_STORE[self.pipeline_id], self.pipeline_id
+        if self.pipeline is not None:
+            return self.pipeline, store_pipeline(self.pipeline)
+        pipeline = agent.decompose_task(self.task, self.robot)
+        return pipeline, store_pipeline(pipeline)
+
+
+class TaskResponse(BaseModel):
+    pipeline: dict
+    explanation: str = ""
+    pipeline_id: str = ""
+
+
+def _redis_connected(store) -> Optional[bool]:
+    """Cached ping against the Redis store; None when not in Redis mode.
+
+    Results are cached for REDIS_HEALTH_CACHE_TTL_SECONDS so health polls
+    don't hammer the Upstash REST API.
+    """
+    if not store.is_remote:
+        return None
+    cached = _redis_health_cache
+    now = time.monotonic()
+    if cached["mono"] is not None and now - cached["mono"] < REDIS_HEALTH_CACHE_TTL_SECONDS:
+        return cached["ok"]
+    ok = store.ping()
+    cached.update(
+        mono=now,
+        ok=ok,
+        at_iso=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+    return ok
+
+
+def _pipeline_store_status() -> dict:
+    """Backend diagnostics shared by /api/health and /api/health/ready."""
+    store = PIPELINE_STORE
+    return {
+        "backend": store.backend,
+        "entries": store.count(),
+        "redis_connected": _redis_connected(store),
+        "redis_checked_at": _redis_health_cache["at_iso"] if store.is_remote else None,
+    }
+
+
+@app.get("/api/health")
+def health():
+    """Service health plus pipeline-store backend diagnostics.
+
+    Reports which storage mode this deployment runs in (redis vs memory), how
+    many pipelines are tracked, and live Redis connectivity.
+    """
+    return {
+        "status": "ok",
+        "service": "SkillForge API",
+        "pipeline_store": _pipeline_store_status(),
+    }
+
+
+@app.get("/api/health/ready")
+def ready():
+    """Readiness probe for load balancers / orchestrators.
+
+    Returns 200 "ready" while the service can serve traffic, and 503
+    "degraded" when the deployment is configured for Redis but the store is
+    unreachable (share links would silently stop resolving). Memory-mode
+    deployments are always ready: the local fallback is a supported mode.
+    """
+    status = _pipeline_store_status()
+    connected = status["redis_connected"]
+    payload = {
+        "status": "ready" if connected is not False else "degraded",
+        "service": "SkillForge API",
+        "pipeline_store": status,
+    }
+    if connected is False:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
+
+
+@app.get("/api/skills")
+def get_skills():
+    return list_all_skills()
+
+
+@app.get("/api/skills/{skill_id}")
+def get_skill_by_id(skill_id: str):
+    skill = get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill {skill_id} not found")
+    return skill
+
+
+@app.get("/api/skills/search/{query}")
+def search_skills_endpoint(query: str):
+    return search_skills(query)
+
+
+@app.post("/api/compose")
+def compose_pipeline(request: TaskRequest):
+    try:
+        a = get_agent()
+        pipeline = a.decompose_task(request.task, request.robot)
+        pipeline_id = store_pipeline(pipeline)
+        explanation = a.explain_pipeline(pipeline)
+        return TaskResponse(pipeline=pipeline, explanation=explanation, pipeline_id=pipeline_id)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Agent returned invalid JSON: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compose/silent")
+def compose_pipeline_silent(request: TaskRequest):
+    """Compose pipeline without explanation (faster, cheaper)."""
+    try:
+        a = get_agent()
+        pipeline = a.decompose_task(request.task, request.robot)
+        pipeline_id = store_pipeline(pipeline)
+        return {"pipeline": pipeline, "pipeline_id": pipeline_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compose/stream")
+async def compose_pipeline_stream(request: TaskRequest):
+    """Stream thinking, pipeline, and execution logs via SSE.
+
+    Events: thinking, pipeline, explanation, log, error, done.
+    """
+    async def event_generator():
+        try:
+            a = get_agent()
+
+            # Phase 1: Thinking process
+            yield f"data: {json.dumps({'type': 'thinking', 'content': '🧠 Analyzing task...', 'step': 1, 'total': 5})}\n\n"
+            await asyncio.sleep(0.3)
+
+            yield f"data: {json.dumps({'type': 'thinking', 'content': f'Detected task type: {request.task}', 'step': 2, 'total': 5})}\n\n"
+            await asyncio.sleep(0.2)
+
+            yield f"data: {json.dumps({'type': 'thinking', 'content': f'Selecting skills for {request.robot}...', 'step': 3, 'total': 5})}\n\n"
+            await asyncio.sleep(0.3)
+
+            # Phase 2: Generate pipeline
+            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})}\n\n"
+
+            pipeline = a.decompose_task(request.task, request.robot)
+            pipeline_id = store_pipeline(pipeline)
+
+            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})}\n\n"
+            await asyncio.sleep(0.2)
+
+            # Phase 3: Send pipeline
+            yield f"data: {json.dumps({'type': 'pipeline', 'pipeline_id': pipeline_id, 'content': pipeline})}\n\n"
+
+            # Phase 4: Generate explanation
+            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating analysis...', 'step': 6, 'total': 6})}\n\n"
+
+            explanation = a.explain_pipeline(pipeline)
+            yield f"data: {json.dumps({'type': 'explanation', 'content': explanation})}\n\n"
+
+            # Phase 5: Execution logs (simulated)
+            for i, subtask in enumerate(pipeline['subtasks']):
+                skill = SKILL_CATALOG.get(subtask['skill_id'], {})
+
+                yield f"data: {json.dumps({'type': 'log', 'content': f'Starting {subtask['name']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                await asyncio.sleep(0.5)
+
+                yield f"data: {json.dumps({'type': 'log', 'content': f'Loading {skill.get('product', 'tool')}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                await asyncio.sleep(0.3)
+
+                yield f"data: {json.dumps({'type': 'log', 'content': f'Processing {subtask['description']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                await asyncio.sleep(0.4)
+
+                yield f"data: {json.dumps({'type': 'log', 'content': f'{subtask['name']} complete', 'status': 'completed', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                await asyncio.sleep(0.2)
+
+            # Phase 6: Done
+            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd']})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+def rate_limit_share_links(request: Request) -> None:
+    """Fixed-window per-client rate limit for share-link resolution.
+
+    Capped by SHARE_LINK_RATE_LIMIT per SHARE_LINK_RATE_WINDOW_SECONDS, keyed
+    on the direct peer IP. Deployments behind a reverse proxy see the proxy's
+    IP unless trusted-proxy forwarding is configured (see SECURITY.md). When
+    the budget is exhausted the request fails fast with 429 + Retry-After
+    instead of hitting the pipeline store.
+    """
+    client = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    limit = SHARE_LINK_RATE_LIMIT
+    window = SHARE_LINK_RATE_WINDOW_SECONDS
+    with _share_link_limiter_lock:
+        entry = _share_link_limiter.get(client)
+        if entry is None or now - entry[0] >= window:
+            _share_link_limiter[client] = [now, 1]
+            return
+        entry[1] += 1
+        if entry[1] > limit:
+            retry_after = max(1, int(window - (now - entry[0])) + 1)
+            raise HTTPException(
+                status_code=429,
+                detail="Too many share-link requests. Slow down and try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        # Opportunistic cleanup: drop entries whose window expired once the
+        # table grows large, so client churn can't grow memory unboundedly.
+        if len(_share_link_limiter) > 10_000:
+            cutoff = now - window
+            stale = [k for k, v in _share_link_limiter.items() if v[0] < cutoff]
+            for k in stale:
+                del _share_link_limiter[k]
+
+
+@app.get("/api/pipeline/{pipeline_id}")
+def get_pipeline_by_id(pipeline_id: str, _: Annotated[None, Depends(rate_limit_share_links)] = None):
+    """Fetch a previously generated pipeline from the pipeline store.
+
+    Rate limited per client so share links can't be bulk-scraped.
+    """
+    pipeline = PIPELINE_STORE.get(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id} not found")
+    return {"pipeline_id": pipeline_id, "pipeline": pipeline}
+
+
+@app.post("/api/improve")
+def improve_pipeline(request: PipelineRefRequest):
+    """Re-analyze an existing pipeline for improvements."""
+    try:
+        a = get_agent()
+        pipeline, pipeline_id = request.resolve_pipeline(a)
+        improvements = a.suggest_improvements(pipeline)
+        return {"pipeline_id": pipeline_id, "pipeline": pipeline, "improvements": improvements}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/pipeline/export")
+def export_pipeline_ros2(request: PipelineRefRequest):
+    """Generate a complete ROS2 package from a pipeline.
+
+    Pipeline resolution order: stored pipeline_id, inline pipeline, then
+    decompose the task (legacy behaviour). Stored/inline pipelines never
+    invoke the LLM, so re-exporting a human-edited pipeline is free.
+    """
+    try:
+        a = get_agent()
+        pipeline, pipeline_id = request.resolve_pipeline(a)
+        return build_ros2_package(pipeline, request.robot, pipeline_id)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Agent returned invalid JSON: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ValidateRequest(BaseModel):
+    files: dict
+    package_name: str = ""
+
+
+@app.post("/api/pipeline/validate")
+def validate_pipeline(request: ValidateRequest):
+    """Validate a generated ROS2 package for common issues.
+
+    Returns a structured report with errors, warnings, info, a 0-100 score,
+    and an overall ``valid`` flag.
+    """
+    return validate_package(request.files, request.package_name)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

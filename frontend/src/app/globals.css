@@ -1,0 +1,416 @@
+/* ============================================================
+   SkillForge design system
+   Dark, cool-toned "developer console" theme. All colors flow
+   from the tokens below; components reference them via var().
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Surfaces (cool blue-black ramp, darkest → lightest) --- */
+  --bg: #05070b;            /* page canvas */
+  --bg-inset: #090c11;      /* deepest wells (expanded logs, pre) */
+  --bg-raised: #0d1016;     /* raised panels */
+  --bg-card: #12161e;       /* cards */
+  --bg-disabled: #1f242e;   /* disabled / track fills */
+  --surface-header: #0d1017;/* header gradient top */
+
+  /* --- Hairlines --- */
+  --line: rgba(159, 174, 200, 0.14);
+  --line-soft: rgba(159, 174, 200, 0.08);
+  --line-strong: rgba(159, 174, 200, 0.28);
+  --line-stronger: rgba(159, 174, 200, 0.44);
+
+  /* --- Text ramp --- */
+  --text-hi: #f2f5fa;
+  --text-1: #d9dfe9;
+  --text-2: #9aa4b4;
+  --text-mid: #6f7989;
+  --text-dim: #5b6472;
+  --text-faint-2: #4c5563;
+  --text-faint: #47505d;
+  --inverse: #0d1109;       /* text sitting on accent fills */
+
+  /* --- Accent: NVIDIA green --- */
+  --acc: #76b900;
+  --acc-bright: #93d61f;
+  --acc-ink: #0b1200;
+  --acc-soft: rgba(131, 205, 25, 0.06);
+  --acc-soft-2: rgba(131, 205, 25, 0.12);
+  --acc-line: rgba(131, 205, 25, 0.22);
+  --acc-line-hi: rgba(131, 205, 25, 0.42);
+  --acc-glow: rgba(118, 185, 0, 0.35);
+  --acc-grad: linear-gradient(180deg, #93d621 0%, #76b900 100%);
+  --acc-fill: #76b900;        /* solid accent fills carrying dark ink (chip, dots) */
+
+  /* --- Warning: amber --- */
+  --warn: #f0a000;
+  --warn-ink: #150c00;
+  --warn-soft: rgba(240, 160, 0, 0.09);
+  --warn-soft-2: rgba(240, 160, 0, 0.16);
+  --warn-line: rgba(240, 160, 0, 0.32);
+  --warn-line-hi: rgba(240, 160, 0, 0.5);
+
+  /* --- Danger: red --- */
+  --danger: #ff6b6b;
+  --danger-ink: #170202;
+  --danger-soft: rgba(255, 107, 107, 0.07);
+  --danger-soft-2: rgba(255, 107, 107, 0.13);
+  --danger-line: rgba(255, 107, 107, 0.35);
+
+  /* --- Type --- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* --- Radius / motion --- */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  /* --- Chrome (theme-scoped grays, shadows, fills) --- */
+  --scrollbar-thumb: #262d38;
+  --ambient: rgba(118, 185, 0, 0.055);      /* page-top glow */
+  --drawer-bg: rgba(9, 12, 17, 0.9);        /* skill drawer */
+  --drawer-shadow: rgba(0, 0, 0, 0.85);
+  --backdrop: rgba(2, 4, 8, 0.6);           /* drawer scrim */
+  --shimmer-mid: #1a2029;
+  --knob: #ffffff;                          /* toggle pill knob (both themes) */
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 16px -6px rgba(118, 185, 0, 0.55);
+  --lift-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.9);
+}
+
+/* ============================================================
+   Light theme — overrides every token above. Applied when the
+   layout bootstrap script sets <html data-theme="light">.
+   ============================================================ */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces: cool off-white canvas, white cards, silver wells */
+  --bg: #f6f8fb;
+  --bg-inset: #edf0f5;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-disabled: #dfe4ec;
+  --surface-header: #ffffff;
+
+  /* Hairlines: slate, subtle */
+  --line: rgba(23, 32, 48, 0.10);
+  --line-soft: rgba(23, 32, 48, 0.06);
+  --line-strong: rgba(23, 32, 48, 0.18);
+  --line-stronger: rgba(23, 32, 48, 0.30);
+
+  /* Text: slate ramp, darkest → lightest */
+  --text-hi: #10141b;
+  --text-1: #1d242f;
+  --text-2: #3e4756;
+  --text-mid: #525c6c;
+  --text-dim: #69717f;
+  --text-faint-2: #6d7687;
+  --text-faint: #767f91;
+  --inverse: #0d1109;   /* stays dark — it sits on accent fills */
+
+  /* Accent: deep NVIDIA green (readable on white) */
+  --acc: #477a00;
+  --acc-bright: #8fd61f;
+  --acc-ink: #0b1200;
+  --acc-soft: rgba(71, 122, 0, 0.07);
+  --acc-soft-2: rgba(71, 122, 0, 0.13);
+  --acc-line: rgba(71, 122, 0, 0.25);
+  --acc-line-hi: rgba(71, 122, 0, 0.45);
+  --acc-glow: rgba(71, 122, 0, 0.20);
+  --acc-grad: linear-gradient(180deg, #8fd61f 0%, #5f9e00 100%);
+  --acc-fill: #76b900;        /* bright fill — dark ink reads at 7.9:1 on it */
+
+  /* Warning: deep amber (readable on white) */
+  --warn: #a5670a;
+  --warn-ink: #2a1c00;
+  --warn-soft: rgba(165, 103, 10, 0.09);
+  --warn-soft-2: rgba(165, 103, 10, 0.16);
+  --warn-line: rgba(165, 103, 10, 0.28);
+  --warn-line-hi: rgba(165, 103, 10, 0.46);
+
+  /* Danger: deep red */
+  --danger: #c62828;
+  --danger-ink: #2b0303;
+  --danger-soft: rgba(198, 40, 40, 0.07);
+  --danger-soft-2: rgba(198, 40, 40, 0.13);
+  --danger-line: rgba(198, 40, 40, 0.30);
+
+  /* Chrome */
+  --scrollbar-thumb: #c3cad6;
+  --ambient: rgba(109, 160, 0, 0.09);
+  --drawer-bg: rgba(255, 255, 255, 0.88);
+  --drawer-shadow: rgba(23, 32, 48, 0.20);
+  --backdrop: rgba(23, 32, 48, 0.22);
+  --shimmer-mid: #e2e7ef;
+  --knob: #ffffff;
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 14px -6px rgba(71, 122, 0, 0.35);
+  --lift-shadow: 0 6px 18px -12px rgba(23, 32, 48, 0.30);
+}
+
+/* --- Base chrome ------------------------------------------------- */
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1000px 460px at 50% -140px, var(--ambient), transparent 68%),
+    var(--bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--acc-fill);
+  color: var(--acc-ink);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+
+/* --- Keyframes --------------------------------------------------- */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(118, 185, 0, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(118, 185, 0, 0.5); }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes progressFill {
+  from { width: 0%; }
+}
+@keyframes connectorDraw {
+  from { height: 0; opacity: 0; }
+  to { height: 40px; opacity: 1; }
+}
+@keyframes connectorPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+
+/* --- Section transitions --- */
+.phase-section {
+  transition: opacity 0.4s ease, transform 0.4s ease, max-height 0.5s ease;
+  overflow: hidden;
+}
+.phase-hidden {
+  opacity: 0;
+  transform: translateY(-12px);
+  max-height: 0;
+  pointer-events: none;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.phase-visible {
+  opacity: 1;
+  transform: translateY(0);
+  max-height: 3000px;
+}
+.phase-delay-1 { transition-delay: 0.15s; }
+.phase-delay-2 { transition-delay: 0.3s; }
+
+/* Connector */
+.connector {
+  overflow: hidden;
+  transition: opacity 0.3s ease, max-height 0.4s ease;
+}
+.connector-hidden { opacity: 0; max-height: 0; }
+.connector-visible { opacity: 1; max-height: 60px; }
+
+/* Input form compression */
+.input-expanded { max-height: 1200px; opacity: 1; transform: translateY(0); }
+.input-compressed { max-height: 60px; opacity: 0.6; transform: translateY(0); }
+
+/* --- Effects ------------------------------------------------------ */
+.fade-in-up { animation: fadeInUp 0.4s ease-out both; }
+.pulse-loading { animation: pulse 1.5s ease-in-out infinite; }
+.shimmer-loading {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--shimmer-mid) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.glow-btn {
+  transition: box-shadow 0.2s var(--ease), transform 0.2s var(--ease),
+    background 0.2s ease, filter 0.2s ease;
+}
+.glow-btn:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(131, 205, 25, 0.4), 0 6px 24px -8px rgba(118, 185, 0, 0.55);
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+.glow-btn:active:not(:disabled) { transform: translateY(0); }
+.glow-btn:disabled { filter: saturate(0.4); }
+.suggestion-chip { transition: all 0.15s ease; }
+.suggestion-chip:hover {
+  border-color: var(--acc) !important;
+  color: var(--acc) !important;
+  background: var(--acc-soft-2) !important;
+}
+textarea:focus {
+  outline: none;
+  border-color: var(--acc) !important;
+  box-shadow: 0 0 0 3px rgba(118, 185, 0, 0.14);
+}
+.robot-card { transition: all 0.2s ease; }
+.robot-card:hover {
+  border-color: var(--line-strong) !important;
+  transform: translateY(-2px);
+  box-shadow: var(--lift-shadow);
+}
+.thinking-step { animation: fadeInUp 0.3s ease-out both; }
+.log-entry { animation: fadeInUp 0.2s ease-out both; }
+.progress-bar { animation: progressFill 0.5s ease-out both; }
+.step-card { transition: all 0.2s ease; cursor: pointer; }
+.step-card:hover { background: rgba(131, 205, 25, 0.03) !important; }
+.cursor-blink { animation: blink 1s step-end infinite; }
+
+/* Theme cross-fade — added briefly by the header theme toggle */
+.theme-transition,
+.theme-transition * {
+  transition: background-color 0.35s ease, border-color 0.35s ease,
+    color 0.35s ease, box-shadow 0.35s ease !important;
+}
+
+/* Overflow protection */
+.overflow-safe { overflow-wrap: break-word; word-break: break-word; }
+pre { overflow-x: auto; max-width: 100%; }
+.step-card { overflow: hidden; }
+
+/* --- Skill browser panel (drawer) --------------------------------- */
+.skill-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 380px;
+  max-width: 90vw;
+  background: var(--drawer-bg);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid var(--line);
+  box-shadow: -24px 0 60px -30px var(--drawer-shadow);
+  z-index: 200;
+  transform: translateX(100%);
+  transition: transform 0.3s var(--ease);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.skill-panel-open { transform: translateX(0); }
+.skill-panel-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--backdrop);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 199;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.skill-panel-backdrop-open { opacity: 1; pointer-events: auto; }
+.skill-card { transition: all 0.15s ease; }
+.skill-card:hover {
+  border-color: var(--acc-line-hi) !important;
+  background: var(--acc-soft) !important;
+}
+
+/* --- History panel ------------------------------------------------ */
+.history-card { transition: all 0.2s ease; cursor: pointer; }
+.history-card:hover {
+  border-color: var(--line-strong) !important;
+  transform: translateY(-1px);
+}
+.history-card-selected {
+  border-color: var(--acc) !important;
+  background: var(--acc-soft) !important;
+}
+.compare-badge {
+  position: absolute; top: -4px; right: -4px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--acc-fill); color: var(--acc-ink);
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   Responsive (geometry only)
+   ============================================================ */
+
+/* === Tablet === */
+@media (max-width: 768px) {
+  .header-inner { padding: 12px 16px !important; }
+  .header-right .nebius-label { display: none !important; }
+  .main-content { padding: 32px 16px !important; }
+  .hero-title { font-size: 26px !important; }
+  .robot-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px !important; }
+  .robot-icon { font-size: 20px !important; }
+  .robot-card { padding: 10px 8px !important; }
+  .compose-row { flex-wrap: wrap; }
+  .tabs-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabs-scroll::-webkit-scrollbar { display: none; }
+  .pipeline-tags { flex-wrap: wrap; }
+  .step-header { flex-wrap: wrap; }
+  .step-meta { width: 100%; justify-content: flex-start !important; margin-top: 4px; }
+  pre { font-size: 9px !important; overflow-x: auto; }
+}
+/* === Mobile === */
+@media (max-width: 480px) {
+  .robot-grid { grid-template-columns: 1fr !important; }
+  .robot-icon { font-size: 18px !important; }
+  .robot-card { padding: 12px !important; }
+  .stats-grid { grid-template-columns: 1fr !important; }
+  .compose-row { flex-direction: column !important; align-items: stretch !important; }
+  .compose-row .glow-btn { margin-left: 0 !important; margin-top: 8px; }
+  .chips-row { flex-direction: column !important; }
+  .chips-row .suggestion-chip { width: 100%; text-align: left; }
+  .header-right { display: none !important; }
+  .hero-title { font-size: 22px !important; }
+  .progress-dots { gap: 2px !important; }
+  .progress-dot { width: 14px !important; height: 14px !important; font-size: 7px !important; }
+  .connector-line { height: 24px !important; }
+  .input-expanded { max-height: none !important; }
+  header { padding: 12px 16px !important; }
+}

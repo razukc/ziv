@@ -1,0 +1,27 @@
+# Secrets
+agent/.env
+
+# Runtime data
+agent/pipeline_store.json
+
+# Logs and build artifacts
+*.log
+*.tsbuildinfo
+
+# Python
+agent/venv/
+agent/__pycache__/
+__pycache__/
+*.pyc
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent session state
+.freebuff/
