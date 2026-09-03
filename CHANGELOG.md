@@ -1,0 +1,64 @@
+# Changelog
+
+All notable changes to SkillForge are tracked here, one entry per milestone
+tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
+[Keep a Changelog](https://keepachangelog.com/); the project is in the
+pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
+`0.1.0`.
+
+## [Unreleased]
+
+Nothing yet — the next iteration lands here.
+
+## [pre-v0.1.1] — 2026-09-03 — iterable pipelines
+
+Feature commit: `cb3dbc8` (Make composed pipelines iterable).
+
+### Added
+- **Persisted pipeline history** — composed pipelines survive reloads:
+  localStorage snapshots for mock pipelines (the only record of them), Redis
+  pipeline ids for live ones; entries deduped by id and capped at 30
+  (`sf-history-v1`).
+- **"↪ open in editor" on history cards** — restores the full results view
+  (task, robot, summary, timeline, export) and the `#p=` URL hash. Live
+  entries refresh from the store on reopen, falling back to the stored
+  snapshot when the 7-day TTL has expired.
+- **Robust LLM-free re-export after reopen** — exports treat the inline
+  pipeline as authoritative when no valid server id exists, so stale ids
+  can't make the backend re-export the wrong original.
+- **History provenance badges** on cards (`live · p…` vs `mock · local`).
+- Third browser E2E test: persist → reopen → edit → re-export.
+
+### Changed
+- `HistoryItem` gains `kind: "mock" | "live"` and an optional `pipelineId`.
+- README: history feature bullet and E2E test count updated (3 E2E tests).
+
+## [pre-v0.1.0] — 2026-09-03 — initial baseline
+
+Root commit: `4da586d`. The first committed state of the whole project.
+
+### Added
+- **Compose** — plain-English task → costed NVIDIA skill pipeline, via mock
+  mode (no backend) or the live Nebius LLM API (SSE stream: thinking →
+  pipeline → explanation), with a mock/live switch in the compose box.
+- **Share links** — pipelines stored by id (Upstash Redis when configured,
+  local file fallback); `/#p=<id>` restores any pipeline client-side.
+  Cross-instance share-link E2E + rate limiting on link resolution.
+- **ROS2 export + validation** — buildable packages (package.xml, CMakeLists,
+  launch files) exported server-side or client-side, validated with
+  structural checks (100/100 scorer).
+- **Human-editable pipeline view** — reorder/swap/remove steps and re-export
+  LLM-free.
+- **Plain-words layer** — "what this plan does" summary card + glossary
+  tooltips so results read clearly to non-robotics users; layered fallback
+  rewrites arbitrary step names.
+- **Design system** — token-based dark/light themes (OS-following default +
+  manual toggle), WCAG-contrast-audited light palette.
+- **Ops surface** — `/api/health` reports store backend (redis/memory), entry
+  count, Redis connectivity; `live_check.py` CLI consolidates the live
+  verification scripts (share-links / journey / edit).
+- **Tests** — 42 hermetic pytest tests + 2 browser E2E tests at this tag.
+
+### Notes
+- Working title "SkillForge" — rename decision deferred until the public
+  repo / 0.1.0 (tracked in `docs/ROADMAP.md`).

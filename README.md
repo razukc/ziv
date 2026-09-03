@@ -257,12 +257,17 @@ Every pipeline comes with per-step and total cost estimates. The agent is instru
 
 ## What's Next
 
+The statused list lives in [docs/ROADMAP.md](docs/ROADMAP.md). Current
+candidates (pipeline editor and history/versioning have shipped):
+
 - [ ] **Isaac Sim integration** — Execute pipelines directly in simulation
 - [ ] **Expanded skill catalog** — Add Isaac Lab, cuRobo, and more NVIDIA tools
-- [ ] **Pipeline editor** — Drag-and-drop UI to modify generated pipelines
 - [ ] **Cost optimization mode** — Agent suggests cheaper alternatives automatically
 - [ ] **Multi-robot support** — Compose pipelines for robot swarms
-- [ ] **Pipeline versioning** — Save, compare, and iterate on pipeline designs
+- [ ] **Product naming** — Decide the public name before cutting 0.1.0
+
+Each milestone's changes are tracked in [CHANGELOG.md](CHANGELOG.md); commit
+guidelines live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
