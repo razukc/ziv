@@ -1,7 +1,14 @@
 import os
 import json
+import time
 from openai import OpenAI
 from skill_registry import SKILL_CATALOG, list_all_skills
+
+
+# The live model occasionally returns an empty payload or truncated JSON.
+# Each compose retries the (stateless) prompt this many times with backoff.
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_BASE = 0.8  # seconds; attempt n sleeps base * n
 
 
 class ReasoningAgent:
@@ -89,25 +96,15 @@ Rules:
                 "JSON structure with skills ONLY from the catalog above."
             )
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+        pipeline = self._complete(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.3,
             max_tokens=2000,
+            parse=self._extract_pipeline_json,
         )
-
-        content = response.choices[0].message.content.strip()
-
-        # Extract JSON from response (handle markdown code blocks)
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-
-        pipeline = json.loads(content)
 
         # Validate skill IDs
         for subtask in pipeline["subtasks"]:
@@ -125,29 +122,60 @@ Rules:
 
     def explain_pipeline(self, pipeline):
         """Generate a human-readable explanation of the pipeline."""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+        return self._complete(
+            [
                 {"role": "system", "content": "You are a helpful robotics expert. Explain the following robot skill pipeline in plain English, highlighting key decisions and potential challenges. Be concise but thorough."},
                 {"role": "user", "content": json.dumps(pipeline, indent=2)},
             ],
             temperature=0.5,
             max_tokens=1000,
         )
-        return response.choices[0].message.content
 
     def suggest_improvements(self, pipeline):
         """Suggest improvements or alternatives for the pipeline."""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+        return self._complete(
+            [
                 {"role": "system", "content": "You are a robotics optimization expert. Analyze this pipeline and suggest cost savings, reliability improvements, or alternative approaches. Be specific."},
                 {"role": "user", "content": json.dumps(pipeline, indent=2)},
             ],
             temperature=0.4,
             max_tokens=800,
         )
-        return response.choices[0].message.content
+
+    def _complete(self, messages, *, temperature, max_tokens, parse=None):
+        """Chat round-trip with bounded retry against transient model failures.
+
+        The live model occasionally returns an empty payload (``content=None``)
+        or truncated JSON. Retrying the same stateless prompt is cheap and
+        usually lands; after ``_MAX_ATTEMPTS`` failures the last error is
+        raised so callers can surface a clean failure.
+        """
+        last_error = None
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                content = response.choices[0].message.content
+                if not content or not content.strip():
+                    raise ValueError("agent returned an empty response")
+                return parse(content) if parse else content
+            except Exception as e:
+                last_error = e
+                time.sleep(_RETRY_BACKOFF_BASE * (attempt + 1))
+        raise last_error
+
+    @staticmethod
+    def _extract_pipeline_json(content):
+        """Strip markdown code fences if present, then parse the pipeline JSON."""
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        return json.loads(content)
 
 
 if __name__ == "__main__":
