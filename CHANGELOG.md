@@ -6,6 +6,28 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.13] — 2026-09-04 — compose telemetry on /api/health
+
+Feature commit: `f678071` (expose rolling compose latency/retry telemetry
+on /api/health).
+
+### Added
+- **Rolling compose telemetry ring** — every finished compose
+  (`/api/compose`, `/api/compose/silent`, `/api/compose/stream`) appends its
+  wall time and healed-retry count to a thread-safe in-process ring of the
+  last 20, so ops can see live-mode health without standing up external
+  metrics.
+- **`compose_stats` on /api/health** — `samples`, `avg_seconds`, `p95_seconds`,
+  `avg_retries`, `retried_composes`, and the tail of the ring (last 10
+  entries with endpoint / seconds / retries / timestamp); `{samples: 0}`
+  before the first compose of a process.
+- **`live_check journey` prints it** — the health section now shows
+  `compose_stats: samples / avg / p95 / retried` from the running server.
+- **Tests** — 3 new hermetic tests: health reports sane aggregates + the
+  stream entry after a real (fake-agent) compose; a retried stream compose
+  shows up with `retries: 1`; and the ring stays capped at 20 entries.
+  Suite counts: 77 hermetic, 7 browser E2E.
+
 ## [pre-v0.1.12] — 2026-09-04 — slow-compose warning
 
 Feature commit: `60f1904` (warn when a compose beats the session's moving
