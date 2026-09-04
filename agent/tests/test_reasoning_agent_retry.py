@@ -172,3 +172,67 @@ def test_stream_has_no_notice_when_no_retry(client):
     assert done["retries"] == 0, "a clean compose must report zero retries"
     assert isinstance(done["seconds"], (int, float)) and done["seconds"] > 0, \
         "done must report the compose wall time even without retries"
+
+
+# --- request/response endpoints expose the retry count -----------------------
+
+def _use_agent(monkeypatch, responses):
+    """Point server.get_agent at a stubbed ReasoningAgent; no-op the backoff."""
+    import server
+    from reasoning_agent import time as _ra_time
+    monkeypatch.setattr(_ra_time, "sleep", lambda s: None)
+    agent, calls = _stub_agent(responses)
+    monkeypatch.setattr(server, "get_agent", lambda: agent)
+    return calls
+
+
+def test_request_response_endpoints_report_zero_retries_on_clean_calls(client):
+    """Clean compose / compose-silent / improve responses all carry retries=0."""
+    r = client.post("/api/compose", json={"task": "Pick up the red block", "robot": "unitree-g1"})
+    assert r.status_code == 200
+    assert r.json()["retries"] == 0, "clean compose must report zero retries"
+    r2 = client.post("/api/compose/silent", json={"task": "Sort packages", "robot": "unitree-g1"})
+    assert r2.status_code == 200
+    assert r2.json()["retries"] == 0
+    pid = r2.json()["pipeline_id"]
+    r3 = client.post("/api/improve",
+                     json={"task": "ignored", "robot": "unitree-g1", "pipeline_id": pid})
+    assert r3.status_code == 200
+    assert r3.json()["retries"] == 0, "clean improve must report zero retries"
+
+
+def test_compose_response_counts_retries_across_round_trips(client, monkeypatch):
+    """POST /api/compose reports retries from BOTH its LLM round-trips."""
+    _use_agent(monkeypatch, [None, json.dumps(_valid_pipeline()), "an explanation"])
+    r = client.post("/api/compose",
+                    json={"task": "Sort packages by size", "robot": "unitree-r1"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["retries"] == 1, "decompose retried once; the explanation was clean"
+    assert data["explanation"] == "an explanation"
+
+
+def test_compose_silent_response_counts_retries(client, monkeypatch):
+    """POST /api/compose/silent reports how many times decompose retried."""
+    _use_agent(monkeypatch, [None, None, json.dumps(_valid_pipeline())])
+    r = client.post("/api/compose/silent",
+                    json={"task": "Sort packages by size", "robot": "unitree-r1"})
+    assert r.status_code == 200
+    assert r.json()["retries"] == 2, "two empty responses healed via retries"
+
+
+def test_improve_response_counts_retries(client, monkeypatch):
+    """POST /api/improve reports healed retries on the suggestion round-trip."""
+    # First store a pipeline cleanly (decompose succeeds on the first call),
+    # then /improve resolves it by id — only the suggestion call retries.
+    _use_agent(monkeypatch, [json.dumps(_valid_pipeline()), None, "Use cheaper skills."])
+    r = client.post("/api/compose/silent",
+                    json={"task": "Sort packages by size", "robot": "unitree-r1"})
+    pid = r.json()["pipeline_id"]
+    assert r.json()["retries"] == 0
+    r2 = client.post("/api/improve",
+                     json={"task": "ignored", "robot": "unitree-r1", "pipeline_id": pid})
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["retries"] == 1, "suggestion round-trip healed one retry"
+    assert data["improvements"] == "Use cheaper skills."

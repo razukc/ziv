@@ -259,6 +259,9 @@ def cmd_share_links(args) -> int:
             else:
                 pid_c = r.json()["pipeline_id"]
                 created_ids.append(pid_c)
+                retries_c = r.json().get("retries", 0)
+                if retries_c:
+                    print(f"  (this compose auto-retried {retries_c}×, healed on its own)")
                 r2 = httpx.get(f"{base_b}/api/pipeline/{pid_c}", timeout=15)
                 check("LLM-generated pipeline id resolves on B", r2.status_code == 200,
                       f"http {r2.status_code}")
@@ -324,9 +327,14 @@ def cmd_journey(args) -> int:
     check("compose returned subtasks", len(pipeline.get("subtasks", [])) > 0,
           f"{len(pipeline.get('subtasks', []))} steps")
     check("explanation present", bool(composed.get("explanation")))
+    retries = composed.get("retries", None)
+    check("compose reports its auto-retry count",
+          isinstance(retries, int) and retries >= 0, retries)
     print(f"  task_type: {pipeline.get('task_type')}, "
           f"cost: ${pipeline.get('total_estimated_cost_usd')}, "
           f"steps: {[s['skill_id'] for s in pipeline.get('subtasks', [])]}")
+    if retries:
+        print(f"  auto-retried {retries}× during this compose (healed on its own)")
 
     print("\n== 3. Export (ROS2 package) ==")
     r = c.post("/api/pipeline/export",

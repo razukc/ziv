@@ -38,6 +38,22 @@ def _gate_compose(pipeline: dict, robot: str):
     problem = validate_pipeline_robot(pipeline, robot)
     if problem:
         raise HTTPException(status_code=422, detail=problem)
+
+
+def _run_with_retries(fn, *args, **kwargs):
+    """Invoke an LLM-facing agent method, counting healed retries.
+
+    Returns ``(result, retries)``: the agent methods accept an ``on_retry``
+    callback that fires per healed failure, so request/response endpoints can
+    report the count the same way the SSE stream's done event does.
+    """
+    retries = 0
+
+    def _count(_attempt, _error):
+        nonlocal retries
+        retries += 1
+
+    return fn(*args, **kwargs, on_retry=_count), retries
     return pipeline
 
 load_dotenv()
@@ -144,6 +160,9 @@ class TaskResponse(BaseModel):
     pipeline: dict
     explanation: str = ""
     pipeline_id: str = ""
+    # How many LLM round-trips had to be retried to produce this response
+    # (0 on clean calls) so API clients can tell a blip healed.
+    retries: int = 0
 
 
 def _redis_connected(store) -> Optional[bool]:
@@ -236,11 +255,13 @@ def compose_pipeline(request: TaskRequest):
     try:
         _require_known_robot(request.robot)
         a = get_agent()
-        pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
+        pipeline, retries = _run_with_retries(
+            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
-        explanation = a.explain_pipeline(pipeline)
-        return TaskResponse(pipeline=pipeline, explanation=explanation, pipeline_id=pipeline_id)
+        explanation, more = _run_with_retries(a.explain_pipeline, pipeline)
+        return TaskResponse(pipeline=pipeline, explanation=explanation,
+                            pipeline_id=pipeline_id, retries=retries + more)
     except HTTPException:
         raise  # capability-gate rejections must keep their 422 + message
     except json.JSONDecodeError as e:
@@ -255,10 +276,11 @@ def compose_pipeline_silent(request: TaskRequest):
     try:
         _require_known_robot(request.robot)
         a = get_agent()
-        pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
+        pipeline, retries = _run_with_retries(
+            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
-        return {"pipeline": pipeline, "pipeline_id": pipeline_id}
+        return {"pipeline": pipeline, "pipeline_id": pipeline_id, "retries": retries}
     except HTTPException:
         raise  # capability-gate rejections must keep their 422 + message
     except Exception as e:
@@ -419,8 +441,9 @@ def improve_pipeline(request: PipelineRefRequest):
     try:
         a = get_agent()
         pipeline, pipeline_id = request.resolve_pipeline(a)
-        improvements = a.suggest_improvements(pipeline)
-        return {"pipeline_id": pipeline_id, "pipeline": pipeline, "improvements": improvements}
+        improvements, retries = _run_with_retries(a.suggest_improvements, pipeline)
+        return {"pipeline_id": pipeline_id, "pipeline": pipeline,
+                "improvements": improvements, "retries": retries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
