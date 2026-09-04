@@ -39,7 +39,7 @@ class ReasoningAgent:
         return "\n".join(lines)
 
     def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None,
-                       on_retry=None, on_tool=None, max_tool_rounds=12):
+                       on_retry=None, on_tool=None, max_tool_rounds=12, tools_enabled=True):
         """
         Given a natural language task description, decompose it into
         subtasks and select the appropriate NVIDIA skills for each.
@@ -57,6 +57,9 @@ class ReasoningAgent:
         for every registry tool the model invokes, so callers can show the
         grounding work (the catalog is also embedded in the prompt, so
         providers that reject tool definitions degrade to prompt-only).
+
+        ``tools_enabled=False`` runs the classic prompt-only path (no tool
+        schemas sent) — used for A/B measurement of grounding vs memory.
         """
         system_prompt = f"""You are SkillForge, an AI agent that composes robot skill pipelines.
 
@@ -64,15 +67,19 @@ You have access to these NVIDIA skills:
 {self.skills_text}
 
 You can also query the skill and robot registries directly with tools:
-list_skills, get_skill, get_robot, check_capability. Use them to verify
-exact costs, GPU needs, and — before choosing a skill for a robot — that
-its required anatomy (arm/legs/cameras) is present on the target robot
-(check_capability). The catalog above is authoritative for skill ids:
-never invent one.
+list_skills, get_skill, get_robot, check_capability. The catalog above is
+authoritative — never invent a skill id. Its rows already list every
+skill's cost and GPU need, so do NOT call list_skills or get_skill to
+re-read it — those are for facts the catalog row omits.
 
-Query efficiently: verify only the skills you intend to use, and when you
-need several, request them together in one round if you can. Once you have
-the details you need, STOP calling tools and return the pipeline JSON.
+Tool rules — follow exactly:
+1. Before including a skill, call check_capability(skill_id, robot_id)
+   ONLY when you are unsure the target robot has the anatomy the skill
+   needs — one call per doubtful skill, then stop.
+2. Tool calls are serial (one per turn), so keep them minimal: every call
+delays the pipeline. Never verify a skill you are not going to emit.
+3. Once the skills you will emit are confirmed, STOP calling tools and
+return the pipeline JSON immediately.
 
 Your job: Given a task description and target robot, decompose the task
 into ordered subtasks and select the best skill for each.
@@ -131,8 +138,8 @@ Rules:
             max_tokens=4000,
             parse=self._extract_pipeline_json,
             on_retry=on_retry,
-            tools=registry_tools.TOOL_SCHEMAS,
-            execute_tool=registry_tools.execute_tool,
+            tools=registry_tools.TOOL_SCHEMAS if tools_enabled else None,
+            execute_tool=registry_tools.execute_tool if tools_enabled else None,
             on_tool=on_tool,
             max_tool_rounds=max_tool_rounds,
         )
