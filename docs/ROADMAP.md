@@ -36,6 +36,10 @@ actively working them.
 - [x] **Per-phase compose timing** — the done event breaks the run into
       decompose / explain / logs wall times and the results view shows the
       breakdown under the total (`pre-v0.1.11`, 2026-09-04)
+- [x] **Slow-compose warning** — a live compose that beats the session's
+      moving median baseline by 2x+ gets a warn note suggesting a retry or
+      a simpler task, mirroring the frequent-blip hint (`pre-v0.1.12`,
+      2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

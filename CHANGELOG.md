@@ -6,6 +6,31 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.12] — 2026-09-04 — slow-compose warning
+
+Feature commit: `60f1904` (warn when a compose beats the session's moving
+time baseline).
+
+### Added
+- **Moving-baseline slow detector** — live compose wall times accumulate per
+  tab session (`sf-session-compose-times`, capped at 6); once two composes
+  have established a baseline, any compose that clears a 12s floor and is
+  2×+ the session's recent **median** triggers a warn note: "compose took
+  60s — 4.6× slower than your recent typical (13s). retry, or simplify the
+  task." Because the baseline is the session's own median, the threshold
+  adapts to how long composes normally take here instead of a fixed
+  constant.
+- **Mirrors the frequent-blip hint** — same amber strip styling and
+  placement (beside the compose-mode switch in the input view and in the
+  results view), cleared by the next normal compose and by switching to
+  mock mode. Unaffected by (and complementary to) the per-compose timing
+  strip and the auto-retry disclosures.
+- **Tests** — seventh browser E2E: seeds a two-compose session baseline
+  (12s/14s), reloads same-tab, intercepts the compose stream with a 60s
+  done event and asserts the note reads "4.6× slower than your recent
+  typical (13s)", then a normal (10s) compose clears it and the session
+  history records both runs. Suite counts: 74 hermetic, 7 browser E2E.
+
 ## [pre-v0.1.11] — 2026-09-04 — per-phase compose timing
 
 Feature commit: `62f8c9c` (break compose timing into decompose/explain/logs

@@ -24,6 +24,7 @@
 - **Error handling** — Validation, timeouts, rate limits, retry logic
 - **Auto-retry awareness** — healed LLM blips are counted per session, and once the model has auto-retried 3+ times the UI suggests mock mode or a simpler task
 - **Latency visibility** — live composes tick a running elapsed while processing and finish with a "compose took Xs (auto-retried N×)" line plus a per-phase breakdown (decompose · explain · logs), so slow LLM round-trips read as slow, not stuck, and you can see which step dominates
+- **Slow-compose warning** — a compose that beats the session's moving time baseline (2× the recent median) gets a warn note suggesting a retry or a simpler task
 
 ---
 
@@ -200,7 +201,7 @@ python -m pytest
 
 74 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
 
-Plus six live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free; the fourth composes a seeded variation (reworded task, robot switched) and verifies the adaptation card explains the changes; the fifth seeds the session auto-retry tally and asserts the frequent-blip hint appears in live mode and clears when mock mode is chosen; the sixth intercepts the compose stream with canned retries (1, then 3) and asserts the timing line's retry disclosure renders for both counts. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
+Plus seven live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free; the fourth composes a seeded variation (reworded task, robot switched) and verifies the adaptation card explains the changes; the fifth seeds the session auto-retry tally and asserts the frequent-blip hint appears in live mode and clears when mock mode is chosen; the sixth intercepts the compose stream with canned retries (1, then 3) and asserts the timing line's retry disclosure renders for both counts; the seventh seeds a two-compose session baseline, serves a 60s compose through the stub, and asserts the slow-compose warning appears with the ratio and clears on a normal compose. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
 
 ---
 
