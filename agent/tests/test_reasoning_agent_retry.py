@@ -246,3 +246,49 @@ def test_improve_response_counts_retries(client, monkeypatch):
     data = r2.json()
     assert data["retries"] == 1, "suggestion round-trip healed one retry"
     assert data["improvements"] == "Use cheaper skills."
+
+
+# --- rolling compose telemetry on /api/health --------------------------------
+
+def test_health_exposes_rolling_compose_telemetry(client):
+    """/api/health reports latency + retry aggregates from recent composes."""
+    client.post("/api/compose/silent",
+                json={"task": "Pick up the red block", "robot": "unitree-g1"})
+    r = client.post("/api/compose/stream",
+                    json={"task": "Pick up the red block", "robot": "unitree-g1"})
+    assert r.status_code == 200
+    stats = client.get("/api/health").json()["compose_stats"]
+    # The ring is process-global, so other tests' composes may also be in it:
+    # assert the aggregates are sane and THIS test's entries landed last.
+    assert stats["samples"] >= 2
+    assert stats["avg_seconds"] > 0, "the stream's log phase gives real wall time"
+    assert stats["p95_seconds"] >= stats["avg_seconds"]
+    last = stats["recent"][-1]
+    assert last["endpoint"] == "stream" and last["retries"] == 0
+    assert last["seconds"] > 0 and "at" in last
+
+
+def test_health_telemetry_records_healed_retries(client, monkeypatch):
+    """A stream compose that healed via retry shows up with retries=1."""
+    import server
+    agent, _ = _stub_agent([None, json.dumps(_valid_pipeline()), "a recovered explanation"])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    monkeypatch.setattr(server, "get_agent", lambda: agent)
+    r = client.post("/api/compose/stream",
+                    json={"task": "Sort packages by size", "robot": "unitree-r1"})
+    assert r.status_code == 200
+    stats = client.get("/api/health").json()["compose_stats"]
+    last = stats["recent"][-1]
+    assert last["endpoint"] == "stream" and last["retries"] == 1
+    assert stats["retried_composes"] >= 1
+
+
+def test_health_telemetry_ring_is_capped(client):
+    """The in-process ring holds at most COMPOSE_TELEMETRY_MAX entries."""
+    import server
+    for _ in range(server._COMPOSE_TELEMETRY_MAX + 5):
+        server._record_compose("silent", 5.0, 0)
+    stats = client.get("/api/health").json()["compose_stats"]
+    assert stats["samples"] == server._COMPOSE_TELEMETRY_MAX
+    assert len(stats["recent"]) == min(10, server._COMPOSE_TELEMETRY_MAX)
+    assert all(e["endpoint"] == "silent" and e["seconds"] == 5.0 for e in stats["recent"])

@@ -3,6 +3,7 @@ import json
 import asyncio
 import time
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from typing import Optional, Annotated
 from dotenv import load_dotenv
@@ -54,6 +55,46 @@ def _run_with_retries(fn, *args, **kwargs):
         retries += 1
 
     return fn(*args, **kwargs, on_retry=_count), retries
+
+
+# --- rolling compose telemetry (latency + healed retries) ----------------------
+# In-process ring of recent composes so ops can see live-mode health from
+# /api/health without standing up external metrics. Thread-safe because the
+# compose endpoints run on the threadpool while /api/health can run anywhere.
+_COMPOSE_TELEMETRY_MAX = 20
+_compose_telemetry: deque = deque(maxlen=_COMPOSE_TELEMETRY_MAX)
+_compose_telemetry_lock = threading.Lock()
+
+
+def _record_compose(endpoint: str, seconds: float, retries: int):
+    """Append one finished compose to the rolling ring."""
+    entry = {
+        "endpoint": endpoint,
+        "seconds": round(seconds, 1),
+        "retries": retries,
+        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    with _compose_telemetry_lock:
+        _compose_telemetry.append(entry)
+
+
+def _compose_stats() -> dict:
+    """Summary + the tail of the ring for /api/health."""
+    with _compose_telemetry_lock:
+        entries = list(_compose_telemetry)
+    if not entries:
+        return {"samples": 0, "recent": []}
+    secs = [e["seconds"] for e in entries]
+    ordered = sorted(secs)
+    p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
+    return {
+        "samples": len(entries),
+        "avg_seconds": round(sum(secs) / len(secs), 1),
+        "p95_seconds": round(p95, 1),
+        "avg_retries": round(sum(e["retries"] for e in entries) / len(entries), 2),
+        "retried_composes": sum(1 for e in entries if e["retries"] > 0),
+        "recent": entries[-10:],
+    }
     return pipeline
 
 load_dotenv()
@@ -208,6 +249,7 @@ def health():
         "status": "ok",
         "service": "SkillForge API",
         "pipeline_store": _pipeline_store_status(),
+        "compose_stats": _compose_stats(),
     }
 
 
@@ -252,6 +294,7 @@ def search_skills_endpoint(query: str):
 
 @app.post("/api/compose")
 def compose_pipeline(request: TaskRequest):
+    t0 = time.monotonic()
     try:
         _require_known_robot(request.robot)
         a = get_agent()
@@ -260,6 +303,7 @@ def compose_pipeline(request: TaskRequest):
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         explanation, more = _run_with_retries(a.explain_pipeline, pipeline)
+        _record_compose("compose", time.monotonic() - t0, retries + more)
         return TaskResponse(pipeline=pipeline, explanation=explanation,
                             pipeline_id=pipeline_id, retries=retries + more)
     except HTTPException:
@@ -273,6 +317,7 @@ def compose_pipeline(request: TaskRequest):
 @app.post("/api/compose/silent")
 def compose_pipeline_silent(request: TaskRequest):
     """Compose pipeline without explanation (faster, cheaper)."""
+    t0 = time.monotonic()
     try:
         _require_known_robot(request.robot)
         a = get_agent()
@@ -280,6 +325,7 @@ def compose_pipeline_silent(request: TaskRequest):
             a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
+        _record_compose("silent", time.monotonic() - t0, retries)
         return {"pipeline": pipeline, "pipeline_id": pipeline_id, "retries": retries}
     except HTTPException:
         raise  # capability-gate rejections must keep their 422 + message
@@ -384,6 +430,7 @@ async def compose_pipeline_stream(request: TaskRequest):
             seconds = round(time.monotonic() - t0, 1)
             phases = {"decompose": decompose_seconds, "explain": explain_seconds,
                       "logs": logs_seconds}
+            _record_compose("stream", seconds, retries)
             yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases})}\n\n"
 
         except Exception as e:

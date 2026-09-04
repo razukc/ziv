@@ -316,6 +316,11 @@ def cmd_journey(args) -> int:
     store = r.json()["pipeline_store"]
     print(f"  backend mode: {store['backend']}, entries: {store['entries']}, "
           f"redis_connected: {store['redis_connected']}")
+    stats = r.json().get("compose_stats", {})
+    if stats:
+        print(f"  compose_stats: samples={stats.get('samples', 0)} "
+              f"avg={stats.get('avg_seconds', 0)}s p95={stats.get('p95_seconds', 0)}s "
+              f"retried={stats.get('retried_composes', 0)}")
 
     print("\n== 2. Compose (real LLM) ==")
     r = c.post("/api/compose", json={"task": args.task, "robot": "unitree-g1"})
