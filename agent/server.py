@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 from reasoning_agent import ReasoningAgent
+import registry_tools
 from skill_registry import SKILL_CATALOG, list_all_skills, get_skill, search_skills
 from robot_registry import get_robot, known_robots, validate_pipeline_robot
 from pipeline_store import PipelineStore, PIPELINE_STORE_MAX, PIPELINE_STORE_TTL_SECONDS
@@ -204,6 +205,9 @@ class TaskResponse(BaseModel):
     # How many LLM round-trips had to be retried to produce this response
     # (0 on clean calls) so API clients can tell a blip healed.
     retries: int = 0
+    # How many registry tool calls the agent made while decomposing (0 when
+    # the provider rejected tools or the model answered from the prompt).
+    tool_calls: int = 0
 
 
 def _redis_connected(store) -> Optional[bool]:
@@ -298,14 +302,22 @@ def compose_pipeline(request: TaskRequest):
     try:
         _require_known_robot(request.robot)
         a = get_agent()
+        tool_calls = 0
+
+        def _count_tool(_name, _args, _result):
+            nonlocal tool_calls
+            tool_calls += 1
+
         pipeline, retries = _run_with_retries(
-            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline)
+            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline,
+            on_tool=_count_tool)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         explanation, more = _run_with_retries(a.explain_pipeline, pipeline)
         _record_compose("compose", time.monotonic() - t0, retries + more)
         return TaskResponse(pipeline=pipeline, explanation=explanation,
-                            pipeline_id=pipeline_id, retries=retries + more)
+                            pipeline_id=pipeline_id, retries=retries + more,
+                            tool_calls=tool_calls)
     except HTTPException:
         raise  # capability-gate rejections must keep their 422 + message
     except json.JSONDecodeError as e:
@@ -321,12 +333,20 @@ def compose_pipeline_silent(request: TaskRequest):
     try:
         _require_known_robot(request.robot)
         a = get_agent()
+        tool_calls = 0
+
+        def _count_tool(_name, _args, _result):
+            nonlocal tool_calls
+            tool_calls += 1
+
         pipeline, retries = _run_with_retries(
-            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline)
+            a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline,
+            on_tool=_count_tool)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         _record_compose("silent", time.monotonic() - t0, retries)
-        return {"pipeline": pipeline, "pipeline_id": pipeline_id, "retries": retries}
+        return {"pipeline": pipeline, "pipeline_id": pipeline_id, "retries": retries,
+                "tool_calls": tool_calls}
     except HTTPException:
         raise  # capability-gate rejections must keep their 422 + message
     except Exception as e:
@@ -355,10 +375,14 @@ async def compose_pipeline_stream(request: TaskRequest):
             # stream can tell the UI a hiccup happened and healed (otherwise a
             # slow, retried compose is indistinguishable from a hang).
             retries = 0
+            tool_lines = []
 
             def _count_retry(_attempt, _error):
                 nonlocal retries
                 retries += 1
+
+            def _count_tool(name, args, _result):
+                tool_lines.append(registry_tools.tool_call_label(name, args))
 
             # Phase 1: Thinking process
             yield f"data: {json.dumps({'type': 'thinking', 'content': '🧠 Analyzing task...', 'step': 1, 'total': 5})}\n\n"
@@ -379,8 +403,12 @@ async def compose_pipeline_stream(request: TaskRequest):
             t_decompose = time.monotonic()
             pipeline = a.decompose_task(request.task, request.robot,
                                         seed_pipeline=request.seed_pipeline,
-                                        on_retry=_count_retry)
+                                        on_retry=_count_retry, on_tool=_count_tool)
             decompose_seconds = round(time.monotonic() - t_decompose, 1)
+            # Surface the agent's registry lookups in the reasoning stream so
+            # users can see the plan is grounded in registry data.
+            for line in tool_lines:
+                yield f"data: {json.dumps({'type': 'thinking', 'content': line, 'step': 4, 'total': 5})}\n\n"
             problem = validate_pipeline_robot(pipeline, request.robot)
             if problem:
                 # Capability gate: never store a plan the robot can't run, and
@@ -431,7 +459,7 @@ async def compose_pipeline_stream(request: TaskRequest):
             phases = {"decompose": decompose_seconds, "explain": explain_seconds,
                       "logs": logs_seconds}
             _record_compose("stream", seconds, retries)
-            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases, 'tool_calls': len(tool_lines)})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"

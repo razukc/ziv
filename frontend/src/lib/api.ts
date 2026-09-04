@@ -73,6 +73,8 @@ export interface ComposeStreamResult extends ComposeResponse {
   retries: number;
   /** Per-phase wall times from the done event, so the UI can show which step dominates. */
   phases: ComposePhases;
+  /** How many registry tool calls grounded the decomposition (0 = prompt-only). */
+  toolCalls: number;
 }
 
 /**
@@ -108,6 +110,7 @@ export async function readComposeStream(
   let pipelineId = "";
   let elapsedSeconds = 0;
   let retries = 0;
+  let toolCalls = 0;
   const phases: ComposePhases = { decompose: 0, explain: 0, logs: 0 };
   const onPipeline = handlers.onPipeline;
   const onLog = handlers.onLog;
@@ -170,6 +173,7 @@ export async function readComposeStream(
           if (typeof event.pipeline_id === "string") pipelineId = event.pipeline_id;
           if (typeof event.seconds === "number") elapsedSeconds = event.seconds;
           if (typeof event.retries === "number") retries = event.retries;
+          if (typeof event.tool_calls === "number") toolCalls = event.tool_calls;
           if (event.phases && typeof event.phases === "object") {
             const p = event.phases as Record<string, unknown>;
             if (typeof p.decompose === "number") phases.decompose = p.decompose;
@@ -177,11 +181,11 @@ export async function readComposeStream(
             if (typeof p.logs === "number") phases.logs = p.logs;
           }
           if (!pipeline) throw new Error("stream ended without pipeline data");
-          return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases };
+          return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases, toolCalls };
       }
     }
   }
   if (!pipeline) throw new Error("stream ended without pipeline data");
-  return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases };
+  return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases, toolCalls };
 
 }

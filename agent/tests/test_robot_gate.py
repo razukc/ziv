@@ -170,7 +170,9 @@ def test_stream_rejects_incompatible_plan_with_error_event(client, fake_agent, s
     assert r.status_code == 200  # SSE channel opens; the error travels as an event
     events = [json.loads(l[6:]) for l in r.text.splitlines() if l.startswith("data: ")]
     types = [e.get("type") for e in events]
-    assert types == ["thinking", "thinking", "thinking", "thinking", "error"], types
+    assert types == ["thinking"] * 6 + ["error"], types  # 5 canned + 2 tool lines
+    assert "queried get_skill(motion-generation)" in r.text, \
+        "registry lookups surface in the reasoning stream before the gate fires"
     assert "no arm" in events[-1]["content"]
     # No pipeline event, no done event — nothing was stored.
     assert "pipeline" not in types

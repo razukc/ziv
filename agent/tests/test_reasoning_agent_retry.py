@@ -18,8 +18,10 @@ def _stub_agent(responses):
     """ReasoningAgent with a fake chat client.
 
     ``responses`` is a queue consumed per ``create`` call: ``None`` means the
-    model returned empty content, a ``str`` is returned as content, and an
-    ``Exception`` instance is raised by the transport.
+    model returned empty content, a ``str`` is returned as content, an
+    ``Exception`` instance is raised by the transport, and a dict
+    ``{"tool_calls": [...]}`` (OpenAI wire shape) makes the model request
+    tools instead of answering.
     """
     calls = []
 
@@ -28,6 +30,14 @@ def _stub_agent(responses):
         item = responses.pop(0)
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, dict):
+            tcs = [SimpleNamespace(
+                id=tc["id"],
+                function=SimpleNamespace(name=tc["function"]["name"],
+                                         arguments=tc["function"]["arguments"]))
+                for tc in item.get("tool_calls", [])]
+            return SimpleNamespace(choices=[SimpleNamespace(
+                message=SimpleNamespace(content=None, tool_calls=tcs))])
         content = item  # None -> empty response; str -> content
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
@@ -124,6 +134,94 @@ def test_on_retry_not_called_when_first_attempt_succeeds(monkeypatch):
     assert reported == [], "clean round-trip must not report retries"
 
 
+# --- registry tool use during decomposition ---------------------------------
+
+def _tool_call(name, args, call_id="call_1"):
+    return {"tool_calls": [{"id": call_id,
+                            "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+
+def test_registry_tools_executor_is_grounded_in_the_registries():
+    """Tool results come from the registries the gate validates against."""
+    import registry_tools
+    s = registry_tools.execute_tool("get_skill", {"skill_id": "motion-generation"})
+    assert s["estimated_cost_usd"] == 0.10 and s["requires"] == ["arm"]
+    r = registry_tools.execute_tool("get_robot", {"robot_id": "unitree-go2"})
+    assert r["anatomy"] == ["legs", "cameras"]
+    ok = registry_tools.execute_tool("check_capability",
+                                     {"skill_id": "motion-generation", "robot_id": "unitree-g1"})
+    assert ok["compatible"] is True
+    bad = registry_tools.execute_tool("check_capability",
+                                      {"skill_id": "motion-generation", "robot_id": "unitree-go2"})
+    assert bad["compatible"] is False and bad["missing"] == ["arm"]
+    assert "error" in registry_tools.execute_tool("get_skill", {"skill_id": "nope"})
+    assert "error" in registry_tools.execute_tool("no_such_tool", {})
+    alls = registry_tools.execute_tool("list_skills", {})
+    assert len(alls["skills"]) == len(SKILL_CATALOG)
+
+
+def test_decompose_runs_tool_loop_and_feeds_results_back(monkeypatch):
+    """The model can query the registries mid-decomposition: tool calls are
+    executed and fed back as tool messages before the final answer."""
+    agent, calls = _stub_agent([
+        _tool_call("get_skill", {"skill_id": "motion-generation"}, "call_1"),
+        _tool_call("check_capability",
+                   {"skill_id": "motion-generation", "robot_id": "unitree-go2"}, "call_2"),
+        json.dumps(_valid_pipeline()),
+    ])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    reported = []
+    pipeline = agent.decompose_task("Sort packages", "unitree-r1",
+                                    on_tool=lambda n, a, r: reported.append(n))
+    assert len(calls) == 3, "two tool rounds then the final answer"
+    tool_msgs = [m for m in calls[-1]["messages"]
+                 if isinstance(m, dict) and m.get("role") == "tool"]
+    assert len(tool_msgs) == 2, "both tool results must be fed back"
+    assert "motion-generation" in tool_msgs[0]["content"]
+    assert tool_msgs[0]["tool_call_id"] == "call_1"
+    assert '"missing": ["arm"]' in tool_msgs[1]["content"], \
+        "capability check answers from the registry, not memory"
+    assert reported == ["get_skill", "check_capability"], "every lookup is reported"
+    assert len(pipeline["subtasks"]) == 2
+
+
+def test_decompose_degrades_to_prompt_only_when_tools_rejected(monkeypatch):
+    """Providers that reject tool definitions (400/404/422) fall back to the
+    prompt-only path — the catalog stays in the prompt — instead of failing."""
+    class _ToolsRejected(Exception):
+        status_code = 400
+
+    agent, calls = _stub_agent([_ToolsRejected(), json.dumps(_valid_pipeline())])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    pipeline = agent.decompose_task("Sort packages", "unitree-r1")
+    assert len(calls) == 2
+    assert "tools" in calls[0], "the first call asks for tools"
+    assert "tools" not in calls[1], "the rejection degrades to prompt-only"
+    assert len(pipeline["subtasks"]) == 2, "the compose still succeeds"
+
+
+def test_decompose_tool_loop_is_bounded(monkeypatch):
+    """A model stuck requesting tools never loops forever."""
+    monkeypatch.setattr("reasoning_agent._MAX_ATTEMPTS", 1)
+    agent, calls = _stub_agent([_tool_call("list_skills", {})] * 3)
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    with pytest.raises(ValueError, match="requested tools"):
+        agent.decompose_task("Sort packages", "unitree-r1", max_tool_rounds=2)
+    assert len(calls) == 3, "bounded at max_tool_rounds tool calls"
+
+
+def test_decompose_default_tool_budget_covers_a_full_pipeline(monkeypatch):
+    """A verification-heavy loop (one get_skill per candidate, ~9 rounds for a
+    real 6-7 step plan) fits inside the default budget."""
+    agent, calls = _stub_agent(
+        [_tool_call("get_skill", {"skill_id": f"s{i}"}, f"c{i}") for i in range(9)]
+        + [json.dumps(_valid_pipeline())])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    pipeline = agent.decompose_task("Sort packages", "unitree-r1")
+    assert len(calls) == 10, "9 verification rounds then the final answer"
+    assert len(pipeline["subtasks"]) == 2
+
+
 def test_on_retry_not_called_when_all_attempts_fail(monkeypatch):
     """A hard failure raises after the final attempt without a healing notice."""
     agent, _ = _stub_agent([None, None, None])
@@ -176,6 +274,18 @@ def test_stream_has_no_notice_when_no_retry(client):
     assert _phases_ok(done["phases"]), "done must break the run into decompose/explain/logs"
 
 
+def test_stream_surfaces_registry_tool_usage(client):
+    """The reasoning stream shows the agent's registry lookups and the done
+    event counts them (the fake agent makes two tool calls per decompose)."""
+    r = client.post("/api/compose/stream",
+                    json={"task": "Pick up the red block", "robot": "unitree-g1"})
+    assert r.status_code == 200
+    assert "queried get_skill(motion-generation)" in r.text
+    assert "checked motion-generation against unitree-g1" in r.text
+    done = _done_event(r.text)
+    assert done["tool_calls"] == 2, "done must carry the registry-lookup count"
+
+
 def _phases_ok(phases: dict) -> bool:
     """The phases dict names the three round-trip groups with sane timings."""
     return (isinstance(phases, dict)
@@ -201,9 +311,11 @@ def test_request_response_endpoints_report_zero_retries_on_clean_calls(client):
     r = client.post("/api/compose", json={"task": "Pick up the red block", "robot": "unitree-g1"})
     assert r.status_code == 200
     assert r.json()["retries"] == 0, "clean compose must report zero retries"
+    assert r.json()["tool_calls"] == 2, "the fake agent grounds via two registry lookups"
     r2 = client.post("/api/compose/silent", json={"task": "Sort packages", "robot": "unitree-g1"})
     assert r2.status_code == 200
     assert r2.json()["retries"] == 0
+    assert r2.json()["tool_calls"] == 2
     pid = r2.json()["pipeline_id"]
     r3 = client.post("/api/improve",
                      json={"task": "ignored", "robot": "unitree-g1", "pipeline_id": pid})

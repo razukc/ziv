@@ -262,6 +262,11 @@ def cmd_share_links(args) -> int:
                 retries_c = r.json().get("retries", 0)
                 if retries_c:
                     print(f"  (this compose auto-retried {retries_c}×, healed on its own)")
+                tool_c = r.json().get("tool_calls", 0)
+                if tool_c:
+                    print(f"  (decomposition grounded via {tool_c} registry tool call(s))")
+                else:
+                    print("  (decomposition answered from the prompt — no registry tool calls)")
                 r2 = httpx.get(f"{base_b}/api/pipeline/{pid_c}", timeout=15)
                 check("LLM-generated pipeline id resolves on B", r2.status_code == 200,
                       f"http {r2.status_code}")
@@ -340,6 +345,11 @@ def cmd_journey(args) -> int:
           f"steps: {[s['skill_id'] for s in pipeline.get('subtasks', [])]}")
     if retries:
         print(f"  auto-retried {retries}× during this compose (healed on its own)")
+    tool_calls = composed.get("tool_calls", None)
+    check("compose reports its registry tool-call count",
+          isinstance(tool_calls, int) and tool_calls >= 0, tool_calls)
+    if tool_calls:
+        print(f"  decomposition grounded via {tool_calls} registry tool call(s)")
 
     print("\n== 3. Export (ROS2 package) ==")
     r = c.post("/api/pipeline/export",

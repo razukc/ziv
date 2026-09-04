@@ -2,6 +2,8 @@ import os
 import json
 import time
 from openai import OpenAI
+
+import registry_tools
 from skill_registry import SKILL_CATALOG, list_all_skills
 
 
@@ -37,7 +39,7 @@ class ReasoningAgent:
         return "\n".join(lines)
 
     def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None,
-                       on_retry=None):
+                       on_retry=None, on_tool=None, max_tool_rounds=12):
         """
         Given a natural language task description, decompose it into
         subtasks and select the appropriate NVIDIA skills for each.
@@ -50,11 +52,27 @@ class ReasoningAgent:
         ``on_retry`` (optional) is called as ``on_retry(attempt, error)``
         after each failed attempt that is retried (attempt is 1-based), so
         callers can surface that a transient blip happened and healed.
+
+        ``on_tool`` (optional) is called as ``on_tool(name, args, result)``
+        for every registry tool the model invokes, so callers can show the
+        grounding work (the catalog is also embedded in the prompt, so
+        providers that reject tool definitions degrade to prompt-only).
         """
         system_prompt = f"""You are SkillForge, an AI agent that composes robot skill pipelines.
 
 You have access to these NVIDIA skills:
 {self.skills_text}
+
+You can also query the skill and robot registries directly with tools:
+list_skills, get_skill, get_robot, check_capability. Use them to verify
+exact costs, GPU needs, and — before choosing a skill for a robot — that
+its required anatomy (arm/legs/cameras) is present on the target robot
+(check_capability). The catalog above is authoritative for skill ids:
+never invent one.
+
+Query efficiently: verify only the skills you intend to use, and when you
+need several, request them together in one round if you can. Once you have
+the details you need, STOP calling tools and return the pipeline JSON.
 
 Your job: Given a task description and target robot, decompose the task
 into ordered subtasks and select the best skill for each.
@@ -107,9 +125,16 @@ Rules:
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.3,
-            max_tokens=2000,
+            # Tool rounds inflate the context the model must answer over; a
+            # bigger budget keeps it from exhausting output mid-JSON after a
+            # registry lookup (observed live as empty content + finish=length).
+            max_tokens=4000,
             parse=self._extract_pipeline_json,
             on_retry=on_retry,
+            tools=registry_tools.TOOL_SCHEMAS,
+            execute_tool=registry_tools.execute_tool,
+            on_tool=on_tool,
+            max_tool_rounds=max_tool_rounds,
         )
 
         # Validate skill IDs
@@ -150,7 +175,8 @@ Rules:
             on_retry=on_retry,
         )
 
-    def _complete(self, messages, *, temperature, max_tokens, parse=None, on_retry=None):
+    def _complete(self, messages, *, temperature, max_tokens, parse=None, on_retry=None,
+                  tools=None, execute_tool=None, max_tool_rounds=12, on_tool=None):
         """Chat round-trip with bounded retry against transient model failures.
 
         The live model occasionally returns an empty payload (``content=None``)
@@ -161,20 +187,60 @@ Rules:
         ``on_retry`` (optional) is invoked as ``on_retry(attempt, error)``
         after each failed attempt that gets retried (attempt is 1-based:
         1 = the first call failed, a second call is being made).
+
+        When ``tools`` and ``execute_tool`` are given, the call becomes a
+        tool loop: if the model responds with ``tool_calls`` they are
+        executed against the registries and fed back as tool messages, up to
+        ``max_tool_rounds``, until the model returns content. Providers that
+        reject tool definitions (HTTP 400/404/422 on the request) degrade
+        transparently to the prompt-only path — the catalog stays in the
+        prompt, so grounding degrades to today's behavior rather than
+        failing the compose.
         """
         last_error = None
         for attempt in range(_MAX_ATTEMPTS):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                content = response.choices[0].message.content
-                if not content or not content.strip():
-                    raise ValueError("agent returned an empty response")
-                return parse(content) if parse else content
+                tool_messages = list(messages)
+                degraded = False  # provider rejected tools -> prompt-only
+                rounds = 0
+                while True:
+                    kwargs = dict(model=self.model, messages=tool_messages,
+                                  temperature=temperature, max_tokens=max_tokens)
+                    if tools is not None and not degraded:
+                        kwargs["tools"] = tools
+                    try:
+                        response = self.client.chat.completions.create(**kwargs)
+                    except Exception as e:
+                        if tools is not None and not degraded and getattr(e, "status_code", None) in (400, 404, 422):
+                            degraded = True  # retry this attempt prompt-only
+                            continue
+                        raise
+                    message = response.choices[0].message
+                    tool_calls = getattr(message, "tool_calls", None)
+                    if tool_calls and execute_tool is not None:
+                        rounds += 1
+                        if rounds > max_tool_rounds:
+                            raise ValueError(
+                                f"agent requested tools {max_tool_rounds} times without producing a pipeline")
+                        tool_messages.append(message)
+                        for tc in tool_calls:
+                            try:
+                                args = json.loads(tc.function.arguments or "{}")
+                            except json.JSONDecodeError:
+                                args = {}
+                            result = execute_tool(tc.function.name, args)
+                            if on_tool is not None:
+                                on_tool(tc.function.name, args, result)
+                            tool_messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": registry_tools.dumps(result),
+                            })
+                        continue
+                    content = message.content
+                    if not content or not content.strip():
+                        raise ValueError("agent returned an empty response")
+                    return parse(content) if parse else content
             except Exception as e:
                 last_error = e
                 if attempt < _MAX_ATTEMPTS - 1:

@@ -66,9 +66,16 @@ class FakeAgent:
         self.calls = []
         self.last_seed = None
 
-    def decompose_task(self, task, robot, seed_pipeline=None, on_retry=None):
+    def decompose_task(self, task, robot, seed_pipeline=None, on_retry=None, on_tool=None):
         self.calls.append("decompose_task")
         self.last_seed = seed_pipeline
+        # Exercise the tool-notification wiring: the real agent reports every
+        # registry lookup, so the fake fires two representative calls too.
+        if on_tool is not None:
+            on_tool("get_skill", {"skill_id": "motion-generation"},
+                    {"id": "motion-generation", "estimated_cost_usd": 0.10})
+            on_tool("check_capability", {"skill_id": "motion-generation", "robot_id": robot},
+                    {"compatible": True, "missing": []})
         p = dict(self.pipeline)
         p["task"] = task
         p["robot"] = robot
