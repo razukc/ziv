@@ -6,6 +6,31 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.7] — 2026-09-04 — visible adaptation reasoning
+
+Feature commit: `a1c6339` (explain per-step adaptation on seeded variation
+results).
+
+### Added
+- **"🧬 adaptation — how this plan changed" card** — whenever a variation
+  lands (fresh compose, reopen from history, or share-link restore), the
+  results view now shows why each step of the new plan differs from the
+  seed: variation steps are tagged **still applies** (carried over
+  unchanged), **kept + reworded** (adapted for the new task), or **new**
+  (added for the new task/robot), matched to the original by skill id; and
+  every original step that didn't survive is listed with the reason — the
+  new robot's anatomy ("Unitree R1 has no arm, and policy-training-gr00t
+  needs it to work") or the reworded task dropping it.
+- **Deterministic, LLM-free diff** — `diffAdaptation` compares the seed and
+  the result purely client-side (no extra credits), mirroring the backend
+  robot/skill anatomy tables so drops are explained even offline in mock
+  mode. The report is persisted with the history entry, so reopening a
+  variation later shows the notes again.
+- **Tests** — the variation browser E2E now switches robot G1 → R1 (the
+  armless compact) and asserts the card explains the arm-skill drops with
+  the anatomy reason, marks the locomotion step as new, and words the kept
+  steps as still applying. Suite counts: 70 hermetic, 4 browser E2E.
+
 ## [pre-v0.1.6] — 2026-09-04 — quadruped-class skills
 
 Feature commit: `9cc9303` (add quadruped-class skills).
