@@ -6,6 +6,28 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.8] — 2026-09-04 — session auto-retry awareness
+
+Feature commit: `7a888d3` (warn when live composes auto-retry often in a
+session).
+
+### Added
+- **Session auto-retry tally** — every healed retry a live compose reports is
+  accumulated for the tab session (`sf-session-retries` in sessionStorage, so
+  the count survives reloads), instead of each compose being treated as an
+  isolated event.
+- **Frequent-blip hint** — once the model has auto-retried 3+ times in the
+  session, the UI shows a nudge — "model auto-retried N times this session —
+  if it keeps blipping, try mock mode or a simpler task" — beside the
+  compose-mode switch in the input view and in the processing/results view
+  (only when that section is on screen). Switching to mock mode clears the
+  tally, since that is the suggestion being taken.
+- **Tests** — fifth browser E2E: seeds the sessionStorage tally, reloads in
+  the same tab, and asserts the hint stays hidden in mock mode, appears on
+  switching to live, and clears (with the storage) when mock is chosen
+  again — no compose, backend, or credits needed. Suite counts:
+  70 hermetic, 5 browser E2E.
+
 ## [pre-v0.1.7] — 2026-09-04 — visible adaptation reasoning
 
 Feature commit: `a1c6339` (explain per-step adaptation on seeded variation

@@ -24,6 +24,9 @@ actively working them.
 - [x] **Visible auto-retry** — the compose UI shows a small
       "auto-retried once/N times" note when a live compose healed after a
       transient blip (`pre-v0.1.4`, 2026-09-04)
+- [x] **Session auto-retry awareness** — retries are tallied per tab session
+      and the UI suggests mock mode or a simpler task once the model has
+      blipped 3+ times (`pre-v0.1.8`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error
@@ -38,7 +41,8 @@ actively working them.
 - [ ] **Resume failed live composes** — keep partial thinking/logs on screen
       after a fully failed or timed-out live call and offer a one-click retry
       that reuses them instead of wiping state (server-side auto-retry
-      shipped `pre-v0.1.3`; this item is the remaining UI state gap)
+      shipped `pre-v0.1.3` and a session blip hint `pre-v0.1.8`; this item
+      is the remaining UI state gap)
 - [ ] **Stale-card awareness in history** — mark live cards whose Redis copy
       expired, refresh all live cards in one batched request on load
 
