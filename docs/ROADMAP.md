@@ -21,6 +21,9 @@ actively working them.
 - [x] **Resilient live composes** — all LLM round-trips retry up to 3× with
       backoff, so a flaky/truncated model response can't 500 a live compose
       (`pre-v0.1.3`, 2026-09-04)
+- [x] **Visible auto-retry** — the compose UI shows a small
+      "auto-retried once/N times" note when a live compose healed after a
+      transient blip (`pre-v0.1.4`, 2026-09-04)
 - [ ] **Resume failed live composes** — keep partial thinking/logs on screen
       after a fully failed or timed-out live call and offer a one-click retry
       that reuses them instead of wiping state (server-side auto-retry

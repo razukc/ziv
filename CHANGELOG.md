@@ -6,6 +6,26 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.4] — 2026-09-04 — visible auto-retry
+
+Feature commit: `b0b7e5a` (surface auto-retried live composes in the UI).
+
+### Added
+- **Auto-retry is now visible** — when a live compose has to retry a
+  transient LLM blip, the UI shows a small note under the task bar
+  ("↻ model hiccup — auto-retried once / N times, compose healed on its
+own"), so a slow-but-recovered call is no longer indistinguishable from
+  a hang. Mock composes and clean live composes show nothing.
+- **Agent reports healed retries** — the LLM methods accept an optional
+  `on_retry(attempt, error)` callback invoked after each failed attempt
+  that is retried; the SSE compose stream counts these across decompose
+  and explanation and emits a `notice` event before `done`.
+- **Tests** — 5 new hermetic tests: on_retry fires per healed attempt with
+  1-based numbering, stays silent on clean calls and on calls that fail
+  for good, and the stream emits a `notice` event (retries=1) after a
+  stubbed failure while clean streams carry none. Suite counts:
+  56 hermetic, 4 browser E2E.
+
 ## [pre-v0.1.3] — 2026-09-04 — resilient live composes
 
 Fix commit: `3a49325` (fix: retry LLM round-trips so flaky live composes
