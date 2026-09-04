@@ -130,6 +130,22 @@ export interface HistoryItem {
   /** Live-only: wall time + retries of the compose that produced this entry,
    *  so a reopened slow pipeline still shows how long it took. */
   composeStats?: { seconds: number; retries: number; phases: ComposePhases } | null;
+  /** Verdict of the last simulation dry-run of this entry's pipeline, so a
+   *  reopened pipeline shows its test result without re-running. */
+  dryrun?: DryRunRecord | null;
+}
+
+/** Completed simulation dry-run, persisted with history. Everything needed
+ *  to reproduce the run is here: same pipeline + same seed = same verdicts
+ *  (deterministic planner), so a reopened pipeline renders the stored result
+ *  instantly instead of replaying. */
+export interface DryRunRecord {
+  /** Scenario seed the run used. */
+  seed: number;
+  /** Compressed replay wall time of the completed run, in seconds. */
+  elapsedSec: number;
+  /** Per-step verdicts, aligned with the pipeline's subtasks at run time. */
+  verdicts: ("pass" | "fail")[];
 }
 
 export type Tab = "analysis" | "json" | "thinking" | "logs";

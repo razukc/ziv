@@ -35,6 +35,7 @@ import type {
   AdaptationReport,
   ComposePhases,
   ComposeResponse,
+  DryRunRecord,
   ExecutionLog,
   ExportedPackage,
   HistoryItem,
@@ -206,6 +207,12 @@ export default function Home() {
   // every open / "new scenario" is guaranteed a fresh run.
   const [simOpen, setSimOpen] = useState(false);
   const [simSeed, setSimSeed] = useState(0);
+  // Last completed dry-run of the displayed pipeline: persisted onto its
+  // history entry so reopening the card shows the verdict without re-running.
+  const [simResult, setSimResult] = useState<DryRunRecord | null>(null);
+  // Which history entry the current results view belongs to (dry-run verdicts
+  // attach there). Null while composing / on a fresh share-link restore.
+  const currentHistoryIdRef = useRef<string | null>(null);
 
   const inputRef = useRef<HTMLDivElement>(null);
   const processingRef = useRef<HTMLDivElement>(null);
@@ -300,8 +307,11 @@ export default function Home() {
         setComposeStats(null);
         setSlowNote(null);
         setAdaptation(null);
+        setSimResult(null);
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
-        setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
+        const entryId = `h-${Date.now()}`;
+        currentHistoryIdRef.current = entryId;
+        setHistory(prev => upsertHistory(prev, { id: entryId, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
         scrollTo(resultsRef, 300);
       })
       .catch(() => {
@@ -384,6 +394,8 @@ export default function Home() {
     setEdited(false);
     setVariationOpen(false);
     setSimOpen(false);
+    setSimResult(null);
+    currentHistoryIdRef.current = null;
   };
 
 
@@ -418,7 +430,9 @@ export default function Home() {
     setResult(mockResult);
     setPhase("results");
     setAdaptation(report);
-    setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "mock", result: mockResult, timestamp: Date.now(), adaptation: report ?? undefined }));
+    const entryId = `h-${Date.now()}`;
+    currentHistoryIdRef.current = entryId;
+    setHistory(prev => upsertHistory(prev, { id: entryId, task, robot, kind: "mock", result: mockResult, timestamp: Date.now(), adaptation: report ?? undefined }));
     scrollTo(resultsRef, 300);
   };
 
@@ -481,8 +495,10 @@ export default function Home() {
         setSlowNote(null);
       }
 
+      const entryId = `h-${Date.now()}`;
+      currentHistoryIdRef.current = entryId;
       setHistory(prev => upsertHistory(prev, {
-        id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId,
+        id: entryId, task, robot, kind: "live", pipelineId: final.pipelineId,
         result: final, timestamp: Date.now(), adaptation: report ?? undefined,
         composeStats: { seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases },
       }));
@@ -601,6 +617,8 @@ export default function Home() {
     setEdited(false);
     setEditMode(false);
     setSimOpen(false);
+    currentHistoryIdRef.current = item.id;
+    setSimResult(item.dryrun ?? null);
     setResult(adopted);
     setPipelineId(pid);
     // Restore the compose-time disclosure so reopening a slow live pipeline
@@ -624,21 +642,34 @@ export default function Home() {
   const cancelVariation = () => setVariationOpen(false);
 
   // --- Simulation dry-run of the displayed pipeline --------------------------
-  const rollScenario = () =>
+  const rollScenario = () => {
+    setSimResult(null); // a new scenario invalidates the stored verdict
     setSimSeed(s => {
       const n = (s * 48271) % 2147483647;
       return n === 0 ? 7 : n;
     });
+  };
 
   const beginSimulation = () => {
     if (!displayPipeline) return;
     setVariationOpen(false);
+    // Reopening with a stored verdict keeps its seed so the panel renders it
+    // instantly; a first run rolls a fresh scenario.
+    if (!simResult) rollScenario();
     setSimOpen(true);
-    rollScenario();
     scrollTo(simRef, 80);
   };
 
   const closeSimulation = () => setSimOpen(false);
+
+  // Persist a completed dry-run onto the history entry being displayed.
+  const handleSimResult = (r: DryRunRecord) => {
+    setSimResult(r);
+    const id = currentHistoryIdRef.current;
+    if (id) {
+      setHistory(prev => prev.map(e => (e.id === id ? { ...e, dryrun: r } : e)));
+    }
+  };
 
   const submitVariation = () => {
     if (!variationTask.trim()) return;
@@ -665,6 +696,7 @@ export default function Home() {
     setEdited(true);
     setDraft(null);
     setEditMode(false);
+    setSimResult(null); // plan changed — any stored dry-run verdict is stale
   };
 
   const cancelEditing = () => {
@@ -1430,6 +1462,8 @@ export default function Home() {
                       pipeline={displayPipeline}
                       robot={robot}
                       seed={simSeed}
+                      initialResult={simResult}
+                      onResult={handleSimResult}
                       onClose={closeSimulation}
                       onNewScenario={rollScenario}
                     />

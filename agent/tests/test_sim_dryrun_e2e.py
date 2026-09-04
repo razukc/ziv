@@ -109,3 +109,59 @@ def test_sim_dryrun_replay_is_deterministic_and_catches_bad_ordering():
         # The blocked step carries the structural verdict regardless of seed.
         verdict1 = page.get_by_test_id("dryrun-verdict-1").inner_text()
         assert verdict1 == "FAIL", verdict1
+
+
+def test_sim_dryrun_verdict_persists_and_renders_on_reopen():
+    """The last dry-run verdict lands on the history card, and reopening the
+    pipeline renders it instantly (no 14s replay) with the same seed chip."""
+    with e2e_helpers.browser_page() as page:
+        page.goto(FRONTEND, wait_until="domcontentloaded", timeout=30000)
+        e2e_helpers.wait_hydrated(page)
+
+        # --- Compose a mock pipeline and run the dry-run to completion ------
+        page.locator("textarea").fill("Pick up the red block and place it on the blue platform")
+        page.get_by_role("button", name="compose", exact=True).click()
+        page.get_by_role("button", name=">>> compose another").wait_for(timeout=25000)
+        page.get_by_test_id("open-sim").click()
+        summary = page.locator('[data-testid="dryrun-summary"]')
+        summary.wait_for(timeout=40000)
+        run1 = summary.inner_text().strip()
+        seed1 = page.get_by_test_id("dryrun-seed").inner_text().strip()
+        assert "passed" in run1 or "halted" in run1, run1
+
+        # --- The newest history card carries the verdict badge --------------
+        badge = page.get_by_test_id("history-dryrun").first
+        badge.wait_for(timeout=5000)
+        badge_text = badge.inner_text().strip()
+        print(f"card badge: {badge_text}")
+        assert "pass" in badge_text or "fail" in badge_text, badge_text
+        assert seed1.replace("seed ", "") in badge_text, f"badge must show the seed: {badge_text}"
+
+        # --- Reopen from history: stored verdict renders instantly -----------
+        page.get_by_test_id("dryrun-panel").get_by_role("button", name="✕", exact=True).click()
+        # Accessible name carries the "↪" glyph, so match the label substring.
+        page.get_by_role("button", name="open in editor").first.click()
+        page.get_by_test_id("open-sim").wait_for(timeout=8000)
+        page.get_by_test_id("open-sim").click()
+        summary2 = page.locator('[data-testid="dryrun-summary"]')
+        summary2.wait_for(timeout=3000)  # instant — no replay of the 14s run
+        run2 = summary2.inner_text().strip()
+        elapsed2 = page.get_by_test_id("dryrun-elapsed").inner_text().strip()
+        seed2 = page.get_by_test_id("dryrun-seed").inner_text().strip()
+        print(f"reopened: {run2} | {elapsed2} | {seed2}")
+        assert run2 == run1, f"reopen must show the stored verdict: {run1} vs {run2}"
+        assert seed2 == seed1, "reopen must keep the stored seed"
+        assert "last run" in elapsed2, elapsed2
+
+        # --- Replaying from the stored state reproduces the outcome ----------
+        page.get_by_test_id("dryrun-replay").click()
+        page.wait_for_function(
+            "document.querySelector('[data-testid=dryrun-summary]') === null",
+            timeout=5000,
+        )
+        summary.wait_for(timeout=40000)
+        run3 = summary.inner_text().strip()
+        seed3 = page.get_by_test_id("dryrun-seed").inner_text().strip()
+        print(f"replay after reopen: {run3} | {seed3}")
+        assert run3 == run1, f"replay from stored state must match: {run1} vs {run3}"
+        assert seed3 == seed1, "replay from stored state must keep the seed"

@@ -83,10 +83,19 @@ export default function PipelineHistory({
                 <div style={{ fontSize: "11px", color: "var(--text-1)", marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>
                   "{item.task}"
                 </div>
-                <div style={{ display: "flex", gap: "12px", fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
                   <span>{item.result.pipeline.subtasks.length} steps</span>
                   <span style={{ color: "var(--acc)" }}>${item.result.pipeline.total_estimated_cost_usd.toFixed(2)}</span>
                   <span style={{ color: item.result.pipeline.risk_assessment === "low" ? "var(--acc)" : "var(--warn)" }}>{item.result.pipeline.risk_assessment}</span>
+                  {item.dryrun && (
+                    <span
+                      data-testid="history-dryrun"
+                      title={`dry-run ${item.dryrun.verdicts.every(v => v === "pass") ? "passed" : "halted"} · ${item.dryrun.verdicts.filter(v => v === "pass").length}/${item.dryrun.verdicts.length} steps · seed 0x${item.dryrun.seed.toString(16).padStart(4, "0")} — open in editor and run sim dry-run to see details`}
+                      style={{ color: item.dryrun.verdicts.every(v => v === "pass") ? "var(--acc)" : "var(--danger)" }}
+                    >
+                      {item.dryrun.verdicts.every(v => v === "pass") ? "🧪 pass" : "🧪 fail"} · {item.dryrun.elapsedSec}s · 0x{item.dryrun.seed.toString(16).padStart(4, "0")}
+                    </span>
+                  )}
                   {item.composeStats && (
                     <span
                       data-testid="history-compose-time"
