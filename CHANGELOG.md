@@ -6,6 +6,25 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.3] — 2026-09-04 — resilient live composes
+
+Fix commit: `3a49325` (fix: retry LLM round-trips so flaky live composes
+can't hard-fail).
+
+### Fixed
+- **Bounded retry on every LLM round-trip** — a shared retry helper now runs
+  decompose, seeded-variation, and explain prompts up to 3 attempts with
+  backoff, rejecting empty/`null` content and retrying malformed (incl.
+  fenced) JSON. Discovered live: the seeded-variation path 500'd with
+  `'NoneType' object has no attribute 'strip'` when Nemotron returned empty
+  content; with no retry, one flaky response was a hard, cryptic failure.
+  A meaningful error is raised only after all attempts fail.
+- **Tests** — 6 new hermetic unit tests with a stubbed OpenAI client (no
+  API key or network): retry after empty responses and truncated/fenced
+  JSON, give-up after max attempts, seed preserved across retries, and
+  explain retries on empty content. Suite counts: 51 hermetic,
+  4 browser E2E.
+
 ## [pre-v0.1.2] — 2026-09-03 — seeded variations
 
 Feature commit: `cede1d9` (feat: compose seeded pipeline variations).
