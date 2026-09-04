@@ -82,6 +82,30 @@ def test_locotion_and_perception_for_quadruped():
         _plan(["policy-training-loco", "perception-training"]), "unitree-go2") is None
 
 
+def test_quadruped_class_skills_for_legs_only_robots():
+    """Legged manipulation + terrain adaptation are legal for Go2/R1 (legs,
+    cameras, no arm) — the whole point of the quadruped catalog extension."""
+    body_plan = _plan(["legged-manipulation", "perception-training"])
+    assert validate_pipeline_robot(body_plan, "unitree-go2") is None
+    assert validate_pipeline_robot(body_plan, "unitree-r1") is None
+    terrain_plan = _plan(["terrain-adaptation", "policy-training-loco"])
+    assert validate_pipeline_robot(terrain_plan, "unitree-go2") is None
+    assert validate_pipeline_robot(terrain_plan, "unitree-r1") is None
+
+
+def test_legged_manipulation_still_needs_legs():
+    """A camera-bearing but legless robot can't use body manipulation."""
+    import robot_registry
+    original = dict(robot_registry.ROBOT_REGISTRY["unitree-r1"])
+    robot_registry.ROBOT_REGISTRY["unitree-r1"] = {
+        **original, "anatomy": ("cameras",)}
+    try:
+        msg = validate_pipeline_robot(_plan(["legged-manipulation"]), "unitree-r1")
+        assert msg is not None and "no legs" in msg
+    finally:
+        robot_registry.ROBOT_REGISTRY["unitree-r1"] = original
+
+
 def test_perception_needs_cameras():
     # R1 and Go2 have cameras, so perception passes for them...
     assert "cameras" in SKILL_CATALOG["perception-training"]["requires"]

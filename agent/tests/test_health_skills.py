@@ -42,9 +42,12 @@ def test_skills_list(client):
     r = client.get("/api/skills")
     assert r.status_code == 200
     skills = r.json()
-    assert len(skills) == 9
+    assert len(skills) == 11
     assert skills[0]["id"] == "scene-creation"
     assert all("estimated_cost_usd" in s for s in skills)
+    ids = {s["id"] for s in skills}
+    # Quadruped-class coverage: body manipulation + terrain robustness.
+    assert {"legged-manipulation", "terrain-adaptation"} <= ids
 
 
 def test_skill_by_id(client):

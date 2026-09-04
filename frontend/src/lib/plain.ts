@@ -30,6 +30,10 @@ export const PLAIN_SKILLS: Record<string, string> = {
     "Teach the robot to recognize the objects and obstacles around it using its cameras, so it knows what it is looking at.",
   "world-model-generation":
     "Let the robot predict how objects in the scene will move or react, so it can prepare for what happens next instead of reacting late.",
+  "legged-manipulation":
+    "Teach the robot to handle objects without using hands — pushing them with its body, carrying them on its back or in a holder, and nudging them where they need to go.",
+  "terrain-adaptation":
+    "Harden the robot's walking so it stays sure-footed on rough, slippery, or uneven ground instead of stumbling.",
 };
 
 /**
@@ -69,6 +73,12 @@ const NAME_ALIASES: Record<string, string> = {
   "vision-training": PLAIN_SKILLS["perception-training"],
   "world-model": PLAIN_SKILLS["world-model-generation"],
   "world-model-generation": PLAIN_SKILLS["world-model-generation"],
+  "legged-manipulation": PLAIN_SKILLS["legged-manipulation"],
+  "legged-manip": PLAIN_SKILLS["legged-manipulation"],
+  "body-manipulation": PLAIN_SKILLS["legged-manipulation"],
+  "terrain-adaptation": PLAIN_SKILLS["terrain-adaptation"],
+  "terrain-adapt": PLAIN_SKILLS["terrain-adaptation"],
+  "rough-terrain-adaptation": PLAIN_SKILLS["terrain-adaptation"],
 };
 
 /**
@@ -77,6 +87,17 @@ const NAME_ALIASES: Record<string, string> = {
  * and never falls through to the generic "training" catch-all.
  */
 const KEYWORD_RULES: Array<{ test: RegExp; text: string }> = [
+  // Body-level object interaction must win over the generic arm-handling rule:
+  // "push" / "carry" / "legged" are not dexterous grasping.
+  {
+    test: /legged|push|carry|payload|nudge|shov|nonprehensile/,
+    text: PLAIN_SKILLS["legged-manipulation"],
+  },
+  // "rough" with a word boundary, so "through" doesn't trigger it.
+  {
+    test: /terrain|rough\b|slippery|uneven|muddy|rugged|gravel|slope/,
+    text: PLAIN_SKILLS["terrain-adaptation"],
+  },
   { test: /gr00t/, text: PLAIN_SKILLS["policy-training-gr00t"] },
   { test: /sonic|loco|walk|balanc|gait/, text: PLAIN_SKILLS["policy-training-loco"] },
   { test: /teleop|demonstrat|demo|data|synthetic/, text: PLAIN_SKILLS["synthetic-data-generation"] },

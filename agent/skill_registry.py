@@ -101,6 +101,30 @@ SKILL_CATALOG = {
         "gpu_required": True,
         "estimated_cost_usd": 0.25,
     },
+    # Quadruped-class coverage: body-manipulation and terrain robustness for
+    # robots that have legs but no dexterous arm (Unitree Go2, R1). Before
+    # these existed, armless robots could only perceive, walk, and deploy —
+    # no way to interact with objects or survive rough ground.
+    "legged-manipulation": {
+        "id": "legged-manipulation",
+        "name": "Legged Manipulation",
+        "product": "Isaac Lab / Isaac Sim",
+        "description": "Train whole-body manipulation without an arm: push, carry, and reposition objects with the body and legs.",
+        "tags": ["manipulation", "legged", "payload", "nonprehensile"],
+        "requires": ("legs", "cameras"),  # body interaction + seeing the object
+        "gpu_required": True,
+        "estimated_cost_usd": 1.20,
+    },
+    "terrain-adaptation": {
+        "id": "terrain-adaptation",
+        "name": "Terrain Adaptation Training",
+        "product": "NVIDIA SONIC / Isaac Lab",
+        "description": "Train gaits and recovery that adapt to rough, slippery, or uneven terrain.",
+        "tags": ["locomotion", "terrain", "rough-terrain", "robustness"],
+        "requires": ("legs",),
+        "gpu_required": True,
+        "estimated_cost_usd": 1.00,
+    },
 }
 
 def get_skill(skill_id):
@@ -117,10 +141,10 @@ def list_all_skills():
 
 def get_skills_for_task_type(task_type):
     mapping = {
-        "manipulation": ["scene-creation", "synthetic-data-generation", "policy-training-gr00t", "motion-generation", "policy-validation", "policy-deployment"],
-        "locomotion": ["scene-creation", "synthetic-data-generation", "policy-training-loco", "policy-validation", "policy-deployment"],
+        "manipulation": ["scene-creation", "synthetic-data-generation", "policy-training-gr00t", "legged-manipulation", "motion-generation", "policy-validation", "policy-deployment"],
+        "locomotion": ["scene-creation", "synthetic-data-generation", "policy-training-loco", "terrain-adaptation", "policy-validation", "policy-deployment"],
         "perception": ["scene-creation", "synthetic-data-generation", "perception-training", "policy-validation"],
-        "navigation": ["scene-creation", "synthetic-data-generation", "policy-training-loco", "policy-validation", "policy-deployment"],
+        "navigation": ["scene-creation", "synthetic-data-generation", "policy-training-loco", "terrain-adaptation", "policy-validation", "policy-deployment"],
     }
     ids = mapping.get(task_type, [])
     return [SKILL_CATALOG[sid] for sid in ids if sid in SKILL_CATALOG]
