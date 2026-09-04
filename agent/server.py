@@ -324,12 +324,17 @@ async def compose_pipeline_stream(request: TaskRequest):
             yield f"data: {json.dumps({'type': 'thinking', 'content': f'Selecting skills for {request.robot}...', 'step': 3, 'total': 5})}\n\n"
             await asyncio.sleep(0.3)
 
-            # Phase 2: Generate pipeline
+            # Phase 2: Generate pipeline. Each LLM round-trip and the log
+            # stream are timed individually so the done event can break the
+            # compose down into decompose / explain / logs phases — users see
+            # which step dominates instead of one opaque total.
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})}\n\n"
 
+            t_decompose = time.monotonic()
             pipeline = a.decompose_task(request.task, request.robot,
                                         seed_pipeline=request.seed_pipeline,
                                         on_retry=_count_retry)
+            decompose_seconds = round(time.monotonic() - t_decompose, 1)
             problem = validate_pipeline_robot(pipeline, request.robot)
             if problem:
                 # Capability gate: never store a plan the robot can't run, and
@@ -347,10 +352,13 @@ async def compose_pipeline_stream(request: TaskRequest):
             # Phase 4: Generate explanation
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating analysis...', 'step': 6, 'total': 6})}\n\n"
 
+            t_explain = time.monotonic()
             explanation = a.explain_pipeline(pipeline, on_retry=_count_retry)
+            explain_seconds = round(time.monotonic() - t_explain, 1)
             yield f"data: {json.dumps({'type': 'explanation', 'content': explanation})}\n\n"
 
             # Phase 5: Execution logs (simulated)
+            t_logs = time.monotonic()
             for i, subtask in enumerate(pipeline['subtasks']):
                 skill = SKILL_CATALOG.get(subtask['skill_id'], {})
 
@@ -367,12 +375,16 @@ async def compose_pipeline_stream(request: TaskRequest):
                 await asyncio.sleep(0.2)
 
             # Phase 6: Done — the total wall time (LLM round-trips + retry
-            # backoff + streaming) so the UI can show "compose took Xs", and
-            # the retry count for the "(auto-retried Nx)" disclosure.
+            # backoff + streaming) so the UI can show "compose took Xs", the
+            # retry count for the "(auto-retried Nx)" disclosure, and the
+            # per-phase breakdown (decompose / explain / logs).
+            logs_seconds = round(time.monotonic() - t_logs, 1)
             if retries:
                 yield f"data: {json.dumps({'type': 'notice', 'retries': retries, 'content': 'auto-retried after a model blip'})}\n\n"
             seconds = round(time.monotonic() - t0, 1)
-            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries})}\n\n"
+            phases = {"decompose": decompose_seconds, "explain": explain_seconds,
+                      "logs": logs_seconds}
+            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"

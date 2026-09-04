@@ -64,12 +64,23 @@ export interface ComposeStreamHandlers {
   onNotice?: (retries: number) => void;
 }
 
+export interface ComposePhases {
+  /** Wall time of the decompose LLM round-trip (incl. its retry backoff). */
+  decompose: number;
+  /** Wall time of the explanation LLM round-trip (incl. its retry backoff). */
+  explain: number;
+  /** Wall time of the (simulated) execution-log stream. */
+  logs: number;
+}
+
 export interface ComposeStreamResult extends ComposeResponse {
   pipelineId: string;
   /** Wall time of the whole compose (LLM round-trips + retries + streaming), from the done event. */
   elapsedSeconds: number;
   /** How many LLM round-trips had to be retried during this compose. */
   retries: number;
+  /** Per-phase wall times from the done event, so the UI can show which step dominates. */
+  phases: ComposePhases;
 }
 
 /**
@@ -105,6 +116,7 @@ export async function readComposeStream(
   let pipelineId = "";
   let elapsedSeconds = 0;
   let retries = 0;
+  const phases: ComposePhases = { decompose: 0, explain: 0, logs: 0 };
   const onPipeline = handlers.onPipeline;
   const onLog = handlers.onLog;
   const onThinking = handlers.onThinking;
@@ -166,12 +178,18 @@ export async function readComposeStream(
           if (typeof event.pipeline_id === "string") pipelineId = event.pipeline_id;
           if (typeof event.seconds === "number") elapsedSeconds = event.seconds;
           if (typeof event.retries === "number") retries = event.retries;
+          if (event.phases && typeof event.phases === "object") {
+            const p = event.phases as Record<string, unknown>;
+            if (typeof p.decompose === "number") phases.decompose = p.decompose;
+            if (typeof p.explain === "number") phases.explain = p.explain;
+            if (typeof p.logs === "number") phases.logs = p.logs;
+          }
           if (!pipeline) throw new Error("stream ended without pipeline data");
-          return { pipeline, explanation, pipelineId, elapsedSeconds, retries };
+          return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases };
       }
     }
   }
   if (!pipeline) throw new Error("stream ended without pipeline data");
-  return { pipeline, explanation, pipelineId, elapsedSeconds, retries };
+  return { pipeline, explanation, pipelineId, elapsedSeconds, retries, phases };
 
 }

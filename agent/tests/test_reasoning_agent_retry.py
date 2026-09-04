@@ -159,6 +159,7 @@ def test_stream_emits_notice_when_compose_had_to_retry(client, monkeypatch):
     assert done["retries"] == 1, "done must carry the retry count"
     assert isinstance(done["seconds"], (int, float)) and done["seconds"] > 0, \
         "done must report the compose wall time"
+    assert _phases_ok(done["phases"]), "done must break the run into decompose/explain/logs"
 
 
 def test_stream_has_no_notice_when_no_retry(client):
@@ -172,6 +173,15 @@ def test_stream_has_no_notice_when_no_retry(client):
     assert done["retries"] == 0, "a clean compose must report zero retries"
     assert isinstance(done["seconds"], (int, float)) and done["seconds"] > 0, \
         "done must report the compose wall time even without retries"
+    assert _phases_ok(done["phases"]), "done must break the run into decompose/explain/logs"
+
+
+def _phases_ok(phases: dict) -> bool:
+    """The phases dict names the three round-trip groups with sane timings."""
+    return (isinstance(phases, dict)
+            and set(phases) == {"decompose", "explain", "logs"}
+            and all(isinstance(v, (int, float)) and v >= 0 for v in phases.values())
+            and phases["logs"] > 0)  # the simulated log stream always takes real time
 
 
 # --- request/response endpoints expose the retry count -----------------------

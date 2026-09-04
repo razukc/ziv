@@ -60,7 +60,8 @@ def _retry_stub(retries_by_call):
             ev({{type:"thinking", content:"parsing task", step:1, total:2}}) +
             ev({{type:"pipeline", content: pipe, pipeline_id: "pretry-" + calls}}) +
             ev({{type:"notice", retries, content: "auto-retried after a model blip"}}) +
-            ev({{type:"done", pipeline_id: "pretry-" + calls, seconds: 11.4, retries}});
+            ev({{type:"done", pipeline_id: "pretry-" + calls, seconds: 11.4, retries,
+                phases: {{decompose: 5.2, explain: 3.1, logs: 3.1}}}});
           return Promise.resolve(new Response(body, {{ status: 200, headers: {{ "Content-Type": "text/event-stream" }} }}));
         }}
         return origFetch(url, opts);
@@ -88,6 +89,8 @@ def test_retry_note_renders_for_1_and_3_retries():
         assert "compose took 11s" in text, text
         assert "auto-retried 1×" in text, f"retries=1 must read 'auto-retried 1×': {text}"
         assert "healed on its own" in text, text
+        assert "decompose 5s · explain 3s · logs 3s" in text, \
+            f"the per-phase breakdown must render: {text}"
 
         # --- Compose #2: the done event reports retries=3 ------------------
         page.get_by_role("button", name=">>> compose another").click()
@@ -100,3 +103,5 @@ def test_retry_note_renders_for_1_and_3_retries():
         print(f"compose#2 timing line: {text3.strip()}")
         assert "auto-retried 3×" in text3, f"retries=3 must read 'auto-retried 3×': {text3}"
         assert "healed on its own" in text3, text3
+        assert "decompose 5s · explain 3s · logs 3s" in text3, \
+            f"the per-phase breakdown must render after the second compose: {text3}"

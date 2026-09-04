@@ -29,6 +29,7 @@ import {
   readComposeStream,
   startComposeStream,
   validatePackageRemote,
+  type ComposePhases,
 } from "../lib/api";
 import type {
   AdaptationReport,
@@ -92,9 +93,14 @@ export default function Home() {
   const [validation, setValidation] = useState("");
   const [lastComposed, setLastComposed] = useState<{ task: string; robot: string } | null>(null);
   // Live composes auto-retry transient LLM blips server-side, and the done
-  // event reports the wall time; keep both so the results view can show
-  // "compose took Xs (auto-retried Nx)" instead of hiding latency/retries.
-  const [composeStats, setComposeStats] = useState<{ seconds: number; retries: number } | null>(null);
+  // event reports the wall time per phase; keep it all so the results view
+  // can show "compose took Xs (auto-retried Nx)" plus which round-trip
+  // dominated (decompose vs explain vs logs) instead of one opaque total.
+  const [composeStats, setComposeStats] = useState<{
+    seconds: number;
+    retries: number;
+    phases: ComposePhases;
+  } | null>(null);
   // Client-side ticking elapsed (seconds since compose start) while a live
   // compose is processing, so a slow call reads as slow, not stuck.
   const [liveTicking, setLiveTicking] = useState(0);
@@ -408,7 +414,7 @@ export default function Home() {
       setResult(final);
       setPhase("results");
       setAdaptation(report);
-      setComposeStats({ seconds: final.elapsedSeconds, retries: final.retries });
+      setComposeStats({ seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases });
       setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now(), adaptation: report ?? undefined }));
       scrollTo(resultsRef, 300);
     } catch (e) {
@@ -1015,10 +1021,15 @@ export default function Home() {
                 }}
               >
                 <span>{composeStats.retries > 0 ? "↻" : "⚡"}</span>
-                <span>
-                  compose took {Math.max(1, Math.round(composeStats.seconds))}s
-                  {composeStats.retries > 0 && ` (auto-retried ${composeStats.retries}×, healed on its own)`}
-                </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  <span>
+                    compose took {Math.max(1, Math.round(composeStats.seconds))}s
+                    {composeStats.retries > 0 && ` (auto-retried ${composeStats.retries}×, healed on its own)`}
+                  </span>
+                  <span style={{ color: "var(--text-faint)", fontSize: "10px" }}>
+                    decompose {Math.round(composeStats.phases.decompose)}s · explain {Math.round(composeStats.phases.explain)}s · logs {Math.round(composeStats.phases.logs)}s
+                  </span>
+                </div>
               </div>
             )}
 
