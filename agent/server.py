@@ -172,6 +172,11 @@ class TaskRequest(BaseModel):
     # decomposing from scratch. Inline only — callers send the displayed
     # pipeline, so no extra store round-trip is needed.
     seed_pipeline: Optional[dict] = None
+    # Opt out of the registry tools: None = the agent's measured auto-policy
+    # (fresh composes ground via registry lookups, seeded variations stay
+    # prompt-only and fast); False forces prompt-only everywhere; True forces
+    # grounding everywhere.
+    tools_enabled: Optional[bool] = None
 
 
 class PipelineRefRequest(TaskRequest):
@@ -310,7 +315,7 @@ def compose_pipeline(request: TaskRequest):
 
         pipeline, retries = _run_with_retries(
             a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline,
-            on_tool=_count_tool)
+            tools_enabled=request.tools_enabled, on_tool=_count_tool)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         explanation, more = _run_with_retries(a.explain_pipeline, pipeline)
@@ -341,7 +346,7 @@ def compose_pipeline_silent(request: TaskRequest):
 
         pipeline, retries = _run_with_retries(
             a.decompose_task, request.task, request.robot, seed_pipeline=request.seed_pipeline,
-            on_tool=_count_tool)
+            tools_enabled=request.tools_enabled, on_tool=_count_tool)
         _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         _record_compose("silent", time.monotonic() - t0, retries)
@@ -403,6 +408,7 @@ async def compose_pipeline_stream(request: TaskRequest):
             t_decompose = time.monotonic()
             pipeline = a.decompose_task(request.task, request.robot,
                                         seed_pipeline=request.seed_pipeline,
+                                        tools_enabled=request.tools_enabled,
                                         on_retry=_count_retry, on_tool=_count_tool)
             decompose_seconds = round(time.monotonic() - t_decompose, 1)
             # Surface the agent's registry lookups in the reasoning stream so

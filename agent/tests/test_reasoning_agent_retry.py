@@ -347,6 +347,33 @@ def test_compose_response_counts_retries_across_round_trips(client, monkeypatch)
     assert data["explanation"] == "an explanation"
 
 
+def test_compose_silent_respects_tools_enabled_opt_out(client, fake_agent):
+    """tools_enabled=False on the request reaches the agent and yields a
+    response with no registry lookups; the default (auto) keeps them."""
+    r = client.post("/api/compose/silent", json={
+        "task": "Pick up the red block", "robot": "unitree-g1",
+        "tools_enabled": False})
+    assert r.status_code == 200
+    assert r.json()["tool_calls"] == 0, "opt-out must skip registry lookups"
+    assert fake_agent.last_tools_enabled is False, "the flag must reach the agent"
+    # Default (auto) still grounds fresh composes through the fake's two calls.
+    r2 = client.post("/api/compose/silent", json={
+        "task": "Pick up the red block", "robot": "unitree-g1"})
+    assert r2.status_code == 200
+    assert r2.json()["tool_calls"] == 2
+    assert fake_agent.last_tools_enabled is None
+
+
+def test_stream_respects_tools_enabled_opt_out(client, fake_agent):
+    """The SSE compose forwards the opt-out: no tool lines, done tool_calls=0."""
+    r = client.post("/api/compose/stream", json={
+        "task": "Pick up the red block", "robot": "unitree-g1",
+        "tools_enabled": False})
+    assert r.status_code == 200
+    assert "queried get_skill" not in r.text, "opt-out must not surface tool lines"
+    assert '"tool_calls": 0' in r.text
+
+
 def test_compose_silent_response_counts_retries(client, monkeypatch):
     """POST /api/compose/silent reports how many times decompose retried."""
     _use_agent(monkeypatch, [None, None, json.dumps(_valid_pipeline())])

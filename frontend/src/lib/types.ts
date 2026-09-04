@@ -129,7 +129,14 @@ export interface HistoryItem {
   adaptation?: AdaptationReport | null;
   /** Live-only: wall time + retries of the compose that produced this entry,
    *  so a reopened slow pipeline still shows how long it took. */
-  composeStats?: { seconds: number; retries: number; phases: ComposePhases } | null;
+  composeStats?: {
+    seconds: number;
+    retries: number;
+    phases: ComposePhases;
+    /** Registry lookups the compose ran (absent on entries composed before
+     *  tool-use reporting; 0 = prompt-based). */
+    toolCalls?: number;
+  } | null;
   /** Verdict of the last simulation dry-run of this entry's pipeline, so a
    *  reopened pipeline shows its test result without re-running. */
   dryrun?: DryRunRecord | null;

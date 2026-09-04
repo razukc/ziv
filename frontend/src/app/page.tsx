@@ -116,6 +116,7 @@ export default function Home() {
     seconds: number;
     retries: number;
     phases: ComposePhases;
+    toolCalls?: number;
   } | null>(null);
   // Client-side ticking elapsed (seconds since compose start) while a live
   // compose is processing, so a slow call reads as slow, not stuck.
@@ -137,6 +138,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"analysis" | "json" | "thinking" | "logs">("analysis");
   const [copied, setCopied] = useState(false);
   const [mockMode, setMockMode] = useState(true);
+  // Registry grounding toggle (live mode only): when ON (default) the agent
+  // may verify skills via registry tool calls per its measured policy; when
+  // OFF every live compose runs prompt-only — faster, but no grounding.
+  const [grounded, setGrounded] = useState(true);
   // SSR renders dark; the layout bootstrap script already set <html data-theme>
   // before hydration, so the adopt effect below syncs state with zero flash.
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -450,7 +455,11 @@ export default function Home() {
     const timeout = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const res = await startComposeStream(task, robot, controller.signal, seed ?? null);
+      const res = await startComposeStream(task, robot, {
+        signal: controller.signal,
+        seed: seed ?? null,
+        useTools: grounded,
+      });
       clearTimeout(timeout);
 
       if (res.status === 429) throw new Error("rate limited — nebium api quota exceeded, try again in a few minutes");
@@ -477,7 +486,10 @@ export default function Home() {
       setResult(final);
       setPhase("results");
       setAdaptation(report);
-      setComposeStats({ seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases });
+      setComposeStats({
+        seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases,
+        toolCalls: final.toolCalls,
+      });
 
       // Moving slow-compose baseline: compare this compose against the
       // session's EARLIER live composes, then remember it for next time.
@@ -500,7 +512,10 @@ export default function Home() {
       setHistory(prev => upsertHistory(prev, {
         id: entryId, task, robot, kind: "live", pipelineId: final.pipelineId,
         result: final, timestamp: Date.now(), adaptation: report ?? undefined,
-        composeStats: { seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases },
+        composeStats: {
+          seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases,
+          toolCalls: final.toolCalls,
+        },
       }));
       scrollTo(resultsRef, 300);
     } catch (e) {
@@ -1018,6 +1033,33 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Registry-grounding toggle — live only; OFF skips the tools for speed */}
+                {!mockMode && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
+                    <span style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", letterSpacing: "0.5px" }}>// grounding</span>
+                    <button
+                      data-testid="grounding-toggle"
+                      aria-pressed={grounded}
+                      onClick={() => setGrounded(g => !g)}
+                      title={grounded
+                        ? "on — the compose agent may verify skills against the skill/robot registries (fresh composes); seeded variations stay prompt-only either way"
+                        : "off — every compose answers from the prompt: faster, but no registry verification"}
+                      style={{
+                        padding: "3px 10px", borderRadius: "4px", cursor: "pointer", fontFamily: "var(--font-mono)",
+                        fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px",
+                        background: grounded ? "var(--acc-soft)" : "none",
+                        border: `1px solid ${grounded ? "var(--acc)" : "var(--line)"}`,
+                        color: grounded ? "var(--acc)" : "var(--text-dim)",
+                      }}
+                    >
+                      {grounded ? "🔧 registry verification" : "prompt-only — faster"}
+                    </button>
+                    <span style={{ fontSize: "10px", color: "var(--text-faint-2)", fontFamily: "var(--font-mono)" }}>
+                      {grounded ? "fresh composes verify skills before choosing them" : "no registry tool calls — compose answers from the prompt"}
+                    </span>
+                  </div>
+                )}
+
                 {/* Frequent-retry hint — sits beside the compose-mode switch it refers to */}
                 {blipFrequent && <div style={{ marginBottom: "20px" }}>{blipHint}</div>}
                 {/* Slow-compose hint — same spot, after an anomalously slow run */}
@@ -1185,6 +1227,16 @@ export default function Home() {
                   <span style={{ color: "var(--text-faint)", fontSize: "10px" }}>
                     decompose {Math.round(composeStats.phases.decompose)}s · explain {Math.round(composeStats.phases.explain)}s · logs {Math.round(composeStats.phases.logs)}s
                   </span>
+                  {typeof composeStats.toolCalls === "number" && (
+                    <span
+                      data-testid="compose-grounding"
+                      style={{ color: composeStats.toolCalls > 0 ? "var(--acc)" : "var(--text-faint-2)", fontSize: "10px" }}
+                    >
+                      {composeStats.toolCalls > 0
+                        ? `🔧 verified via ${composeStats.toolCalls} registry lookup${composeStats.toolCalls === 1 ? "" : "s"}`
+                        : "prompt-based — no registry lookups"}
+                    </span>
+                  )}
                 </div>
               </div>
             )}

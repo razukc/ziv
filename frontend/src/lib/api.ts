@@ -84,15 +84,24 @@ export interface ComposeStreamResult extends ComposeResponse {
  *
  * ``seed`` is an existing pipeline the compose should adapt as a VARIATION
  * (reworded task / different robot) instead of decomposing from scratch.
+ * ``useTools`` (default true) reflects the compose box's grounding toggle:
+ * false opts out of registry verification entirely (``tools_enabled: false``
+ * on the wire); the true/auto case sends no field so the agent applies its
+ * measured policy (fresh composes ground, seeded variations stay fast).
  */
-export async function startComposeStream(task: string, robot: string, signal?: AbortSignal, seed?: Pipeline | null): Promise<Response> {
+export async function startComposeStream(
+  task: string,
+  robot: string,
+  opts?: { signal?: AbortSignal; seed?: Pipeline | null; useTools?: boolean },
+): Promise<Response> {
   const body: Record<string, unknown> = { task, robot };
-  if (seed) body.seed_pipeline = seed;
+  if (opts?.seed) body.seed_pipeline = opts.seed;
+  if (opts?.useTools === false) body.tools_enabled = false;
   return fetch("/api/compose/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal,
+    signal: opts?.signal,
   });
 }
 
