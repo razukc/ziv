@@ -49,6 +49,20 @@ import type {
 const HISTORY_KEY = "sf-history-v1";
 const HISTORY_CAP = 30;
 
+// Slow-compose detection: a live compose that beats the session's own recent
+// median compose time by this much (and clears this absolute floor) gets a
+// warn hint — the threshold MOVES with how long composes normally take here.
+const SLOW_COMPOSE_MIN_SECONDS = 12;
+const SLOW_COMPOSE_MULTIPLIER = 2;
+const COMPOSE_TIMES_CAP = 6;
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 // History entries are append-ordered (oldest first; the panel renders newest
 // first). Live entries are deduped by their Redis pipeline id so reopening the
 // same share link doesn't stack duplicates, and the list is capped so the
@@ -108,6 +122,13 @@ export default function Home() {
   // can warn when the model keeps blipping instead of treating each compose
   // as an isolated event.
   const [sessionRetries, setSessionRetries] = useState(0);
+  // Rolling wall times of recent live composes (sessionStorage-backed): the
+  // moving baseline the slow-compose hint compares against.
+  const [sessionTimes, setSessionTimes] = useState<number[]>([]);
+  // Set when the just-finished live compose beat the moving baseline by the
+  // SLOW_COMPOSE_MULTIPLIER — warns to retry or simplify, mirroring the
+  // frequent-blip hint.
+  const [slowNote, setSlowNote] = useState<{ seconds: number; baseline: number; ratio: number } | null>(null);
   // Seeded-variation provenance: why each step was kept/added/dropped versus
   // the plan it was composed from (set only when a variation lands).
   const [adaptation, setAdaptation] = useState<AdaptationReport | null>(null);
@@ -227,6 +248,24 @@ export default function Home() {
     } catch { /* storage unavailable */ }
   }, [sessionRetries]);
 
+  // Adopt the rolling compose-time history from sessionStorage (the moving
+  // baseline for the slow-compose hint) and keep it current.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("sf-session-compose-times");
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) setSessionTimes(parsed.filter(n => typeof n === "number"));
+      }
+    } catch { /* storage unavailable */ }
+  }, []);
+  useEffect(() => {
+    try {
+      if (sessionTimes.length > 0) sessionStorage.setItem("sf-session-compose-times", JSON.stringify(sessionTimes));
+      else sessionStorage.removeItem("sf-session-compose-times");
+    } catch { /* storage unavailable */ }
+  }, [sessionTimes]);
+
   // Tick a live elapsed readout while a live compose is processing so a slow
   // LLM round-trip reads as slow, not stuck (mock composes keep their own
   // animated progress, so no timer there).
@@ -252,6 +291,7 @@ export default function Home() {
         setResult(sharedResult);
         setPhase("results");
         setComposeStats(null);
+        setSlowNote(null);
         setAdaptation(null);
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
         setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
@@ -330,6 +370,7 @@ export default function Home() {
     setPipelineId("");
     setValidationReport(null);
     setComposeStats(null);
+    setSlowNote(null);
     setAdaptation(null);
     setEditMode(false);
     setDraft(null);
@@ -415,6 +456,23 @@ export default function Home() {
       setPhase("results");
       setAdaptation(report);
       setComposeStats({ seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases });
+
+      // Moving slow-compose baseline: compare this compose against the
+      // session's EARLIER live composes, then remember it for next time.
+      const secs = final.elapsedSeconds;
+      const prior = sessionTimes.slice(0, COMPOSE_TIMES_CAP - 1);
+      setSessionTimes(prev => [...prev, secs].slice(-COMPOSE_TIMES_CAP));
+      if (prior.length >= 2 && secs >= SLOW_COMPOSE_MIN_SECONDS) {
+        const base = median(prior);
+        if (base > 0 && secs >= SLOW_COMPOSE_MULTIPLIER * base) {
+          setSlowNote({ seconds: secs, baseline: Math.round(base), ratio: Math.round((secs / base) * 10) / 10 });
+        } else {
+          setSlowNote(null);
+        }
+      } else {
+        setSlowNote(null);
+      }
+
       setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now(), adaptation: report ?? undefined }));
       scrollTo(resultsRef, 300);
     } catch (e) {
@@ -507,6 +565,7 @@ export default function Home() {
     setExecutionLogs([]);
     setActiveTab("analysis");
     setComposeStats(null);
+    setSlowNote(null);
     setAdaptation(item.adaptation ?? null);
     setTask(item.task);
     setRobot(item.robot);
@@ -704,6 +763,32 @@ export default function Home() {
     </div>
   );
 
+  // A compose that beat the session's moving baseline by the slow multiplier
+  // gets its own warn note suggesting a retry or a simpler task.
+  const slowHintEl = slowNote ? (
+    <div
+      data-testid="slow-note"
+      className="fade-in-up"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "6px 12px",
+        background: "var(--warn-soft)",
+        border: "1px solid var(--warn-line)",
+        borderRadius: "4px",
+        fontSize: "10px",
+        color: "var(--warn)",
+        fontFamily: "var(--font-mono)",
+      }}
+    >
+      <span>⚠</span>
+      <span>
+        compose took {Math.round(slowNote.seconds)}s — {slowNote.ratio}× slower than your recent typical ({slowNote.baseline}s). retry, or simplify the task.
+      </span>
+    </div>
+  ) : null;
+
   const tabBtn = (tab: "analysis" | "json" | "thinking" | "logs", label: string, icon: string) => (
     <button
       onClick={() => setActiveTab(tab)}
@@ -840,9 +925,12 @@ export default function Home() {
                           title={m === "mock" ? "free demo — no backend or LLM calls" : "real API — composes with the live LLM and uses your Nebius credits"}
                           onClick={() => {
                             setMockMode(m === "mock");
-                            // Taking the suggestion: the blip tally is about
-                            // live mode, so a mock-mode switch clears it.
-                            if (m === "mock") setSessionRetries(0);
+                            // Taking the suggestion: both live-mode health
+                            // notes reset when mock mode is chosen.
+                            if (m === "mock") {
+                              setSessionRetries(0);
+                              setSlowNote(null);
+                            }
                           }}
                           style={{
                             padding: "4px 12px",
@@ -866,6 +954,8 @@ export default function Home() {
 
                 {/* Frequent-retry hint — sits beside the compose-mode switch it refers to */}
                 {blipFrequent && <div style={{ marginBottom: "20px" }}>{blipHint}</div>}
+                {/* Slow-compose hint — same spot, after an anomalously slow run */}
+                {slowNote && !mockMode && <div style={{ marginBottom: "20px" }}>{slowHintEl}</div>}
 
                 <div style={{ marginBottom: "20px" }}>
                   <div style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: "8px", letterSpacing: "0.5px" }}>// select_robot</div>
@@ -1035,6 +1125,8 @@ export default function Home() {
 
             {/* Session blip hint — mirrors the input-section nudge for results views */}
             {blipFrequent && processingVisible && <div style={{ marginBottom: "20px" }}>{blipHint}</div>}
+            {/* Slow-compose hint — mirrors the input-section note in results */}
+            {slowNote && processingVisible && !mockMode && <div style={{ marginBottom: "20px" }}>{slowHintEl}</div>}
 
             {/* Thinking process — comes first */}
             {thinkingSteps.length > 0 && (
