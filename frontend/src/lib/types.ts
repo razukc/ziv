@@ -73,6 +73,33 @@ export interface ExportedPackage {
   metadata: Record<string, unknown>;
 }
 
+/** One variation step, tagged with how the seed treated it. */
+export interface AdaptationEntry {
+  order: number;
+  name: string;
+  skill_id: string;
+  badge: "still-applies" | "reworded" | "new";
+  note: string;
+}
+
+/** An original-plan step the variation dropped, with the reason why. */
+export interface DroppedEntry {
+  order: number;
+  name: string;
+  skill_id: string;
+  reason: string;
+}
+
+/** Why a seeded variation differs from the plan it was composed from. */
+export interface AdaptationReport {
+  fromRobot: string;
+  toRobot: string;
+  /** Every step of the variation, with how it relates to the original. */
+  steps: AdaptationEntry[];
+  /** Original steps absent from the variation (computed from the seed). */
+  dropped: DroppedEntry[];
+}
+
 export type PipelineSource = "mock" | "live";
 
 export interface HistoryItem {
@@ -87,6 +114,9 @@ export interface HistoryItem {
   kind: PipelineSource;
   /** Redis-backed pipeline id for live entries (share link / re-export). */
   pipelineId?: string;
+  /** Variation provenance: how this pipeline was adapted from its seed, so
+   *  reopening the entry can show the adaptation notes again. */
+  adaptation?: AdaptationReport | null;
 }
 
 export type Tab = "analysis" | "json" | "thinking" | "logs";

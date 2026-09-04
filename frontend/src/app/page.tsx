@@ -6,8 +6,10 @@ import { StatBlock, MetaItem, ExportOption, ExportedFile } from "../components/u
 import SkillPanel from "../components/skill-panel";
 import PipelineTimeline from "../components/pipeline-timeline";
 import PlainSummary from "../components/plain-summary";
+import AdaptationCard from "../components/adaptation-card";
 import PipelineHistory from "../components/pipeline-history";
 import { validatePackageFiles } from "../lib/validation";
+import { diffAdaptation } from "../lib/adaptation";
 import {
   buildMockResult,
   computeProgress,
@@ -29,6 +31,7 @@ import {
   validatePackageRemote,
 } from "../lib/api";
 import type {
+  AdaptationReport,
   ComposeResponse,
   ExecutionLog,
   ExportedPackage,
@@ -91,6 +94,9 @@ export default function Home() {
   // Live composes auto-retry transient LLM blips server-side; keep the count
   // so the UI can show a small "auto-retried" note instead of hiding it.
   const [retryNote, setRetryNote] = useState<number | null>(null);
+  // Seeded-variation provenance: why each step was kept/added/dropped versus
+  // the plan it was composed from (set only when a variation lands).
+  const [adaptation, setAdaptation] = useState<AdaptationReport | null>(null);
   const [activeTab, setActiveTab] = useState<"analysis" | "json" | "thinking" | "logs">("analysis");
   const [copied, setCopied] = useState(false);
   const [mockMode, setMockMode] = useState(true);
@@ -209,6 +215,7 @@ export default function Home() {
         setResult(sharedResult);
         setPhase("results");
         setRetryNote(null);
+        setAdaptation(null);
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
         setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
         scrollTo(resultsRef, 300);
@@ -286,6 +293,7 @@ export default function Home() {
     setPipelineId("");
     setValidationReport(null);
     setRetryNote(null);
+    setAdaptation(null);
     setEditMode(false);
     setDraft(null);
     setEdited(false);
@@ -293,7 +301,7 @@ export default function Home() {
   };
 
 
-  const handleComposeMock = async (_seed?: Pipeline | null) => {
+  const handleComposeMock = async (seed?: Pipeline | null) => {
     const v = validateTask(task);
     if (v) { setValidation(v); return; }
     setValidation("");
@@ -317,10 +325,14 @@ export default function Home() {
     }
 
     const mockResult = getMockData();
+    // A seeded (variation) compose gets an adaptation report computed from
+    // the seed, persisted with the history entry so reopening keeps it.
+    const report = seed ? diffAdaptation(seed, mockResult.pipeline) : null;
     setPipelineId(mockPipelineId(robot));
     setResult(mockResult);
     setPhase("results");
-    setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "mock", result: mockResult, timestamp: Date.now() }));
+    setAdaptation(report);
+    setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "mock", result: mockResult, timestamp: Date.now(), adaptation: report ?? undefined }));
     scrollTo(resultsRef, 300);
   };
 
@@ -357,11 +369,13 @@ export default function Home() {
       });
 
       // Adopt the streamed result: pipeline id, shareable URL hash, history.
+      const report = seed ? diffAdaptation(seed, final.pipeline) : null;
       setPipelineId(final.pipelineId);
       window.history.replaceState(null, "", `#p=${final.pipelineId}`);
       setResult(final);
       setPhase("results");
-      setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now() }));
+      setAdaptation(report);
+      setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now(), adaptation: report ?? undefined }));
       scrollTo(resultsRef, 300);
     } catch (e) {
       clearTimeout(timeout);
@@ -453,6 +467,7 @@ export default function Home() {
     setExecutionLogs([]);
     setActiveTab("analysis");
     setRetryNote(null);
+    setAdaptation(item.adaptation ?? null);
     setTask(item.task);
     setRobot(item.robot);
     setLastComposed({ task: item.task, robot: item.robot });
@@ -1081,6 +1096,9 @@ export default function Home() {
 
                 {/* Plain-language explanation of the plan */}
                 <PlainSummary pipeline={displayPipeline!} />
+
+                {/* Adaptation notes — why a seeded variation kept/added/dropped each step */}
+                {adaptation && <AdaptationCard report={adaptation} />}
 
                 {/* Variation composer — seeds a new compose from the displayed plan */}
                 {variationOpen && (
