@@ -6,6 +6,27 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.16] — 2026-09-04 — dry-run verdicts on history cards
+
+Feature commit: `2098369` (persist the last simulation dry-run verdict so a
+reopened pipeline shows its test result without re-running).
+
+- **Dry-run verdict persistence** — every completed simulation dry-run is
+  recorded onto the history entry being displayed (scenario seed, compressed
+  elapsed time, per-step pass/fail verdicts). History cards gain a badge:
+  `🧪 pass · 14s · 0x0007` (green) or `🧪 fail · …` (red), with a tooltip
+  naming the pass count and seed.
+- **Instant restore on reopen** — reopening a pipeline and running sim
+  dry-run renders the stored verdict immediately ("last run · completed in
+  14s …") with the same seed chip, instead of replaying the ~14s run. The
+  stored view is only honored while it matches the current plan: if steps
+  were edited after the run, the stale record is discarded and the panel
+  auto-replays live, so a verdict can never be shown for a different plan.
+- **Tests** — browser E2E (9 total): the new dry-run persistence test
+  asserts the card badge appears after a run, reopening renders the stored
+  verdict within 3s with the "last run" framing and the same seed, and
+  replaying from the stored state reproduces the identical summary.
+
 ## [pre-v0.1.15] — 2026-09-04 — simulation dry-run panel
 
 Feature commit: `6b21fa4` (replay a pipeline step-by-step with simulated

@@ -52,6 +52,11 @@ actively working them.
       preflight scan, pause/replay/new-scenario). the honest scaffold that
       a real Isaac Sim execution can later plug into
       (`pre-v0.1.15`, 2026-09-04)
+- [x] **Dry-run verdicts on history cards** — completed runs persist their
+      seed/elapsed/verdicts onto the history entry, cards show a pass/fail
+      badge, and reopening renders the stored result instantly (stale
+      records auto-invalidate when the plan changed)
+      (`pre-v0.1.16`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error
