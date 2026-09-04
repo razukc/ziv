@@ -6,6 +6,36 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.5] — 2026-09-04 — robot capability gate
+
+Feature commit: `3253805` (gate every compose against the robot's anatomy).
+
+### Added
+- **Skills declare the anatomy they need** — every catalog skill now carries
+  `requires` (arm / legs / cameras); scene creation, data synthesis,
+  validation, and packaging work for any body, while GR00T and motion
+  planning require an arm, SONIC requires legs, and perception / world
+  models require cameras.
+- **Robot registry** — `robot_registry.py` profiles the robots the API
+  accepts (`unitree-g1` bipedal humanoid, `unitree-r1` compact legged,
+  `1x-neo` humanoid, `unitree-go2` quadruped) with their anatomy. Robot
+  strings are no longer free-form.
+- **Compose gate** — every LLM-composed pipeline (fresh or a seeded
+  variation) is validated against the *requested* robot before it is
+  stored: a plan that asks an armless robot to train arm skills is
+  rejected with a clear 422 naming the offending steps, instead of the
+  model's output being trusted. Unregistered robot slugs fail before any
+  LLM call. The SSE stream surfaces rejections as an error event; nothing
+  incompatible is ever stored.
+- **Tests** — 12 new hermetic tests: registry consistency, mock-pipeline
+  compatibility, arm/legs/camera requirement logic, unknown-robot
+  messaging, and API-level 422s on compose/silent plus the SSE error
+  event. Suite counts: 68 hermetic, 4 browser E2E.
+
+### Fixed
+- `test_compose.py`'s stream-variation test targeted `unitree-r1` with an
+  arm-skill seed — now correctly a humanoid (`1x-neo`) under the gate.
+
 ## [pre-v0.1.4] — 2026-09-04 — visible auto-retry
 
 Feature commit: `b0b7e5a` (surface auto-retried live composes in the UI).
