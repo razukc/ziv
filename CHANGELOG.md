@@ -6,6 +6,30 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.6] — 2026-09-04 — quadruped-class skills
+
+Feature commit: `9cc9303` (add quadruped-class skills).
+
+### Added
+- **`legged-manipulation`** (Isaac Lab / Isaac Sim, ~$1.20) — push, carry,
+  and reposition objects with the body and legs; no arm required
+  (requires legs + cameras).
+- **`terrain-adaptation`** (SONIC / Isaac Lab, ~$1.00) — gaits and recovery
+  that adapt to rough, slippery, or uneven ground (requires legs).
+- Both skills carry anatomy tags, so they pass the capability gate for
+  Go2-class and other legs-only robots (which previously had no way to
+  interact with objects or plan for rough ground), and the catalog grows to
+  11 skills — surfaced automatically in the skill browser and the LLM
+  prompt. `get_skills_for_task_type` mappings updated to match.
+- **Plain-words coverage** — everyday sentences for both ids, plus keyword
+  rules ordered so body-level "push / carry / legged" phrasing beats the
+  generic arm-handling rule and terrain/rough-slip phrasing beats the
+  locomotion catch-all (with a word-boundary so "through" can't trigger
+  "rough").
+- **Tests** — catalog-list test now asserts 11 skills incl. both new ids;
+  gate tests prove the new skills are legal for go2/r1 and that legged
+  manipulation still needs legs. Suite counts: 70 hermetic, 4 browser E2E.
+
 ## [pre-v0.1.5] — 2026-09-04 — robot capability gate
 
 Feature commit: `3253805` (gate every compose against the robot's anatomy).

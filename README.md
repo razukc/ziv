@@ -9,7 +9,7 @@
 ## Features
 
 - **Natural language input** — Describe robot tasks in plain English
-- **9 NVIDIA skills** — Scene creation, synthetic data, GR00T N1, SONIC, Cosmos, perception, motion planning, validation, deployment
+- **11 NVIDIA skills** — Scene creation, synthetic data, GR00T N1, SONIC, Cosmos, perception, motion planning, validation, deployment, legged manipulation, terrain adaptation
 - **Robot profiles + capability gate** — Unitree G1 (manipulation), Unitree R1 (locomotion), 1X NEO (navigation), and Go2-class quadrupeds; skills declare the anatomy they need (arm/legs/cameras) and every compose is validated against the robot's body instead of trusting the model
 - **Cost estimation** — Per-step and total pipeline costs
 - **AI reasoning** — Streaming thinking process shows how Nemotron decomposes tasks
@@ -18,7 +18,7 @@
 - **Pipeline editing** — Reorder, swap, or remove steps and re-export without an LLM call
 - **Create variation** — Reword the task or switch robots and compose a NEW pipeline adapted from the current one
 - **Pipeline history** — Composed pipelines persist across reloads (localStorage for mock, Redis ids for live); reopen any one to tweak and re-export, or compare side-by-side
-- **Skill browser** — Explore the 9 NVIDIA skills with metadata
+- **Skill browser** — Explore the 11 NVIDIA skills with metadata
 - **Mock mode** — Full demo without backend (switch in the compose box)
 - **Responsive design** — Works on desktop, tablet, and mobile
 - **Error handling** — Validation, timeouts, rate limits, retry logic
@@ -80,14 +80,14 @@ SkillForge is an AI agent that turns plain-English robot task descriptions into 
 |-------|-----------|
 | **AI Model** | NVIDIA Nemotron 3 Nano 30B-A3B |
 | **Inference** | Nebius Token Factory |
-| **Skill Catalog** | 9 NVIDIA agent-ready skills (Omniverse, GR00T N1, SONIC, Cosmos, Tao, cuMotion, ROS2) |
+| **Skill Catalog** | 11 NVIDIA agent-ready skills (Omniverse, GR00T N1, SONIC, Cosmos, Tao, cuMotion, Isaac Lab, ROS2) |
 | **Backend** | Python · FastAPI · Uvicorn |
 | **Frontend** | Next.js 15 · React 19 · TypeScript |
 | **Cost Tracking** | Built-in per-skill cost estimation |
 
 ---
 
-## The 9 NVIDIA Skills
+## The 11 NVIDIA Skills
 
 | Skill | Product | GPU | Est. Cost | Description |
 |-------|---------|-----|-----------|-------------|
@@ -100,6 +100,8 @@ SkillForge is an AI agent that turns plain-English robot task descriptions into 
 | `motion-generation` | SONIC / cuMotion | ❌ | $0.10 | Collision-free motion planning |
 | `perception-training` | Tao Toolkit | ✅ | $0.40 | Train object detection for robot vision |
 | `world-model-generation` | Cosmos | ✅ | $0.25 | Physics-grounded video predictions |
+| `legged-manipulation` | Isaac Lab / Isaac Sim | ✅ | $1.20 | Push, carry, and reposition objects with the body and legs — no arm needed (Go2-class robots) |
+| `terrain-adaptation` | SONIC / Isaac Lab | ✅ | $1.00 | Gaits and recovery that adapt to rough, slippery, or uneven ground |
 
 ---
 
@@ -194,7 +196,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-68 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
+70 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
 
 Plus four live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free; the fourth composes a seeded variation (reworded task) and verifies it lands as a new history entry. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
 
@@ -220,7 +222,7 @@ Plus four live browser E2E tests (`pytest -m e2e`): one opens a real share link 
 |--------|----------|-------------|
 | `GET` | `/api/health` | Health check + pipeline-store backend diagnostics (redis/memory, entry count, Redis connectivity) |
 | `GET` | `/api/health/ready` | Readiness probe: 503 when Redis is configured but unreachable, else 200 |
-| `GET` | `/api/skills` | List all 9 NVIDIA skills |
+| `GET` | `/api/skills` | List all 11 NVIDIA skills |
 | `GET` | `/api/skills/{id}` | Get skill details |
 | `GET` | `/api/skills/search/{q}` | Search skills by keyword |
 | `POST` | `/api/compose` | Decompose task into pipeline + explanation |

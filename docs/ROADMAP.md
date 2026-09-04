@@ -28,6 +28,9 @@ actively working them.
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error
       (`pre-v0.1.5`, 2026-09-04)
+- [x] **Quadruped-class skills** — legged manipulation + terrain adaptation
+      so Go2-style robots get plans that interact with objects and handle
+      rough ground (`pre-v0.1.6`, 2026-09-04)
 - [ ] **Resume failed live composes** — keep partial thinking/logs on screen
       after a fully failed or timed-out live call and offer a one-click retry
       that reuses them instead of wiping state (server-side auto-retry
