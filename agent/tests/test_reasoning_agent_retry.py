@@ -135,8 +135,17 @@ def test_on_retry_not_called_when_all_attempts_fail(monkeypatch):
     assert reported == [1, 2], "only healed attempts are retried; the last failure raises"
 
 
+def _done_event(text: str) -> dict:
+    """Parse the done SSE event out of a stream body."""
+    for line in text.splitlines():
+        if line.startswith("data: ") and '"type": "done"' in line:
+            return json.loads(line[6:])
+    raise AssertionError("no done event in stream")
+
+
 def test_stream_emits_notice_when_compose_had_to_retry(client, monkeypatch):
-    """A compose that heals via retry surfaces a notice SSE event."""
+    """A compose that heals via retry surfaces a notice SSE event, and the
+    done event reports the retry count and the wall time."""
     import server
     agent, _ = _stub_agent([None, json.dumps(_valid_pipeline()), "a recovered explanation"])
     monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
@@ -146,12 +155,20 @@ def test_stream_emits_notice_when_compose_had_to_retry(client, monkeypatch):
     assert r.status_code == 200
     assert '"type": "notice"' in r.text, "stream must tell the UI about the healed retry"
     assert '"retries": 1' in r.text
-    assert '"type": "done"' in r.text, "the retried compose still completes"
+    done = _done_event(r.text)
+    assert done["retries"] == 1, "done must carry the retry count"
+    assert isinstance(done["seconds"], (int, float)) and done["seconds"] > 0, \
+        "done must report the compose wall time"
 
 
 def test_stream_has_no_notice_when_no_retry(client):
-    """Clean composes carry no notice event (fake agent never retries)."""
+    """Clean composes carry no notice event (fake agent never retries); the
+    done event still reports seconds with retries=0."""
     r = client.post("/api/compose/stream",
                     json={"task": "Pick up the red block", "robot": "unitree-g1"})
     assert r.status_code == 200
     assert '"type": "notice"' not in r.text
+    done = _done_event(r.text)
+    assert done["retries"] == 0, "a clean compose must report zero retries"
+    assert isinstance(done["seconds"], (int, float)) and done["seconds"] > 0, \
+        "done must report the compose wall time even without retries"

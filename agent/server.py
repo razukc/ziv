@@ -272,6 +272,10 @@ async def compose_pipeline_stream(request: TaskRequest):
     Events: thinking, pipeline, explanation, log, error, done.
     """
     async def event_generator():
+        # Wall clock for the whole compose so the done event can report
+        # "compose took Xs" — a slow LLM round-trip then reads as slow
+        # instead of stuck, and retried backoff is included in the time.
+        t0 = time.monotonic()
         try:
             # Reject unregistered robots before spending an LLM call.
             if get_robot(request.robot) is None:
@@ -340,10 +344,13 @@ async def compose_pipeline_stream(request: TaskRequest):
                 yield f"data: {json.dumps({'type': 'log', 'content': f'{subtask['name']} complete', 'status': 'completed', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
                 await asyncio.sleep(0.2)
 
-            # Phase 6: Done (with a heads-up when the compose had to retry)
+            # Phase 6: Done — the total wall time (LLM round-trips + retry
+            # backoff + streaming) so the UI can show "compose took Xs", and
+            # the retry count for the "(auto-retried Nx)" disclosure.
             if retries:
                 yield f"data: {json.dumps({'type': 'notice', 'retries': retries, 'content': 'auto-retried after a model blip'})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd']})}\n\n"
+            seconds = round(time.monotonic() - t0, 1)
+            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"

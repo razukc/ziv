@@ -66,6 +66,10 @@ export interface ComposeStreamHandlers {
 
 export interface ComposeStreamResult extends ComposeResponse {
   pipelineId: string;
+  /** Wall time of the whole compose (LLM round-trips + retries + streaming), from the done event. */
+  elapsedSeconds: number;
+  /** How many LLM round-trips had to be retried during this compose. */
+  retries: number;
 }
 
 /**
@@ -99,6 +103,8 @@ export async function readComposeStream(
   let pipeline: Pipeline | null = null;
   let explanation = "";
   let pipelineId = "";
+  let elapsedSeconds = 0;
+  let retries = 0;
   const onPipeline = handlers.onPipeline;
   const onLog = handlers.onLog;
   const onThinking = handlers.onThinking;
@@ -158,12 +164,14 @@ export async function readComposeStream(
           throw new Error(String(event.content || "pipeline failed"));
         case "done":
           if (typeof event.pipeline_id === "string") pipelineId = event.pipeline_id;
+          if (typeof event.seconds === "number") elapsedSeconds = event.seconds;
+          if (typeof event.retries === "number") retries = event.retries;
           if (!pipeline) throw new Error("stream ended without pipeline data");
-          return { pipeline, explanation, pipelineId };
+          return { pipeline, explanation, pipelineId, elapsedSeconds, retries };
       }
     }
   }
   if (!pipeline) throw new Error("stream ended without pipeline data");
-  return { pipeline, explanation, pipelineId };
+  return { pipeline, explanation, pipelineId, elapsedSeconds, retries };
 
 }

@@ -91,9 +91,13 @@ export default function Home() {
   const [error, setError] = useState("");
   const [validation, setValidation] = useState("");
   const [lastComposed, setLastComposed] = useState<{ task: string; robot: string } | null>(null);
-  // Live composes auto-retry transient LLM blips server-side; keep the count
-  // so the UI can show a small "auto-retried" note instead of hiding it.
-  const [retryNote, setRetryNote] = useState<number | null>(null);
+  // Live composes auto-retry transient LLM blips server-side, and the done
+  // event reports the wall time; keep both so the results view can show
+  // "compose took Xs (auto-retried Nx)" instead of hiding latency/retries.
+  const [composeStats, setComposeStats] = useState<{ seconds: number; retries: number } | null>(null);
+  // Client-side ticking elapsed (seconds since compose start) while a live
+  // compose is processing, so a slow call reads as slow, not stuck.
+  const [liveTicking, setLiveTicking] = useState(0);
   // Session-wide auto-retry tally (survives reloads within the tab) so the UI
   // can warn when the model keeps blipping instead of treating each compose
   // as an isolated event.
@@ -217,6 +221,15 @@ export default function Home() {
     } catch { /* storage unavailable */ }
   }, [sessionRetries]);
 
+  // Tick a live elapsed readout while a live compose is processing so a slow
+  // LLM round-trip reads as slow, not stuck (mock composes keep their own
+  // animated progress, so no timer there).
+  useEffect(() => {
+    if (!(phase === "processing" && !mockMode)) return;
+    const id = window.setInterval(() => setLiveTicking(t => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [phase, mockMode]);
+
   // Restore a shared pipeline from the URL hash (e.g. /#p=paba41a1eac).
   // The pipeline is fetched from the backend session store by id.
   useEffect(() => {
@@ -232,7 +245,7 @@ export default function Home() {
         setRobot(p.robot || "unitree-g1");
         setResult(sharedResult);
         setPhase("results");
-        setRetryNote(null);
+        setComposeStats(null);
         setAdaptation(null);
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
         setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
@@ -310,7 +323,7 @@ export default function Home() {
     setActiveTab("analysis");
     setPipelineId("");
     setValidationReport(null);
-    setRetryNote(null);
+    setComposeStats(null);
     setAdaptation(null);
     setEditMode(false);
     setDraft(null);
@@ -360,6 +373,7 @@ export default function Home() {
     setValidation("");
     resetState();
     setPhase("processing");
+    setLiveTicking(0);
     setLastComposed({ task, robot });
     scrollTo(processingRef, 200);
 
@@ -383,19 +397,18 @@ export default function Home() {
         },
         onExplanation: text => setResult(prev => (prev ? { ...prev, explanation: text } : prev)),
         onLog: log => setExecutionLogs(prev => [...prev, { ...log, timestamp: Date.now() }]),
-        onNotice: n => {
-          setRetryNote(n);
-          setSessionRetries(prev => prev + n);
-        },
+    onNotice: n => setSessionRetries(prev => prev + n),
       });
 
-      // Adopt the streamed result: pipeline id, shareable URL hash, history.
+      // Adopt the streamed result: pipeline id, shareable URL hash, history,
+      // and the done event's wall-time + retry disclosure for the timing line.
       const report = seed ? diffAdaptation(seed, final.pipeline) : null;
       setPipelineId(final.pipelineId);
       window.history.replaceState(null, "", `#p=${final.pipelineId}`);
       setResult(final);
       setPhase("results");
       setAdaptation(report);
+      setComposeStats({ seconds: final.elapsedSeconds, retries: final.retries });
       setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now(), adaptation: report ?? undefined }));
       scrollTo(resultsRef, 300);
     } catch (e) {
@@ -487,7 +500,7 @@ export default function Home() {
     setThinkingSteps([]);
     setExecutionLogs([]);
     setActiveTab("analysis");
-    setRetryNote(null);
+    setComposeStats(null);
     setAdaptation(item.adaptation ?? null);
     setTask(item.task);
     setRobot(item.robot);
@@ -957,28 +970,54 @@ export default function Home() {
               )}
             </div>
 
-            {/* Auto-retry note — a live compose healed after a transient blip */}
-            {retryNote !== null && (
+            {/* Live run timing — a ticking elapsed while processing, then the
+                "compose took Xs" line from the done event once complete. A
+                slow LLM round-trip reads as slow instead of stuck, and a
+                retried compose carries its disclosure here. */}
+            {!mockMode && phase === "processing" && (
               <div
-                data-testid="retry-note"
+                data-testid="compose-ticking"
                 className="fade-in-up"
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
                   padding: "6px 12px",
-                  background: "var(--warn-soft)",
-                  border: "1px solid var(--warn-line)",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--line)",
                   borderRadius: "4px",
                   marginBottom: "20px",
                   fontSize: "10px",
-                  color: "var(--warn)",
+                  color: "var(--text-dim)",
                   fontFamily: "var(--font-mono)",
                 }}
               >
-                <span>↻</span>
+                <span style={{ color: "var(--acc)" }}>⏱</span>
+                <span>compose running — {liveTicking}s elapsed</span>
+              </div>
+            )}
+            {!mockMode && phase === "results" && composeStats && (
+              <div
+                data-testid="compose-timing"
+                className="fade-in-up"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "6px 12px",
+                  background: composeStats.retries > 0 ? "var(--warn-soft)" : "var(--bg-card)",
+                  border: `1px solid ${composeStats.retries > 0 ? "var(--warn-line)" : "var(--line)"}`,
+                  borderRadius: "4px",
+                  marginBottom: "20px",
+                  fontSize: "10px",
+                  color: composeStats.retries > 0 ? "var(--warn)" : "var(--text-dim)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                <span>{composeStats.retries > 0 ? "↻" : "⚡"}</span>
                 <span>
-                  model hiccup — auto-retried {retryNote === 1 ? "once" : `${retryNote} times`}, compose healed on its own
+                  compose took {Math.max(1, Math.round(composeStats.seconds))}s
+                  {composeStats.retries > 0 && ` (auto-retried ${composeStats.retries}×, healed on its own)`}
                 </span>
               </div>
             )}
