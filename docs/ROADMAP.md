@@ -33,6 +33,9 @@ actively working them.
 - [x] **Retry counts on request/response endpoints** — compose, compose/silent,
       and improve carry `retries` so non-stream API clients and live_check
       reports see healed LLM blips too (`pre-v0.1.10`, 2026-09-04)
+- [x] **Per-phase compose timing** — the done event breaks the run into
+      decompose / explain / logs wall times and the results view shows the
+      breakdown under the total (`pre-v0.1.11`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

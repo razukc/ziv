@@ -6,6 +6,28 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.11] — 2026-09-04 — per-phase compose timing
+
+Feature commit: `62f8c9c` (break compose timing into decompose/explain/logs
+phases).
+
+### Added
+- **Per-phase wall times on the done event** — the SSE compose stream times
+  each round-trip group separately and the `done` event carries
+  `phases: {decompose, explain, logs}` (seconds, each including its own
+  retry backoff; `logs` is the simulated execution stream). The whole-run
+  `seconds` total is unchanged.
+- **Breakdown in the results view** — the compose-timing strip now shows a
+  second, fainter line under the total: "decompose 19s · explain 5s · logs
+  7s" — users see that the model round-trips (not the UI) dominate instead
+  of one opaque number.
+- **Tests** — the clean and retried compose-stream hermetic tests assert the
+  done event's `phases` dict names exactly the three keys with `logs > 0`
+  (the simulated stream always takes real time); the retry-note browser E2E
+  stub now carries phases and asserts the breakdown line renders for both
+  the retries=1 and retries=3 composes. Suite counts unchanged: 74 hermetic,
+  6 browser E2E.
+
 ## [pre-v0.1.10] — 2026-09-04 — retry counts on request/response endpoints
 
 Feature commit: `72804ed` (report auto-retry counts on

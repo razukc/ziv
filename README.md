@@ -23,7 +23,7 @@
 - **Responsive design** — Works on desktop, tablet, and mobile
 - **Error handling** — Validation, timeouts, rate limits, retry logic
 - **Auto-retry awareness** — healed LLM blips are counted per session, and once the model has auto-retried 3+ times the UI suggests mock mode or a simpler task
-- **Latency visibility** — live composes tick a running elapsed while processing and finish with a "compose took Xs (auto-retried N×)" line, so slow LLM round-trips read as slow, not stuck
+- **Latency visibility** — live composes tick a running elapsed while processing and finish with a "compose took Xs (auto-retried N×)" line plus a per-phase breakdown (decompose · explain · logs), so slow LLM round-trips read as slow, not stuck, and you can see which step dominates
 
 ---
 
