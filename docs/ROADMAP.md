@@ -46,6 +46,12 @@ actively working them.
 - [x] **Compose time on history cards** — live entries persist their compose
       stats, cards show "⏱ 11s · retried 1×", and reopening restores the
       timing disclosure (`pre-v0.1.14`, 2026-09-04)
+- [x] **Simulation dry-run panel** — replay any composed pipeline
+      step-by-step with real pacing and seeded pass/fail against skill
+      metadata (deterministic structural checks + seeded execution risk,
+      preflight scan, pause/replay/new-scenario). the honest scaffold that
+      a real Isaac Sim execution can later plug into
+      (`pre-v0.1.15`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

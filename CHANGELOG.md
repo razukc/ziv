@@ -6,6 +6,33 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.15] — 2026-09-04 — simulation dry-run panel
+
+Feature commit: `6b21fa4` (replay a pipeline step-by-step with simulated
+pass/fail against skill metadata).
+
+### Added
+- **Simulation dry-run** — the results view gains a "▶ sim dry-run" action
+  next to edit/variation that replays the composed pipeline step-by-step
+  with real wall-clock pacing and per-step verdicts derived from skill
+  metadata. Structural checks (robot anatomy vs skill requirements; step
+  ordering — validation or deployment before any training step, data
+  generated after training already started, deployment not last) fail
+  deterministically; every remaining step carries a small seeded execution
+  risk (training can diverge, validation can fall short). Same plan + same
+  seed = same outcome; "🎲 new scenario" rerolls the execution risk.
+- **Honest framing** — the panel header states it is a metadata replay, not
+  Isaac Sim; a preflight scan announces structural issues before the replay
+  starts; the run halts at the first failing step and only executed steps
+  charge cost; the seed chip makes results reproducible.
+- **Replay controls** — pause/resume freezes the real clock mid-step, replay
+  re-runs the identical scenario, and closing/reopening rolls a fresh seed.
+- **Tests** — new browser E2E composes a mock pipeline, asserts the replay
+  completes with verdict chips, pause freezes the elapsed clock, a same-seed
+  replay reproduces the identical summary, and an edit that moves
+  policy-validation ahead of every training step halts the replay at step 1
+  with the structural reason. Suite counts: 77 hermetic, 8 browser E2E.
+
 ## [pre-v0.1.14] — 2026-09-04 — compose time on history cards
 
 Feature commit: `bd6db86` (surface compose wall time on live history cards).
