@@ -92,6 +92,23 @@ def test_retry_note_renders_for_1_and_3_retries():
         assert "decompose 5s · explain 3s · logs 3s" in text, \
             f"the per-phase breakdown must render: {text}"
 
+        # The newest history card (a live entry) carries the compose wall time.
+        badge = page.locator('[data-testid="history-compose-time"]').first
+        badge.wait_for(timeout=5000)
+        badge_text = badge.inner_text()
+        print(f"history badge #1: {badge_text.strip()}")
+        assert "11s" in badge_text and "retried 1×" in badge_text, badge_text
+
+        # Reopening that live card must restore the compose-time disclosure:
+        # a user coming back to a slow pipeline still sees how long it took.
+        page.get_by_role("button", name="↪ open in editor").first.click()
+        timing_reopened = page.locator('[data-testid="compose-timing"]')
+        timing_reopened.wait_for(timeout=10000)
+        reopened_text = timing_reopened.inner_text()
+        print(f"timing after reopen: {reopened_text.strip()}")
+        assert "compose took 11s" in reopened_text, reopened_text
+        assert "auto-retried 1×" in reopened_text, reopened_text
+
         # --- Compose #2: the done event reports retries=3 ------------------
         page.get_by_role("button", name=">>> compose another").click()
         page.locator("textarea").fill("Wipe the kitchen counter clean")
@@ -105,3 +122,9 @@ def test_retry_note_renders_for_1_and_3_retries():
         assert "healed on its own" in text3, text3
         assert "decompose 5s · explain 3s · logs 3s" in text3, \
             f"the per-phase breakdown must render after the second compose: {text3}"
+
+        # The newest card reflects the second compose's retry count.
+        badge3 = page.locator('[data-testid="history-compose-time"]').first
+        badge3_text = badge3.inner_text()
+        print(f"history badge #2: {badge3_text.strip()}")
+        assert "11s" in badge3_text and "retried 3×" in badge3_text, badge3_text

@@ -25,6 +25,16 @@ export interface ComposeResponse {
   explanation: string;
 }
 
+/** Per-phase wall times of a live compose, from the stream's done event. */
+export interface ComposePhases {
+  /** Wall time of the decompose LLM round-trip (incl. its retry backoff). */
+  decompose: number;
+  /** Wall time of the explanation LLM round-trip (incl. its retry backoff). */
+  explain: number;
+  /** Wall time of the (simulated) execution-log stream. */
+  logs: number;
+}
+
 export interface ThinkingStep {
   content: string;
   step: number;
@@ -117,6 +127,9 @@ export interface HistoryItem {
   /** Variation provenance: how this pipeline was adapted from its seed, so
    *  reopening the entry can show the adaptation notes again. */
   adaptation?: AdaptationReport | null;
+  /** Live-only: wall time + retries of the compose that produced this entry,
+   *  so a reopened slow pipeline still shows how long it took. */
+  composeStats?: { seconds: number; retries: number; phases: ComposePhases } | null;
 }
 
 export type Tab = "analysis" | "json" | "thinking" | "logs";

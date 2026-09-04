@@ -29,10 +29,10 @@ import {
   readComposeStream,
   startComposeStream,
   validatePackageRemote,
-  type ComposePhases,
 } from "../lib/api";
 import type {
   AdaptationReport,
+  ComposePhases,
   ComposeResponse,
   ExecutionLog,
   ExportedPackage,
@@ -473,7 +473,11 @@ export default function Home() {
         setSlowNote(null);
       }
 
-      setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId, result: final, timestamp: Date.now(), adaptation: report ?? undefined }));
+      setHistory(prev => upsertHistory(prev, {
+        id: `h-${Date.now()}`, task, robot, kind: "live", pipelineId: final.pipelineId,
+        result: final, timestamp: Date.now(), adaptation: report ?? undefined,
+        composeStats: { seconds: final.elapsedSeconds, retries: final.retries, phases: final.phases },
+      }));
       scrollTo(resultsRef, 300);
     } catch (e) {
       clearTimeout(timeout);
@@ -590,6 +594,9 @@ export default function Home() {
     setEditMode(false);
     setResult(adopted);
     setPipelineId(pid);
+    // Restore the compose-time disclosure so reopening a slow live pipeline
+    // still shows how long its compose took (live entries keep the stats).
+    setComposeStats(item.composeStats ?? null);
     setPhase("results");
     window.history.replaceState(null, "", pid ? `#p=${pid}` : window.location.pathname);
     scrollTo(resultsRef, 300);
@@ -1092,7 +1099,7 @@ export default function Home() {
                 <span>compose running — {liveTicking}s elapsed</span>
               </div>
             )}
-            {!mockMode && phase === "results" && composeStats && (
+            {phase === "results" && composeStats && (
               <div
                 data-testid="compose-timing"
                 className="fade-in-up"

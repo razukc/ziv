@@ -87,6 +87,16 @@ export default function PipelineHistory({
                   <span>{item.result.pipeline.subtasks.length} steps</span>
                   <span style={{ color: "var(--acc)" }}>${item.result.pipeline.total_estimated_cost_usd.toFixed(2)}</span>
                   <span style={{ color: item.result.pipeline.risk_assessment === "low" ? "var(--acc)" : "var(--warn)" }}>{item.result.pipeline.risk_assessment}</span>
+                  {item.composeStats && (
+                    <span
+                      data-testid="history-compose-time"
+                      title={`compose took ${Math.max(1, Math.round(item.composeStats.seconds))}s${item.composeStats.retries > 0 ? ` — auto-retried ${item.composeStats.retries}×, healed on its own` : ""}`}
+                      style={{ color: item.composeStats.retries > 0 ? "var(--warn)" : "var(--text-faint)" }}
+                    >
+                      ⏱ {Math.max(1, Math.round(item.composeStats.seconds))}s
+                      {item.composeStats.retries > 0 && ` · retried ${item.composeStats.retries}×`}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: "4px" }}>
                   {new Date(item.timestamp).toLocaleTimeString()}

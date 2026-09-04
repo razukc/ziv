@@ -2,6 +2,7 @@
 // stream. All requests go through the Next.js dev proxy (/api/* -> :8000).
 
 import type {
+  ComposePhases,
   ComposeResponse,
   ExecutionLog,
   ExportedPackage,
@@ -62,15 +63,6 @@ export interface ComposeStreamHandlers {
   onLog?: (log: Pick<ExecutionLog, "content" | "status" | "step" | "total" | "skill_id">) => void;
   /** A live compose had to auto-retry an LLM round-trip (transient blip that healed). */
   onNotice?: (retries: number) => void;
-}
-
-export interface ComposePhases {
-  /** Wall time of the decompose LLM round-trip (incl. its retry backoff). */
-  decompose: number;
-  /** Wall time of the explanation LLM round-trip (incl. its retry backoff). */
-  explain: number;
-  /** Wall time of the (simulated) execution-log stream. */
-  logs: number;
 }
 
 export interface ComposeStreamResult extends ComposeResponse {
