@@ -39,7 +39,7 @@ class ReasoningAgent:
         return "\n".join(lines)
 
     def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None,
-                       on_retry=None, on_tool=None, max_tool_rounds=12, tools_enabled=True):
+                       on_retry=None, on_tool=None, max_tool_rounds=12, tools_enabled=None):
         """
         Given a natural language task description, decompose it into
         subtasks and select the appropriate NVIDIA skills for each.
@@ -58,8 +58,14 @@ class ReasoningAgent:
         grounding work (the catalog is also embedded in the prompt, so
         providers that reject tool definitions degrade to prompt-only).
 
-        ``tools_enabled=False`` runs the classic prompt-only path (no tool
-        schemas sent) — used for A/B measurement of grounding vs memory.
+        ``tools_enabled`` overrides the default: None (the normal case) means
+        AUTO — fresh decomposes offer the registry tools, but seeded
+        VARIATIONS skip them. Live A/B measured that seeded form-factor
+        crossings never trip the capability gate with or without tools
+        (0/12), while tool rounds cost ~3x latency there; the seed plan plus
+        the variation rules already constrain skill selection, so seeded
+        runs stay fast and only fresh decomposes pay the grounding cost.
+        ``True``/``False`` force the path (used for A/B measurement).
         """
         system_prompt = f"""You are SkillForge, an AI agent that composes robot skill pipelines.
 
@@ -126,6 +132,7 @@ Rules:
                 "JSON structure with skills ONLY from the catalog above."
             )
 
+        use_tools = seed_pipeline is None if tools_enabled is None else tools_enabled
         pipeline = self._complete(
             [
                 {"role": "system", "content": system_prompt},
@@ -138,8 +145,8 @@ Rules:
             max_tokens=4000,
             parse=self._extract_pipeline_json,
             on_retry=on_retry,
-            tools=registry_tools.TOOL_SCHEMAS if tools_enabled else None,
-            execute_tool=registry_tools.execute_tool if tools_enabled else None,
+            tools=registry_tools.TOOL_SCHEMAS if use_tools else None,
+            execute_tool=registry_tools.execute_tool if use_tools else None,
             on_tool=on_tool,
             max_tool_rounds=max_tool_rounds,
         )

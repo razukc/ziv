@@ -222,6 +222,19 @@ def test_decompose_default_tool_budget_covers_a_full_pipeline(monkeypatch):
     assert len(pipeline["subtasks"]) == 2
 
 
+def test_seeded_decompose_skips_tools_by_default(monkeypatch):
+    """Seeded variations default to the fast prompt-only path (measured: the
+    seed + variation rules already keep them gate-clean; tool rounds would
+    only add ~3x latency). Fresh decomposes keep the tools."""
+    agent, calls = _stub_agent([json.dumps(_valid_pipeline())])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    agent.decompose_task("Sort packages", "unitree-r1", seed_pipeline=_valid_pipeline())
+    assert "tools" not in calls[0], "seeded variations must skip the tool schemas"
+    agent2, calls2 = _stub_agent([json.dumps(_valid_pipeline())])
+    agent2.decompose_task("Sort packages", "unitree-r1")
+    assert "tools" in calls2[0], "fresh decomposes keep the registry tools"
+
+
 def test_on_retry_not_called_when_all_attempts_fail(monkeypatch):
     """A hard failure raises after the final attempt without a healing notice."""
     agent, _ = _stub_agent([None, None, None])
