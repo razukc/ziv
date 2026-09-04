@@ -36,7 +36,8 @@ class ReasoningAgent:
             lines.append(f"  Tags: {', '.join(s['tags'])}")
         return "\n".join(lines)
 
-    def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None):
+    def decompose_task(self, task_description, robot_type="unitree-g1", seed_pipeline=None,
+                       on_retry=None):
         """
         Given a natural language task description, decompose it into
         subtasks and select the appropriate NVIDIA skills for each.
@@ -45,6 +46,10 @@ class ReasoningAgent:
         the agent produces a VARIATION of it for the new task/robot: steps
         and skills that still apply are kept, the rest are adapted or
         dropped — instead of decomposing the task from scratch.
+
+        ``on_retry`` (optional) is called as ``on_retry(attempt, error)``
+        after each failed attempt that is retried (attempt is 1-based), so
+        callers can surface that a transient blip happened and healed.
         """
         system_prompt = f"""You are SkillForge, an AI agent that composes robot skill pipelines.
 
@@ -104,6 +109,7 @@ Rules:
             temperature=0.3,
             max_tokens=2000,
             parse=self._extract_pipeline_json,
+            on_retry=on_retry,
         )
 
         # Validate skill IDs
@@ -120,7 +126,7 @@ Rules:
 
         return pipeline
 
-    def explain_pipeline(self, pipeline):
+    def explain_pipeline(self, pipeline, on_retry=None):
         """Generate a human-readable explanation of the pipeline."""
         return self._complete(
             [
@@ -129,9 +135,10 @@ Rules:
             ],
             temperature=0.5,
             max_tokens=1000,
+            on_retry=on_retry,
         )
 
-    def suggest_improvements(self, pipeline):
+    def suggest_improvements(self, pipeline, on_retry=None):
         """Suggest improvements or alternatives for the pipeline."""
         return self._complete(
             [
@@ -140,15 +147,20 @@ Rules:
             ],
             temperature=0.4,
             max_tokens=800,
+            on_retry=on_retry,
         )
 
-    def _complete(self, messages, *, temperature, max_tokens, parse=None):
+    def _complete(self, messages, *, temperature, max_tokens, parse=None, on_retry=None):
         """Chat round-trip with bounded retry against transient model failures.
 
         The live model occasionally returns an empty payload (``content=None``)
         or truncated JSON. Retrying the same stateless prompt is cheap and
         usually lands; after ``_MAX_ATTEMPTS`` failures the last error is
         raised so callers can surface a clean failure.
+
+        ``on_retry`` (optional) is invoked as ``on_retry(attempt, error)``
+        after each failed attempt that gets retried (attempt is 1-based:
+        1 = the first call failed, a second call is being made).
         """
         last_error = None
         for attempt in range(_MAX_ATTEMPTS):
@@ -165,7 +177,10 @@ Rules:
                 return parse(content) if parse else content
             except Exception as e:
                 last_error = e
-                time.sleep(_RETRY_BACKOFF_BASE * (attempt + 1))
+                if attempt < _MAX_ATTEMPTS - 1:
+                    if on_retry is not None:
+                        on_retry(attempt + 1, e)
+                    time.sleep(_RETRY_BACKOFF_BASE * (attempt + 1))
         raise last_error
 
     @staticmethod

@@ -60,6 +60,8 @@ export interface ComposeStreamHandlers {
   onPipeline?: (pipeline: Pipeline, pipelineId: string) => void;
   onExplanation?: (text: string) => void;
   onLog?: (log: Pick<ExecutionLog, "content" | "status" | "step" | "total" | "skill_id">) => void;
+  /** A live compose had to auto-retry an LLM round-trip (transient blip that healed). */
+  onNotice?: (retries: number) => void;
 }
 
 export interface ComposeStreamResult extends ComposeResponse {
@@ -101,6 +103,7 @@ export async function readComposeStream(
   const onLog = handlers.onLog;
   const onThinking = handlers.onThinking;
   const onExplanation = handlers.onExplanation;
+  const onNotice = handlers.onNotice;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -144,6 +147,11 @@ export async function readComposeStream(
               total: Number(event.total) || 1,
               skill_id: String(event.skill_id || "unknown"),
             });
+          }
+          break;
+        case "notice":
+          if (typeof event.retries === "number" && event.retries > 0) {
+            onNotice?.(event.retries);
           }
           break;
         case "error":

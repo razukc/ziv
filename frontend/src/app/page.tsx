@@ -88,6 +88,9 @@ export default function Home() {
   const [error, setError] = useState("");
   const [validation, setValidation] = useState("");
   const [lastComposed, setLastComposed] = useState<{ task: string; robot: string } | null>(null);
+  // Live composes auto-retry transient LLM blips server-side; keep the count
+  // so the UI can show a small "auto-retried" note instead of hiding it.
+  const [retryNote, setRetryNote] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"analysis" | "json" | "thinking" | "logs">("analysis");
   const [copied, setCopied] = useState(false);
   const [mockMode, setMockMode] = useState(true);
@@ -205,6 +208,7 @@ export default function Home() {
         setRobot(p.robot || "unitree-g1");
         setResult(sharedResult);
         setPhase("results");
+        setRetryNote(null);
         setLastComposed({ task: p.task || "", robot: p.robot || "unitree-g1" });
         setHistory(prev => upsertHistory(prev, { id: `h-${Date.now()}`, task: p.task || "", robot: p.robot || "unitree-g1", kind: "live", pipelineId: id, result: sharedResult, timestamp: Date.now() }));
         scrollTo(resultsRef, 300);
@@ -281,6 +285,7 @@ export default function Home() {
     setActiveTab("analysis");
     setPipelineId("");
     setValidationReport(null);
+    setRetryNote(null);
     setEditMode(false);
     setDraft(null);
     setEdited(false);
@@ -348,6 +353,7 @@ export default function Home() {
         },
         onExplanation: text => setResult(prev => (prev ? { ...prev, explanation: text } : prev)),
         onLog: log => setExecutionLogs(prev => [...prev, { ...log, timestamp: Date.now() }]),
+        onNotice: n => setRetryNote(n),
       });
 
       // Adopt the streamed result: pipeline id, shareable URL hash, history.
@@ -446,6 +452,7 @@ export default function Home() {
     setThinkingSteps([]);
     setExecutionLogs([]);
     setActiveTab("analysis");
+    setRetryNote(null);
     setTask(item.task);
     setRobot(item.robot);
     setLastComposed({ task: item.task, robot: item.robot });
@@ -878,6 +885,32 @@ export default function Home() {
                 <span style={{ fontSize: "11px", color: "var(--acc)", fontFamily: "var(--font-mono)" }}>✓ complete</span>
               )}
             </div>
+
+            {/* Auto-retry note — a live compose healed after a transient blip */}
+            {retryNote !== null && (
+              <div
+                data-testid="retry-note"
+                className="fade-in-up"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "6px 12px",
+                  background: "var(--warn-soft)",
+                  border: "1px solid var(--warn-line)",
+                  borderRadius: "4px",
+                  marginBottom: "20px",
+                  fontSize: "10px",
+                  color: "var(--warn)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                <span>↻</span>
+                <span>
+                  model hiccup — auto-retried {retryNote === 1 ? "once" : `${retryNote} times`}, compose healed on its own
+                </span>
+              </div>
+            )}
 
             {/* Thinking process — comes first */}
             {thinkingSteps.length > 0 && (

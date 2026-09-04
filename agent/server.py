@@ -244,6 +244,15 @@ async def compose_pipeline_stream(request: TaskRequest):
         try:
             a = get_agent()
 
+            # LLM round-trips auto-retry transient blips; count them so the
+            # stream can tell the UI a hiccup happened and healed (otherwise a
+            # slow, retried compose is indistinguishable from a hang).
+            retries = 0
+
+            def _count_retry(_attempt, _error):
+                nonlocal retries
+                retries += 1
+
             # Phase 1: Thinking process
             yield f"data: {json.dumps({'type': 'thinking', 'content': '🧠 Analyzing task...', 'step': 1, 'total': 5})}\n\n"
             await asyncio.sleep(0.3)
@@ -257,7 +266,9 @@ async def compose_pipeline_stream(request: TaskRequest):
             # Phase 2: Generate pipeline
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})}\n\n"
 
-            pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
+            pipeline = a.decompose_task(request.task, request.robot,
+                                        seed_pipeline=request.seed_pipeline,
+                                        on_retry=_count_retry)
             pipeline_id = store_pipeline(pipeline)
 
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})}\n\n"
@@ -269,7 +280,7 @@ async def compose_pipeline_stream(request: TaskRequest):
             # Phase 4: Generate explanation
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating analysis...', 'step': 6, 'total': 6})}\n\n"
 
-            explanation = a.explain_pipeline(pipeline)
+            explanation = a.explain_pipeline(pipeline, on_retry=_count_retry)
             yield f"data: {json.dumps({'type': 'explanation', 'content': explanation})}\n\n"
 
             # Phase 5: Execution logs (simulated)
@@ -288,7 +299,9 @@ async def compose_pipeline_stream(request: TaskRequest):
                 yield f"data: {json.dumps({'type': 'log', 'content': f'{subtask['name']} complete', 'status': 'completed', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
                 await asyncio.sleep(0.2)
 
-            # Phase 6: Done
+            # Phase 6: Done (with a heads-up when the compose had to retry)
+            if retries:
+                yield f"data: {json.dumps({'type': 'notice', 'retries': retries, 'content': 'auto-retried after a model blip'})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd']})}\n\n"
 
         except Exception as e:

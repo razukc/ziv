@@ -66,7 +66,7 @@ class FakeAgent:
         self.calls = []
         self.last_seed = None
 
-    def decompose_task(self, task, robot, seed_pipeline=None):
+    def decompose_task(self, task, robot, seed_pipeline=None, on_retry=None):
         self.calls.append("decompose_task")
         self.last_seed = seed_pipeline
         p = dict(self.pipeline)
@@ -74,11 +74,11 @@ class FakeAgent:
         p["robot"] = robot
         return p
 
-    def explain_pipeline(self, pipeline):
+    def explain_pipeline(self, pipeline, on_retry=None):
         self.calls.append("explain_pipeline")
         return "This is a test explanation."
 
-    def suggest_improvements(self, pipeline):
+    def suggest_improvements(self, pipeline, on_retry=None):
         self.calls.append("suggest_improvements")
         return ["Use a cheaper validation skill."]
 

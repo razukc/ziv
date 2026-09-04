@@ -102,3 +102,56 @@ def test_explain_retries_on_empty_content(monkeypatch):
     monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
     assert agent.explain_pipeline({"subtasks": []}) == "a real explanation"
     assert len(calls) == 2
+
+
+def test_on_retry_reports_each_failed_attempt(monkeypatch):
+    """Every healed failure is reported with its 1-based attempt number."""
+    agent, _ = _stub_agent([None, None, json.dumps(_valid_pipeline())])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    reported = []
+    agent.decompose_task("Sort packages", "unitree-r1",
+                         on_retry=lambda attempt, err: reported.append((attempt, type(err).__name__)))
+    assert [a for a, _ in reported] == [1, 2], "two healed failures must both be reported"
+    assert all(err == "ValueError" for _, err in reported)
+
+
+def test_on_retry_not_called_when_first_attempt_succeeds(monkeypatch):
+    agent, _ = _stub_agent([json.dumps(_valid_pipeline())])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    reported = []
+    agent.decompose_task("Sort packages", "unitree-r1",
+                         on_retry=lambda attempt, err: reported.append(attempt))
+    assert reported == [], "clean round-trip must not report retries"
+
+
+def test_on_retry_not_called_when_all_attempts_fail(monkeypatch):
+    """A hard failure raises after the final attempt without a healing notice."""
+    agent, _ = _stub_agent([None, None, None])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    reported = []
+    with pytest.raises(ValueError):
+        agent.decompose_task("Sort packages", "unitree-r1",
+                             on_retry=lambda attempt, err: reported.append(attempt))
+    assert reported == [1, 2], "only healed attempts are retried; the last failure raises"
+
+
+def test_stream_emits_notice_when_compose_had_to_retry(client, monkeypatch):
+    """A compose that heals via retry surfaces a notice SSE event."""
+    import server
+    agent, _ = _stub_agent([None, json.dumps(_valid_pipeline()), "a recovered explanation"])
+    monkeypatch.setattr("reasoning_agent.time.sleep", lambda s: None)
+    monkeypatch.setattr(server, "get_agent", lambda: agent)
+    r = client.post("/api/compose/stream",
+                    json={"task": "Sort packages by size", "robot": "unitree-r1"})
+    assert r.status_code == 200
+    assert '"type": "notice"' in r.text, "stream must tell the UI about the healed retry"
+    assert '"retries": 1' in r.text
+    assert '"type": "done"' in r.text, "the retried compose still completes"
+
+
+def test_stream_has_no_notice_when_no_retry(client):
+    """Clean composes carry no notice event (fake agent never retries)."""
+    r = client.post("/api/compose/stream",
+                    json={"task": "Pick up the red block", "robot": "unitree-g1"})
+    assert r.status_code == 200
+    assert '"type": "notice"' not in r.text
