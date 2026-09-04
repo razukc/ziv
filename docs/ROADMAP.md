@@ -64,6 +64,13 @@ actively working them.
       reasoning stream and are counted on every compose response, with a
       prompt-only degradation path for providers that reject tools
       (`pre-v0.1.17`, 2026-09-04)
+- [x] **Measured tool policy** — live A/B (12 seeded crossings) showed tools
+      add no gate benefit on seeded variations (0/12 either way) for ~3x
+      latency, so seeded runs now default prompt-only while fresh
+      decomposes keep the tools; rules forbid re-reading the catalog
+      (parallel tool calls aren't supported by the model), cutting a fresh
+      compose from 21 to 2 tool calls with the same result
+      (`pre-v0.1.18`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

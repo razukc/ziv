@@ -71,7 +71,7 @@ git tag pre-v0.1.1    # next verified milestone
 ## Before you commit
 
 1. `cd frontend && npx tsc --noEmit`
-2. `cd agent && python -m pytest -q` (hermetic suite — currently 83 tests — passes, e2e deselected)
+2. `cd agent && python -m pytest -q` (hermetic suite — currently 84 tests — passes, e2e deselected)
 3. `cd agent && python -m pytest -m e2e` if the backend (:8000) and frontend
    (:3000) are running (9 tests, ~3 min)
 4. Live checks against real services: `python live_check.py journey|edit`

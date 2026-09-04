@@ -6,6 +6,33 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.18] — 2026-09-04 — measured tool policy for compose
+
+Feature commits: `82a5e9e` (tool prompt tuning) + `c60924f` (seed-aware tool
+default) — registry tool use measured live and scoped to where it pays.
+
+- **Live A/B on seeded form-factor crossings** — 12 real seeded G1→Go2
+  variations (perception-flavored patrol and a sharp manipulation-flavored
+  push task): the capability gate rejected **0/12 with or without tools**,
+  and the model swapped the seed's arm skill (`motion-generation`) for the
+  quadruped-class `legged-manipulation` in every run. The old 1/3
+  copy-rate is gone — the quadruped catalog + variation rules matured — so
+  tools add no measured gate benefit on the seeded path.
+- **Tuning** — grounded composes cost ~3× latency (54–78s vs 21–27s)
+  because the model re-read catalog rows already in its system prompt, one
+  `get_skill` round at a time (21 calls on a fresh compose). The model
+  cannot emit parallel tool calls on this endpoint (probed), so the rules
+  now forbid re-reading the catalog and limit calls to
+  `check_capability` on doubtful anatomy only. Fresh unseeded compose
+  dropped **21 → 2 calls** with the same valid result.
+- **Seed-aware default** — `decompose_task` auto-selects the path: fresh
+  decomposes keep the tools (grounding is real there); seeded variations
+  run prompt-only and stay fast. Verified live: seeded Go2 push variation
+  composes in ~36s with `tool_calls: 0`, still swapping correctly.
+  `tools_enabled` forces either path for future A/B.
+- **Tests** — hermetic suite 83 → **84**: seeded decomposes send no tool
+  schemas by default while fresh decomposes keep them.
+
 ## [pre-v0.1.17] — 2026-09-04 — registry tool use in compose
 
 Feature commit: `9c0473e` (the decompose agent queries skill/robot registries
