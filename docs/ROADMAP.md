@@ -71,6 +71,12 @@ actively working them.
       (parallel tool calls aren't supported by the model), cutting a fresh
       compose from 21 to 2 tool calls with the same result
       (`pre-v0.1.18`, 2026-09-04)
+- [x] **Grounding disclosure + opt-out** — the compose-timing strip reports
+      how grounded each live compose was (registry lookups vs
+      prompt-based), persisted on history entries; the live compose box has
+      a grounding toggle that sends `tools_enabled: false` for prompt-only
+      composes (~30s vs ~60-100s)
+      (`pre-v0.1.19`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

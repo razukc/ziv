@@ -6,6 +6,31 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.19] — 2026-09-04 — grounding disclosure + opt-out in the UI
+
+Feature commit: `0957156` (surface registry grounding per compose and let
+users opt out of the tools).
+
+- **Grounding disclosure** — the compose-timing strip under the task bar now
+  reports how grounded each live compose was: `🔧 verified via N registry
+  lookups` when the decompose agent used the tools, `prompt-based — no
+  registry lookups` when it answered from the prompt (count comes from the
+  done event and is persisted on history entries, so reopening a pipeline
+  keeps the disclosure).
+- **Grounding toggle in the compose box** (live mode) — default ON follows
+  the measured auto-policy (fresh composes verify via registry tools, seeded
+  variations stay prompt-only); OFF sends `tools_enabled: false` on the
+  wire so every compose runs prompt-only and fast (~30s vs ~60-100s).
+- **API** — `TaskRequest.tools_enabled` (None = auto, False = prompt-only,
+  True = force grounding) threads through `/api/compose`, `/api/compose/silent`,
+  and the SSE stream to the agent.
+- **Tests** — hermetic 84 → **86** (opt-out reaches the agent: `tool_calls`
+  0 on compose and stream, no tool lines; default keeps the fake's two
+  lookups); browser E2E 9 → **10** — `test_grounding_e2e` stubs the stream
+  with `tool_calls: 4` then 0: the verified line renders, the toggle flip
+  renders the prompt-based line, and the wire bodies prove the grounded
+  default omits `tools_enabled` while the opt-out sends `false`.
+
 ## [pre-v0.1.18] — 2026-09-04 — measured tool policy for compose
 
 Feature commits: `82a5e9e` (tool prompt tuning) + `c60924f` (seed-aware tool
