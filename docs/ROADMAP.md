@@ -30,6 +30,9 @@ actively working them.
 - [x] **Live compose latency visibility** — the done event carries wall time
       + retries, the UI ticks a live elapsed while composing, and results
       show "compose took Xs (auto-retried Nx)" (`pre-v0.1.9`, 2026-09-04)
+- [x] **Retry counts on request/response endpoints** — compose, compose/silent,
+      and improve carry `retries` so non-stream API clients and live_check
+      reports see healed LLM blips too (`pre-v0.1.10`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

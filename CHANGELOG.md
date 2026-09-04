@@ -6,6 +6,27 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.10] — 2026-09-04 — retry counts on request/response endpoints
+
+Feature commit: `72804ed` (report auto-retry counts on
+compose/silent/improve responses).
+
+### Added
+- **`retries` on non-stream responses** — `/api/compose` (summed across its
+  decompose + explain round-trips), `/api/compose/silent`, and
+  `/api/improve` now carry `retries` in their JSON (0 on clean calls), so
+  request/response API clients see healed LLM blips the same way the SSE
+  stream's `done` event reports them — previously the count existed only on
+  the streaming path the UI uses.
+- **`live_check` reports it** — the journey command checks that compose
+  responses carry the count and prints "auto-retried N× during this compose
+  (healed on its own)" when N > 0; the share-links bonus compose prints the
+  same note.
+- **Tests** — 4 new hermetic tests: clean compose / compose-silent / improve
+  all report `retries: 0`, compose sums retries across both round-trips,
+  silent reports multi-retry decomposes, and improve reports healed
+  suggestion round-trips. Suite counts: 74 hermetic, 6 browser E2E.
+
 ## [pre-v0.1.9] — 2026-09-04 — live compose latency visibility
 
 Feature commit: `4f27a0f` (show compose wall time so slow LLM calls read as

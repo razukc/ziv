@@ -198,7 +198,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-70 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
+74 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
 
 Plus six live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free; the fourth composes a seeded variation (reworded task, robot switched) and verifies the adaptation card explains the changes; the fifth seeds the session auto-retry tally and asserts the frequent-blip hint appears in live mode and clears when mock mode is chosen; the sixth intercepts the compose stream with canned retries (1, then 3) and asserts the timing line's retry disclosure renders for both counts. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
 
@@ -211,7 +211,7 @@ Plus six live browser E2E tests (`pytest -m e2e`): one opens a real share link (
 | Command | What it proves |
 |---------|----------------|
 | `python live_check.py share-links [--skip-compose] [--cleanup]` | Boots two independent server processes over the shared Redis store and proves share links resolve across instances — plus health/readiness diagnostics, the share-link rate limit, and (unless `--skip-compose`) a real LLM compose. `--cleanup` deletes the test keys from Redis afterwards. |
-| `python live_check.py journey` | Full user journey through the running frontend (:3000) → backend (:8000) proxy: compose (one real LLM call) → export → validate → share-link restore. |
+| `python live_check.py journey` | Full user journey through the running frontend (:3000) → backend (:8000) proxy: compose (one real LLM call) → export → validate → share-link restore. Reports the compose's `retries` count (and prints a note when the model healed a blip). |
 | `python live_check.py edit` | Browser edit flow: compose live, reorder/remove steps, re-export LLM-free, verify the share link points at the edited pipeline (one real LLM call). |
 
 `live_share_link_check.py` is kept as a thin alias for the first command (`python live_share_link_check.py --cleanup` works). All subcommands print a PASS/FAIL report and exit non-zero on failure.
@@ -235,7 +235,7 @@ Plus six live browser E2E tests (`pytest -m e2e`): one opens a real share link (
 | `POST` | `/api/pipeline/validate` | Validate generated package files |
 | `POST` | `/api/improve` | Re-analyze a pipeline for improvements (accepts `pipeline_id`) |
 
-Every compose (and export) stores the pipeline and returns a `pipeline_id` — downstream calls can reference it instead of re-running the model.
+Every compose (and export) stores the pipeline and returns a `pipeline_id` — downstream calls can reference it instead of re-running the model. Compose responses also carry `retries` (how many LLM round-trips healed via auto-retry; 0 on clean calls), on `/api/compose` (summed across decompose + explain), `/api/compose/silent`, `/api/improve`, and the stream's `done` event.
 
 The pipeline store is backed by **Upstash Redis** when `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set (see `agent/.env.example`) — shared links then work across server instances and survive restarts, with entries expiring after 7 days and capped at the 50 most recent. Without those credentials, the server falls back to an in-memory store persisted to `agent/pipeline_store.json` (same cap), so local links still survive restarts; delete the file to clear it.
 
