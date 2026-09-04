@@ -57,6 +57,13 @@ actively working them.
       badge, and reopening renders the stored result instantly (stale
       records auto-invalidate when the plan changed)
       (`pre-v0.1.16`, 2026-09-04)
+- [x] **Registry tool use in compose** — the decompose agent queries the
+      skill/robot registries as structured tools (list_skills, get_skill,
+      get_robot, check_capability) so plans are grounded in registry data
+      rather than the catalog text in the prompt; lookups surface in the
+      reasoning stream and are counted on every compose response, with a
+      prompt-only degradation path for providers that reject tools
+      (`pre-v0.1.17`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

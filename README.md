@@ -13,6 +13,7 @@
 - **Robot profiles + capability gate** — Unitree G1 (manipulation), Unitree R1 (locomotion), 1X NEO (navigation), and Go2-class quadrupeds; skills declare the anatomy they need (arm/legs/cameras) and every compose is validated against the robot's body instead of trusting the model
 - **Cost estimation** — Per-step and total pipeline costs
 - **AI reasoning** — Streaming thinking process shows how Nemotron decomposes tasks
+- **Registry-grounded compose** — the decompose agent can query the skill/robot registries as structured tools (list_skills, get_skill, get_robot, check_capability) to verify costs, GPU needs, and anatomy before choosing skills — lookups show up as 🔧 lines in the reasoning stream and every compose reports how many tool calls grounded it
 - **ROS2 export** — Generate buildable packages with package.xml, CMakeLists, launch files
 - **Package validation** — Automated checks for XML, cmake, Python, and JSON syntax
 - **Pipeline editing** — Reorder, swap, or remove steps and re-export without an LLM call
@@ -200,7 +201,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-77 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
+83 hermetic tests in ~15s (the LLM is faked and the store is forced to the local backend, so tests never hit the Nebius API or Upstash Redis).
 
 Plus nine live browser E2E tests (`pytest -m e2e`): one opens a real share link (`/#p=<id>`) and asserts the pipeline renders from the URL hash; the second drives the editable pipeline view (reorder/remove steps, re-export); the third proves history persists across a reload and a composed pipeline can be reopened from the history panel, tweaked, and re-exported LLM-free; the fourth composes a seeded variation (reworded task, robot switched) and verifies the adaptation card explains the changes; the fifth seeds the session auto-retry tally and asserts the frequent-blip hint appears in live mode and clears when mock mode is chosen; the sixth intercepts the compose stream with canned retries (1, then 3) and asserts the timing line's retry disclosure renders for both counts; the seventh seeds a two-compose session baseline, serves a 60s compose through the stub, and asserts the slow-compose warning appears with the ratio and clears on a normal compose; the eighth opens the simulation dry-run on a mock pipeline and asserts the replay completes, pause freezes the elapsed clock, a same-seed replay reproduces the identical summary, and — after reordering validation ahead of every training step — the replay halts at step 1 with the structural "no trained policy to validate" reason; the ninth asserts the dry-run verdict badge lands on the history card and that reopening the pipeline renders the stored verdict instantly ("last run") with the same seed, with replay reproducing it. They need the backend (:8000) and frontend (:3000) running and `playwright` installed (`pip install -r requirements-dev.txt`); they skip themselves otherwise and are excluded from the default run via the `e2e` marker.
 

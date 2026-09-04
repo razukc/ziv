@@ -6,6 +6,38 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.17] — 2026-09-04 — registry tool use in compose
+
+Feature commit: `9c0473e` (the decompose agent queries skill/robot registries
+as structured tools, grounding plans in registry data).
+
+- **Registry tools** — the compose round-trip now offers the agent four
+  structured tools backed by the exact registries the capability gate
+  validates against: `list_skills` (compact rows), `get_skill`, `get_robot`,
+  and `check_capability` (does this skill's required anatomy exist on this
+  robot?). Tool calls execute in a bounded loop (max 12 rounds, escaped via
+  a hard cap) and results feed back as tool messages before the final JSON.
+- **Grounding instead of memory** — the model can verify costs, GPU needs,
+  and anatomy mid-decomposition rather than trusting the catalog text baked
+  into the prompt. The catalog stays in the prompt as a safety net, so
+  providers that reject tool definitions (HTTP 400/404/422) degrade to the
+  prompt-only path instead of failing the compose.
+- **Observability** — every registry lookup surfaces in the reasoning stream
+  as a `🔧 queried …` line, and every compose response (stream done event,
+  `/api/compose`, `/api/compose/silent`) reports its `tool_calls` count.
+  `live_check journey` hard-checks the field and prints how grounded the
+  compose was.
+- **Resilience fixes found live** — tool round-trips inflate the context the
+  model must answer over; output budget raised 2000 → 4000 tokens (empty
+  content + `finish=length` after a large tool payload) and `list_skills`
+  returns compact rows so the round-trip stays lean.
+- **Tests** — hermetic suite 77 → **83**: executor grounded in the
+  registries (go2 × motion-generation → incompatible), the tool loop feeds
+  results back and reports every call, a provider rejecting tools degrades
+  cleanly, the loop is bounded, the default budget covers a 9-round
+  verification-heavy plan, and the stream surfaces tool lines + the done
+  event's `tool_calls`.
+
 ## [pre-v0.1.16] — 2026-09-04 — dry-run verdicts on history cards
 
 Feature commit: `2098369` (persist the last simulation dry-run verdict so a
