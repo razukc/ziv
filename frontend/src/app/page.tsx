@@ -8,6 +8,7 @@ import PipelineTimeline from "../components/pipeline-timeline";
 import PlainSummary from "../components/plain-summary";
 import AdaptationCard from "../components/adaptation-card";
 import PipelineHistory from "../components/pipeline-history";
+import SimulationPanel from "../components/simulation-panel";
 import { validatePackageFiles } from "../lib/validation";
 import { diffAdaptation } from "../lib/adaptation";
 import {
@@ -200,12 +201,18 @@ export default function Home() {
   // (the compose handlers read state synchronously, so firing them straight
   // from the submit handler would compose the PREVIOUS task).
   const [pendingVariation, setPendingVariation] = useState<{ seed: Pipeline | null } | null>(null);
+  // Simulation dry-run of the displayed pipeline: a step-by-step replay with
+  // seeded pass/fail verdicts. `simSeed` rolls through a full-period LCG, so
+  // every open / "new scenario" is guaranteed a fresh run.
+  const [simOpen, setSimOpen] = useState(false);
+  const [simSeed, setSimSeed] = useState(0);
 
   const inputRef = useRef<HTMLDivElement>(null);
   const processingRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const variationRef = useRef<HTMLDivElement>(null);
+  const simRef = useRef<HTMLDivElement>(null);
 
   // Cleanup abort controller on unmount
   useEffect(() => {
@@ -376,6 +383,7 @@ export default function Home() {
     setDraft(null);
     setEdited(false);
     setVariationOpen(false);
+    setSimOpen(false);
   };
 
 
@@ -592,6 +600,7 @@ export default function Home() {
     setDraft(null);
     setEdited(false);
     setEditMode(false);
+    setSimOpen(false);
     setResult(adopted);
     setPipelineId(pid);
     // Restore the compose-time disclosure so reopening a slow live pipeline
@@ -614,6 +623,23 @@ export default function Home() {
 
   const cancelVariation = () => setVariationOpen(false);
 
+  // --- Simulation dry-run of the displayed pipeline --------------------------
+  const rollScenario = () =>
+    setSimSeed(s => {
+      const n = (s * 48271) % 2147483647;
+      return n === 0 ? 7 : n;
+    });
+
+  const beginSimulation = () => {
+    if (!displayPipeline) return;
+    setVariationOpen(false);
+    setSimOpen(true);
+    rollScenario();
+    scrollTo(simRef, 80);
+  };
+
+  const closeSimulation = () => setSimOpen(false);
+
   const submitVariation = () => {
     if (!variationTask.trim()) return;
     // Capture the original BEFORE the compose flow resets the result.
@@ -630,6 +656,7 @@ export default function Home() {
     setDraft(structuredClone(result.pipeline));
     setEditMode(true);
     setVariationOpen(false);
+    setSimOpen(false);
   };
 
   const doneEditing = () => {
@@ -1389,11 +1416,25 @@ export default function Home() {
                   editMode={editMode}
                   onBeginEdit={beginEdit}
                   onBeginVariation={beginVariation}
+                  onRunSimulation={beginSimulation}
                   onDoneEdit={doneEditing}
                   onCancelEdit={cancelEditing}
                   onMoveStep={moveStep}
                   onRemoveStep={removeStep}
                 />
+
+                {/* Simulation dry-run — replay the plan with seeded verdicts */}
+                {simOpen && displayPipeline && (
+                  <div ref={simRef}>
+                    <SimulationPanel
+                      pipeline={displayPipeline}
+                      robot={robot}
+                      seed={simSeed}
+                      onClose={closeSimulation}
+                      onNewScenario={rollScenario}
+                    />
+                  </div>
+                )}
 
                 {/* Tabs */}
                 <div className="fade-in-up" style={{ animationDelay: "0.2s" }}>

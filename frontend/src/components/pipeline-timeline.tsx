@@ -18,6 +18,7 @@ interface PipelineTimelineProps {
   editMode: boolean;
   onBeginEdit: () => void;
   onBeginVariation: () => void;
+  onRunSimulation: () => void;
   onDoneEdit: () => void;
   onCancelEdit: () => void;
   onMoveStep: (index: number, dir: -1 | 1) => void;
@@ -27,7 +28,7 @@ interface PipelineTimelineProps {
 /** Ordered pipeline steps with the human edit controls (reorder/remove) and
  *  the create-variation entry point. */
 export default function PipelineTimeline({
-  pipeline, editMode, onBeginEdit, onBeginVariation, onDoneEdit, onCancelEdit, onMoveStep, onRemoveStep,
+  pipeline, editMode, onBeginEdit, onBeginVariation, onRunSimulation, onDoneEdit, onCancelEdit, onMoveStep, onRemoveStep,
 }: PipelineTimelineProps) {
   const stepCount = pipeline.subtasks.length;
   return (
@@ -46,6 +47,16 @@ export default function PipelineTimeline({
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--text-2)"; }}
               >
                 🧬 create variation
+              </button>
+              <button
+                data-testid="open-sim"
+                onClick={onRunSimulation}
+                title="replay this pipeline step-by-step with simulated pass/fail — no real simulation engine runs"
+                style={{ background: "none", border: "1px solid var(--line)", borderRadius: "3px", padding: "3px 10px", color: "var(--text-2)", fontSize: "10px", cursor: "pointer", fontFamily: "var(--font-mono)", transition: "all 0.15s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--acc)"; e.currentTarget.style.color = "var(--acc)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--line)"; e.currentTarget.style.color = "var(--text-2)"; }}
+              >
+                ▶ sim dry-run
               </button>
               <button
                 onClick={onBeginEdit}
@@ -72,7 +83,7 @@ export default function PipelineTimeline({
       <div style={{ position: "relative", paddingLeft: "20px" }}>
         <div style={{ position: "absolute", left: "7px", top: "8px", bottom: "8px", width: "1px", background: "var(--line)" }} />
         {pipeline.subtasks.map((st, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "4px", marginBottom: "2px", position: "relative", ...(editMode ? { border: "1px solid var(--acc-line)", background: "var(--bg-raised)" } : {}) }}>
+          <div key={i} data-testid={`step-row-${st.skill_id}`} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "4px", marginBottom: "2px", position: "relative", ...(editMode ? { border: "1px solid var(--acc-line)", background: "var(--bg-raised)" } : {}) }}>
             <div style={{ position: "absolute", left: "-20px", width: "12px", height: "12px", borderRadius: "50%", background: editMode ? "var(--warn)" : "var(--acc-fill)", border: "2px solid var(--bg)" }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-1)", fontFamily: "var(--font-mono)" }}>
