@@ -6,6 +6,30 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.9] — 2026-09-04 — live compose latency visibility
+
+Feature commit: `4f27a0f` (show compose wall time so slow LLM calls read as
+slow, not stuck).
+
+### Added
+- **Compose wall time on the wire** — the SSE compose stream times the whole
+  run (LLM round-trips + retry backoff + streaming) and the `done` event now
+  carries `seconds` and `retries`, so API clients and the UI both learn how
+  long a compose actually took.
+- **Ticking elapsed while processing** — a live compose shows "⏱ compose
+  running — Ns elapsed" under the task bar, ticking each second, so a slow
+  LLM round-trip reads as slow instead of stuck (mock composes keep their
+  animated progress and show nothing).
+- **"compose took Xs" results line** — when the compose completes, the line
+  becomes "⚡ compose took 23s", or "↻ compose took 23s (auto-retried 1×,
+  healed on its own)" in the warn palette when round-trips had to be
+  retried — folding the pre-v0.1.4 standalone auto-retry note into one
+  latency + retry disclosure. Clean live composes and mock composes show
+  nothing extra.
+- **Tests** — the clean and retried compose-stream tests now assert the
+  `done` event reports `seconds > 0` and the correct `retries` (0 clean / 1
+  after a healed retry). Suite counts unchanged: 70 hermetic, 5 browser E2E.
+
 ## [pre-v0.1.8] — 2026-09-04 — session auto-retry awareness
 
 Feature commit: `7a888d3` (warn when live composes auto-retry often in a
