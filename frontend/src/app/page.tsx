@@ -94,6 +94,10 @@ export default function Home() {
   // Live composes auto-retry transient LLM blips server-side; keep the count
   // so the UI can show a small "auto-retried" note instead of hiding it.
   const [retryNote, setRetryNote] = useState<number | null>(null);
+  // Session-wide auto-retry tally (survives reloads within the tab) so the UI
+  // can warn when the model keeps blipping instead of treating each compose
+  // as an isolated event.
+  const [sessionRetries, setSessionRetries] = useState(0);
   // Seeded-variation provenance: why each step was kept/added/dropped versus
   // the plan it was composed from (set only when a variation lands).
   const [adaptation, setAdaptation] = useState<AdaptationReport | null>(null);
@@ -198,6 +202,20 @@ export default function Home() {
       fetchSkills();
     }
   }, [skillPanelOpen, skills.length, fetchSkills]);
+
+  // Adopt the session retry tally from sessionStorage and keep it current.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("sf-session-retries");
+      if (raw) setSessionRetries(parseInt(raw, 10) || 0);
+    } catch { /* storage unavailable */ }
+  }, []);
+  useEffect(() => {
+    try {
+      if (sessionRetries > 0) sessionStorage.setItem("sf-session-retries", String(sessionRetries));
+      else sessionStorage.removeItem("sf-session-retries");
+    } catch { /* storage unavailable */ }
+  }, [sessionRetries]);
 
   // Restore a shared pipeline from the URL hash (e.g. /#p=paba41a1eac).
   // The pipeline is fetched from the backend session store by id.
@@ -365,7 +383,10 @@ export default function Home() {
         },
         onExplanation: text => setResult(prev => (prev ? { ...prev, explanation: text } : prev)),
         onLog: log => setExecutionLogs(prev => [...prev, { ...log, timestamp: Date.now() }]),
-        onNotice: n => setRetryNote(n),
+        onNotice: n => {
+          setRetryNote(n);
+          setSessionRetries(prev => prev + n);
+        },
       });
 
       // Adopt the streamed result: pipeline id, shareable URL hash, history.
@@ -637,6 +658,33 @@ export default function Home() {
   const progress = getProgress();
   const cumulativeCost = getCumulativeCost();
 
+  // The model has auto-retried several times this session — surface a nudge
+  // toward mock mode or a simpler task wherever the user is looking.
+  const blipFrequent = !mockMode && sessionRetries >= 3;
+  const blipHint = (
+    <div
+      data-testid="blip-hint"
+      className="fade-in-up"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "6px 12px",
+        background: "var(--warn-soft)",
+        border: "1px solid var(--warn-line)",
+        borderRadius: "4px",
+        fontSize: "10px",
+        color: "var(--warn)",
+        fontFamily: "var(--font-mono)",
+      }}
+    >
+      <span>⚠</span>
+      <span>
+        model auto-retried {sessionRetries} times this session — if it keeps blipping, try mock mode or a simpler task
+      </span>
+    </div>
+  );
+
   const tabBtn = (tab: "analysis" | "json" | "thinking" | "logs", label: string, icon: string) => (
     <button
       onClick={() => setActiveTab(tab)}
@@ -771,7 +819,12 @@ export default function Home() {
                           data-mode={m}
                           aria-pressed={active}
                           title={m === "mock" ? "free demo — no backend or LLM calls" : "real API — composes with the live LLM and uses your Nebius credits"}
-                          onClick={() => setMockMode(m === "mock")}
+                          onClick={() => {
+                            setMockMode(m === "mock");
+                            // Taking the suggestion: the blip tally is about
+                            // live mode, so a mock-mode switch clears it.
+                            if (m === "mock") setSessionRetries(0);
+                          }}
                           style={{
                             padding: "4px 12px",
                             borderRadius: "4px",
@@ -791,6 +844,9 @@ export default function Home() {
                     })}
                   </div>
                 </div>
+
+                {/* Frequent-retry hint — sits beside the compose-mode switch it refers to */}
+                {blipFrequent && <div style={{ marginBottom: "20px" }}>{blipHint}</div>}
 
                 <div style={{ marginBottom: "20px" }}>
                   <div style={{ fontSize: "10px", color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: "8px", letterSpacing: "0.5px" }}>// select_robot</div>
@@ -926,6 +982,9 @@ export default function Home() {
                 </span>
               </div>
             )}
+
+            {/* Session blip hint — mirrors the input-section nudge for results views */}
+            {blipFrequent && processingVisible && <div style={{ marginBottom: "20px" }}>{blipHint}</div>}
 
             {/* Thinking process — comes first */}
             {thinkingSteps.length > 0 && (
