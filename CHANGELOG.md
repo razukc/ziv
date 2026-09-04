@@ -6,6 +6,28 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.14] — 2026-09-04 — compose time on history cards
+
+Feature commit: `bd6db86` (surface compose wall time on live history cards).
+
+### Added
+- **Live history entries keep their compose stats** — the history snapshot
+  for every live compose (fresh or seeded variation) persists its wall time,
+  retry count, and per-phase breakdown alongside the pipeline, so the info
+  survives reloads and Redis refreshes.
+- **Cards show it** — the meta row of a live card gains "⏱ 11s · retried
+  1×" (warn-colored when the compose healed retries, with a full tooltip);
+  mock cards and older entries without stats show nothing extra.
+- **Reopen restores the disclosure** — "open in editor" on a live card now
+  restores the compose-timing line under the task bar (total + per-phase
+  breakdown, with the retry disclosure), so a user returning to a slow
+  pipeline still sees how long its compose took — previously the strip only
+  appeared for fresh composes.
+- **Tests** — the retry-note browser E2E now asserts the newest card's badge
+  reads "11s" with the right retry count (1× then 3×) and that reopening the
+  card re-renders the full timing line. Suite counts unchanged: 77 hermetic,
+  7 browser E2E.
+
 ## [pre-v0.1.13] — 2026-09-04 — compose telemetry on /api/health
 
 Feature commit: `f678071` (expose rolling compose latency/retry telemetry

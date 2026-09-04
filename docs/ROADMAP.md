@@ -43,6 +43,9 @@ actively working them.
 - [x] **Compose telemetry on /api/health** — rolling latency + healed-retry
       stats (samples, avg/p95, tail) from recent composes for ops
       (`pre-v0.1.13`, 2026-09-04)
+- [x] **Compose time on history cards** — live entries persist their compose
+      stats, cards show "⏱ 11s · retried 1×", and reopening restores the
+      timing disclosure (`pre-v0.1.14`, 2026-09-04)
 - [x] **Per-robot capability gate** — skills declare the anatomy they need
       (arm/legs/cameras); every compose is validated against the robot's
       profile and incompatible plans are rejected with a clear error

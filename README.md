@@ -17,7 +17,7 @@
 - **Package validation** — Automated checks for XML, cmake, Python, and JSON syntax
 - **Pipeline editing** — Reorder, swap, or remove steps and re-export without an LLM call
 - **Create variation** — Reword the task or switch robots and compose a NEW pipeline adapted from the current one
-- **Pipeline history** — Composed pipelines persist across reloads (localStorage for mock, Redis ids for live); reopen any one to tweak and re-export, or compare side-by-side
+- **Pipeline history** — Composed pipelines persist across reloads (localStorage for mock, Redis ids for live); reopen any one to tweak and re-export, or compare side-by-side — live cards show how long their compose took (⏱ 11s · retried 1×)
 - **Skill browser** — Explore the 11 NVIDIA skills with metadata
 - **Mock mode** — Full demo without backend (switch in the compose box)
 - **Responsive design** — Works on desktop, tablet, and mobile
