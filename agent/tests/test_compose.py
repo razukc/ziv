@@ -79,7 +79,7 @@ def test_compose_variation_passes_seed(client, fake_agent, sample_pipeline):
 def test_compose_stream_variation_passes_seed(client, fake_agent, sample_pipeline):
     r = client.post("/api/compose/stream", json={
         "task": "Wipe the counter with a different robot",
-        "robot": "unitree-r1",
+        "robot": "1x-neo",
         "seed_pipeline": sample_pipeline,
     })
     assert r.status_code == 200

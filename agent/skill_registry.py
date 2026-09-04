@@ -1,6 +1,13 @@
 """
 SkillForge - Skill Registry
 Catalog of NVIDIA agent-ready skills available on Nebius.
+
+Each skill declares the robot anatomy it requires (``requires``): "arm",
+"legs", or "cameras". Skills with no requirement (scene creation, data
+synthesis, validation, packaging) work for any robot body. The compose path
+checks every LLM-generated pipeline against the target robot's profile (see
+robot_registry.py), so a plan can't ask an armless robot to train an arm
+policy.
 """
 
 SKILL_CATALOG = {
@@ -10,6 +17,7 @@ SKILL_CATALOG = {
         "product": "Omniverse / Isaac Sim",
         "description": "Create or import 3D scenes for robot simulation.",
         "tags": ["scene", "simulation", "environment"],
+        "requires": (),  # simulation only — no robot body involved
         "gpu_required": True,
         "estimated_cost_usd": 0.15,
     },
@@ -19,6 +27,7 @@ SKILL_CATALOG = {
         "product": "Cosmos / Isaac Sim",
         "description": "Generate physics-grounded synthetic training data.",
         "tags": ["data", "training", "cosmos"],
+        "requires": (),
         "gpu_required": True,
         "estimated_cost_usd": 0.50,
     },
@@ -28,6 +37,7 @@ SKILL_CATALOG = {
         "product": "NVIDIA GR00T N1",
         "description": "Fine-tune GR00T N1 foundation model on custom task data.",
         "tags": ["training", "policy", "gr00t"],
+        "requires": ("arm",),  # dexterous manipulation policy
         "gpu_required": True,
         "estimated_cost_usd": 2.00,
     },
@@ -37,6 +47,7 @@ SKILL_CATALOG = {
         "product": "NVIDIA SONIC",
         "description": "Train whole-body locomotion policies for humanoid robots.",
         "tags": ["locomotion", "sonic", "walking"],
+        "requires": ("legs",),
         "gpu_required": True,
         "estimated_cost_usd": 1.50,
     },
@@ -46,6 +57,7 @@ SKILL_CATALOG = {
         "product": "Isaac Sim / RoboLab",
         "description": "Validate trained policies across simulation scenarios.",
         "tags": ["validation", "evaluation", "metrics"],
+        "requires": (),  # simulation scenarios — validates whatever was trained
         "gpu_required": True,
         "estimated_cost_usd": 0.30,
     },
@@ -55,6 +67,7 @@ SKILL_CATALOG = {
         "product": "Isaac Sim / ROS2",
         "description": "Package trained policy for real hardware deployment.",
         "tags": ["deployment", "ros2", "production"],
+        "requires": (),
         "gpu_required": False,
         "estimated_cost_usd": 0.05,
     },
@@ -64,6 +77,7 @@ SKILL_CATALOG = {
         "product": "SONIC / cuMotion",
         "description": "Generate collision-free motion plans for manipulation.",
         "tags": ["motion", "planning", "trajectory"],
+        "requires": ("arm",),  # arm trajectories for manipulation
         "gpu_required": False,
         "estimated_cost_usd": 0.10,
     },
@@ -73,6 +87,7 @@ SKILL_CATALOG = {
         "product": "Tao Toolkit",
         "description": "Train object detection models for robot vision.",
         "tags": ["perception", "vision", "detection"],
+        "requires": ("cameras",),
         "gpu_required": True,
         "estimated_cost_usd": 0.40,
     },
@@ -82,6 +97,7 @@ SKILL_CATALOG = {
         "product": "NVIDIA Cosmos",
         "description": "Generate physics-grounded video predictions.",
         "tags": ["world-model", "cosmos", "prediction"],
+        "requires": ("cameras",),  # predicts scene dynamics from video
         "gpu_required": True,
         "estimated_cost_usd": 0.25,
     },

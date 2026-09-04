@@ -13,9 +13,32 @@ from pydantic import BaseModel
 
 from reasoning_agent import ReasoningAgent
 from skill_registry import SKILL_CATALOG, list_all_skills, get_skill, search_skills
+from robot_registry import get_robot, known_robots, validate_pipeline_robot
 from pipeline_store import PipelineStore, PIPELINE_STORE_MAX, PIPELINE_STORE_TTL_SECONDS
 from ros2_package import build_ros2_package
 from validation import validate_package
+
+
+# Every LLM-composed pipeline (fresh or a seeded variation) is gated against
+# the requested robot's anatomy before it is stored: a plan that asks an
+# armless robot to use arm skills is rejected with a clear error instead of
+# being trusted. Unregistered robot slugs are rejected before the LLM runs,
+# so an unknown slug costs nothing.
+def _unknown_robot_message(robot: str) -> str:
+    return (f"robot '{robot}' is not in the robot registry "
+            f"(known: {', '.join(known_robots())}). compose for one of these robots.")
+
+
+def _require_known_robot(robot: str):
+    if get_robot(robot) is None:
+        raise HTTPException(status_code=422, detail=_unknown_robot_message(robot))
+
+
+def _gate_compose(pipeline: dict, robot: str):
+    problem = validate_pipeline_robot(pipeline, robot)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
+    return pipeline
 
 load_dotenv()
 
@@ -211,11 +234,15 @@ def search_skills_endpoint(query: str):
 @app.post("/api/compose")
 def compose_pipeline(request: TaskRequest):
     try:
+        _require_known_robot(request.robot)
         a = get_agent()
         pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
+        _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         explanation = a.explain_pipeline(pipeline)
         return TaskResponse(pipeline=pipeline, explanation=explanation, pipeline_id=pipeline_id)
+    except HTTPException:
+        raise  # capability-gate rejections must keep their 422 + message
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=502, detail=f"Agent returned invalid JSON: {e}")
     except Exception as e:
@@ -226,10 +253,14 @@ def compose_pipeline(request: TaskRequest):
 def compose_pipeline_silent(request: TaskRequest):
     """Compose pipeline without explanation (faster, cheaper)."""
     try:
+        _require_known_robot(request.robot)
         a = get_agent()
         pipeline = a.decompose_task(request.task, request.robot, seed_pipeline=request.seed_pipeline)
+        _gate_compose(pipeline, request.robot)
         pipeline_id = store_pipeline(pipeline)
         return {"pipeline": pipeline, "pipeline_id": pipeline_id}
+    except HTTPException:
+        raise  # capability-gate rejections must keep their 422 + message
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -242,6 +273,10 @@ async def compose_pipeline_stream(request: TaskRequest):
     """
     async def event_generator():
         try:
+            # Reject unregistered robots before spending an LLM call.
+            if get_robot(request.robot) is None:
+                yield f"data: {json.dumps({'type': 'error', 'content': _unknown_robot_message(request.robot)})}\n\n"
+                return
             a = get_agent()
 
             # LLM round-trips auto-retry transient blips; count them so the
@@ -269,6 +304,12 @@ async def compose_pipeline_stream(request: TaskRequest):
             pipeline = a.decompose_task(request.task, request.robot,
                                         seed_pipeline=request.seed_pipeline,
                                         on_retry=_count_retry)
+            problem = validate_pipeline_robot(pipeline, request.robot)
+            if problem:
+                # Capability gate: never store a plan the robot can't run, and
+                # surface why instead of a generic failure.
+                yield f"data: {json.dumps({'type': 'error', 'content': problem})}\n\n"
+                return
             pipeline_id = store_pipeline(pipeline)
 
             yield f"data: {json.dumps({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})}\n\n"
