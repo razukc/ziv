@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content='width=device-width, initial-scale=1'>
+<title>Ziv — haptic name marks</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{max-width:640px;margin:0 auto;padding:16px;background:#0e1116;color:#e8e6e1;font-family:system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+h1{margin:0;font-size:2rem}
+.sub{margin:.2rem 0 .8rem;color:#9aa3ad;font-size:.95rem}
+.banner{padding:.6rem .8rem;border-radius:10px;font-size:.9rem;margin:0 0 1rem}
+.ok{background:#12331f;color:#7ee2a8}
+.warn{background:#3a2b12;color:#f0c674}
+.card{border:1px solid #2a313b;border-radius:14px;padding:14px;margin:0 0 14px;background:#151a21;user-select:none}
+.card.playing{border-color:#7ee2a8}
+.top{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.word{font-size:1.5rem;font-weight:700}
+.status{font-size:.72rem;color:#9aa3ad;border:1px solid #2a313b;border-radius:999px;padding:.15rem .55rem}
+.note{color:#9aa3ad;font-size:.85rem;margin:.4rem 0 .8rem}
+.cells{display:flex;gap:10px;margin:0 0 12px;flex-wrap:wrap;align-items:stretch}
+.cell{width:64px;text-align:center;padding:8px 4px;border-radius:10px;background:#0e1116;border:2px solid #2a313b}
+.cell.wide{width:104px}
+.cell .g{font-size:2rem;line-height:1;display:block}
+.cell .l{font-size:.68rem;color:#9aa3ad;display:block;margin-top:4px}
+.cell.on{border-color:#7ee2a8;background:#12331f}
+.cell.on .g{color:#7ee2a8}
+.plus{align-self:center;color:#9aa3ad;font-size:1.3rem;padding:0 2px}
+.row{display:flex;gap:8px}
+button{font:inherit;padding:.6rem 1rem;border-radius:10px;border:1px solid #2a313b;background:#1b222b;color:#e8e6e1;cursor:pointer}
+button.primary{background:#1d4b31;border-color:#2e6b47}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.4;cursor:default}
+button.big{flex:1;padding:1rem;font-size:1.15rem}
+.controls{border:1px solid #2a313b;border-radius:14px;padding:14px;margin:0 0 14px;background:#151a21}
+.controls label{display:block;margin:.2rem 0;font-size:.9rem;color:#9aa3ad}
+input[type=range]{width:100%;margin:.3rem 0 .8rem}
+input[type=text]{font:inherit;padding:.5rem .6rem;border-radius:10px;border:1px solid #2a313b;background:#0e1116;color:#e8e6e1;width:100%;max-width:280px}
+.chk{display:flex;align-items:center;gap:.5rem}
+.sec{margin:1.4rem 0 .2rem;font-size:1.25rem}
+.mode{border:1px solid #2a313b;border-radius:14px;padding:14px;margin:.8rem 0 14px;background:#151a21}
+.mode h2{margin:.1rem 0 .6rem;font-size:1.1rem}
+.round-ind{font-size:.85rem;color:#9aa3ad;flex:1;align-self:center}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:.4rem 0}
+.chip{border:1px solid #2a313b;border-radius:999px;padding:.2rem .6rem;font-size:.78rem;color:#9aa3ad;background:#0e1116}
+.chip.good{color:#7ee2a8;border-color:#2e6b47}
+table.results{width:100%;border-collapse:collapse;font-size:.82rem;margin:.5rem 0}
+.results th,.results td{padding:4px 6px;border-bottom:1px solid #2a313b;text-align:left}
+.rt,.rt-dim{color:#9aa3ad}
+.good{color:#7ee2a8}
+.bad{color:#f0c674}
+#loglist{max-height:200px;overflow:auto;font-size:.85rem;color:#9aa3ad;margin:.3rem 0}
+#loglist div{padding:.15rem 0;border-bottom:1px dashed #232a33}
+.howto{border:1px solid #2a313b;border-radius:14px;padding:14px;background:#151a21;font-size:.9rem}
+.howto h2{margin:.1rem 0 .5rem;font-size:1.05rem}
+.howto code{background:#0e1116;padding:.1rem .35rem;border-radius:6px;overflow-wrap:anywhere}
+.howto ol{margin:.4rem 0;padding-left:1.2rem}
+.howto li{margin:.3rem 0}
+footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+<header>
+<h1>Ziv <span style='color:#7ee2a8'>·</span> haptic name marks</h1>
+<p class=sub>Feel the full interaction language: each candidate name spelled in vibro-braille, the attention vocabulary that rides on it, and two self-test modes (M1 session, blind A/B). One beat per braille cell: long buzz = heavy cell (more dots), short buzz = light cell (fewer dots); attention patterns play as fixed ticks (▪) and one long buzz (▬).</p>
+<p id=support class=banner>checking…</p>
+</header>
+<section class=controls>
+<label for=gap>Gap between cells: <span id=gapval>420</span> ms</label>
+<input id=gap type=range min=250 max=700 step=10 value=420>
+<label class=chk><input id=loop type=checkbox> Loop playback until stopped</label>
+<div class=row style='margin-top:10px'>
+<button id=playall class=primary>Play all marks in sequence</button>
+<button id=stopall>Stop</button>
+</div>
+</section>
+<main id=cards></main>
+<h2 class=sec>Attention vocabulary — the words around the name</h2>
+<p class=sub>Short non-letter patterns (plan §4). The name mark says <i>who</i> is talking; these say <i>why</i> the device buzzed. The prefix card plays the mark first, then the reason.</p>
+<div id=vocab></div>
+<section class=mode>
+<h2>Session mode — protocol M1: name, or not name?</h2>
+<p class=note>8 randomized rounds: 4 × the Ziv mark, 4 × distractors drawn without replacement from the Boaz / Razu / Buz arcs and the attention patterns. Answer <b>Name</b> or <b>Not name</b> right after each pattern — reaction time runs from the end of the pattern to your tap (replays are counted and logged, never hidden). No feedback mid-session; the ≥ 80% working gate is scored at the end and everything downloads as CSV for the logging sheet. For self-administered checks — the facilitated session runs per <code>docs/NAMING_VALIDATION_PROTOCOL.md</code> §3.</p>
+<div id=m1setup>
+<label for=pid>Participant ID / session label (goes in the CSV):</label>
+<input id=pid type=text placeholder='e.g. pilot-01 or founder-self'>
+<div class=row style='margin-top:10px'>
+<button id=m1start class=primary>Start 8-round session</button>
+</div>
+</div>
+<div id=m1run hidden>
+<div class=row>
+<span id=m1round class=round-ind></span>
+<button id=m1replay disabled>Replay</button>
+<button id=m1abort>Abort</button>
+</div>
+<div class=row style='margin-top:10px'>
+<button id=m1name class='primary big'>Name</button>
+<button id=m1not class='big'>Not name</button>
+</div>
+<p id=m1status class=note></p>
+</div>
+<div id=m1done hidden>
+<p id=m1score></p>
+<table class=results id=m1table></table>
+<div class=row style='margin-top:10px'>
+<button id=m1dl class=primary>Download results (CSV)</button>
+<button id=m1again>New session</button>
+</div>
+</div>
+</section>
+<section class=mode>
+<h2>Blind A/B — which arc do you actually recognize?</h2>
+<p class=note>A random candidate mark plays; guess which one it was before the reveal. The per-arc tallies and guess log below measure <i>recognition</i>, not preference. The checkbox adds the retired Raz reference — its twin arc differs from Ziv only in the middle beat (a = 1 dot vs i = 2 dots), so it is the honest hard mode.</p>
+<div class=row>
+<button id=abnext class=primary>Play random mark</button>
+<button id=abreplay disabled>Replay</button>
+</div>
+<label class=chk style='margin-top:8px'><input id=abraz type=checkbox> Include retired Raz (twin arc — brutal)</label>
+<div id=abguess class=row style='margin-top:10px;flex-wrap:wrap'></div>
+<p id=abreveal class=note>Play a random mark to begin.</p>
+<div id=abtally class=chips></div>
+<div id=ablog></div>
+<div class=row style='margin-top:10px'>
+<button id=abdl>Download log (CSV)</button>
+<button id=abreset>Reset log</button>
+</div>
+</section>
+<section class=howto>
+<h2>Feel it on your Android phone</h2>
+<ol>
+<li>Serve this folder from your computer: <code>python -m http.server 8000</code></li>
+<li>On the phone (same Wi-Fi), open <code>http://COMPUTER-IP:8000/docs/haptic-name-marks.html</code> in Chrome</li>
+<li>Tap Play on a card. No vibration? Chrome menu → Site settings → Vibration → Allow. iOS Safari has no Vibration API — you get the visual rhythm only.</li>
+</ol>
+<p class=note style='margin-bottom:0'>On the page: the five name-mark cards · the attention vocabulary · <b>Session mode</b> (protocol M1 recognition test, downloadable CSV) · <b>Blind A/B</b> (random arc + guess log).</p>
+</section>
+<footer>Working title: Ziv — but the mark is the name and the word is a handle. The community holds the pen in week 6. See docs/HAPTIC_COMPANION_PLAN.md §1 and §4. Screening, not medicine: this page makes no claims about reading braille by touch. Session mode implements M1 of docs/NAMING_VALIDATION_PROTOCOL.md; the A/B mode exists so the founder measures which arc is actually recognized, not which one is liked.</footer>
+<script>
+var LETTERS = {
+  z:{n:4,g:'⠵'}, i:{n:2,g:'⠊'}, v:{n:4,g:'⠧'},
+  b:{n:2,g:'⠃'}, o:{n:3,g:'⠕'}, a:{n:1,g:'⠁'},
+  u:{n:3,g:'⠥'}, r:{n:4,g:'⠗'}
+};
+var MARKS = [
+  {id:'ziv', word:'Ziv', cells:['z','i','v'], status:'working title',
+   note:'Heavy-light-heavy. The identical arc Raz would have played — proof that the word is free and the mark is the name.'},
+  {id:'raz', word:'Raz', cells:['r','a','z'], status:'retired — reference',
+   note:'Same arc as Ziv. The wearer never felt a difference; the lawyers did.'},
+  {id:'boaz', word:'Boaz', cells:['b','o','a','z'], status:'candidate',
+   note:'Light-medium-light-heavy — a rising signature that ends decisive.'},
+  {id:'razu', word:'Razu', cells:['r','a','z','u'], status:'candidate',
+   note:'Heavy-light-heavy-medium — the name of the founder, ending on a soft beat.'},
+  {id:'buz', word:'Buz', cells:['b','u','z'], status:'word rejected',
+   note:'Light-medium-heavy: the best crescendo of the ten. Rejected as a word (Neosensory Buzz) — but the arc itself stays on the table for week 6.'}
+];
+function dur(d){ return 50 + 60*d; }
+window.LETTERS=LETTERS; window.MARKS=MARKS; window.dur=dur;
+var support = document.getElementById('support');
+if (navigator.vibrate) { support.textContent='Vibration supported — tap Play and hold the phone loosely.'; support.className='banner ok'; }
+else { support.textContent='No vibration API here (iOS or desktop) — showing the visual rhythm only. Open on Android Chrome to feel it.'; support.className='banner warn'; }
+var cards = document.getElementById('cards');
+MARKS.forEach(function(m){
+  var el = document.createElement('section');
+  el.className='card'; el.id='card-'+m.id;
+  var h = '<div class=top><span class=word>'+m.word+'</span><span class=status>'+m.status+'</span></div>';
+  h += '<div class=cells>' + m.cells.map(function(c){
+        return '<span class=cell><span class=g>'+LETTERS[c].g+'</span><span class=l>'+c+' · '+LETTERS[c].n+' dots</span></span>';
+      }).join('') + '</div>';
+  h += '<p class=note>'+m.note+'</p>';
+  h += '<div class=row><button class=primary data-play='+m.id+'>Play</button><button data-stop='+m.id+'>Stop</button></div>';
+  el.innerHTML = h;
+  cards.appendChild(el);
+});
+
+/* ---------------- attention vocabulary (plan §4) ---------------- */
+var TICK=70, TICK_GAP=160, LONG=600, TAIL_GAP=420;
+var ATTENTION = [
+  {id:'double-tap', word:'Double tap', meaning:'new message arrived',
+   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
+   note:'Two short ticks — something just arrived for you. This is the tail of the name-mark prefix on every unprompted message.'},
+  {id:'triple-pulse', word:'Triple pulse', meaning:'reminder fired',
+   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
+   note:'Three even ticks — a scheduled task fired. Plan §4 flow 4: at 9 pm a triple pulse arrives unprompted, then the message.'},
+  {id:'long-buzz', word:'Long buzz', meaning:'error / attention needed',
+   beats:[{ms:LONG,gap:TAIL_GAP}],
+   note:'One sustained buzz — something failed and needs you. Deliberately unlike any braille cell so it cuts through playback.'}
+];
+var PREFIX_TAILS = [
+  {id:'message',  label:'+ new message', beats:ATTENTION[0].beats},
+  {id:'reminder', label:'+ reminder',    beats:ATTENTION[1].beats},
+  {id:'error',    label:'+ error',       beats:ATTENTION[2].beats}
+];
+window.ATTENTION=ATTENTION;
+function beatGlyph(b){ return b.ms>=LONG ? '▬' : '▪'; }
+function beatLabel(b){ return (b.ms>=LONG?'long · ':'tick · ')+b.ms+' ms'; }
+function el(id){ return document.getElementById(id); }
+var vocab = document.getElementById('vocab');
+ATTENTION.forEach(function(a){
+  var card = document.createElement('section');
+  card.className='card'; card.id='card-'+a.id;
+  var h = '<div class=top><span class=word>'+a.word+'</span><span class=status>'+a.meaning+'</span></div>';
+  h += '<div class=cells>' + a.beats.map(function(b){
+        return '<span class="cell'+(b.ms>=LONG?' wide':'')+'"><span class=g>'+beatGlyph(b)+'</span><span class=l>'+beatLabel(b)+'</span></span>';
+      }).join('') + '</div>';
+  h += '<p class=note>'+a.note+'</p>';
+  h += '<div class=row><button class=primary data-playa='+a.id+'>Play</button><button data-stop='+a.id+'>Stop</button></div>';
+  card.innerHTML = h;
+  vocab.appendChild(card);
+});
+var prefixCard = document.createElement('section');
+prefixCard.className='card'; prefixCard.id='card-prefix';
+var ph = '<div class=top><span class=word>Name-mark prefix</span><span class=status>who is talking, then why</span></div>';
+ph += '<div class=cells id=prefixcells></div>';
+ph += '<p class=note>Every unprompted message opens with the name mark — Z-I-V — then the attention pattern says why the device buzzed. The plan §4 morning brief, felt end to end: the device says who is talking before it says what.</p>';
+ph += '<div class=row style="flex-wrap:wrap">' + PREFIX_TAILS.map(function(t){
+        return '<button data-prefix='+t.id+'>'+t.label+'</button>';
+      }).join('') + '</div>';
+prefixCard.innerHTML = ph;
+vocab.appendChild(prefixCard);
+var prefixTail = 'message';
+function findTail(id){
+  for (var k=0;k<PREFIX_TAILS.length;k++){ if (PREFIX_TAILS[k].id===id){ return PREFIX_TAILS[k]; } }
+  return PREFIX_TAILS[0];
+}
+function renderPrefixBeats(){
+  var tail = findTail(prefixTail);
+  var h = ['z','i','v'].map(function(c){
+    return '<span class=cell><span class=g>'+LETTERS[c].g+'</span><span class=l>'+c+' · '+LETTERS[c].n+' dots</span></span>';
+  }).join('');
+  h += '<span class=plus>+</span>';
+  h += tail.beats.map(function(b){
+    return '<span class="cell beatcell'+(b.ms>=LONG?' wide':'')+'"><span class=g>'+beatGlyph(b)+'</span><span class=l>'+beatLabel(b)+'</span></span>';
+  }).join('');
+  el('prefixcells').innerHTML = h;
+}
+renderPrefixBeats();
+
+/* ---------------- shared sequencer ---------------- */
+var playing = false, timer = null, onDone = null;
+function clearHi(card){
+  if(!card) return;
+  var cs = card.querySelectorAll('.cell');
+  for (var k=0;k<cs.length;k++){ cs[k].classList.remove('on'); }
+  card.classList.remove('playing');
+}
+function stopAll(){
+  playing = false; onDone = null;
+  if (timer){ clearTimeout(timer); timer=null; }
+  if (navigator.vibrate){ navigator.vibrate(0); }
+  var cs = document.querySelectorAll('.card');
+  for (var k=0;k<cs.length;k++){ clearHi(cs[k]); }
+}
+/* steps: [{ms, el, gap}] — gap null reads the slider (mark cells); a number overrides (attention beats) */
+function runSteps(steps, card, done, allowLoop){
+  stopAll();
+  playing = true; onDone = done || null;
+  if (card){ card.classList.add('playing'); }
+  var idx = 0;
+  function beat(){
+    if (!playing) return;
+    if (idx >= steps.length){
+      if (allowLoop && document.getElementById('loop').checked){ idx = 0; timer = setTimeout(beat, 700); return; }
+      var cb = onDone; stopAll(); if (cb){ cb(); } return;
+    }
+    var s = steps[idx];
+    if (navigator.vibrate){ navigator.vibrate(s.ms); }
+    if (s.el){ s.el.classList.add('on'); }
+    idx = idx + 1;
+    var gapAfter = (s.gap === null || s.gap === undefined) ? parseInt(document.getElementById('gap').value,10) : s.gap;
+    timer = setTimeout(beat, s.ms + gapAfter);
+  }
+  timer = setTimeout(beat, 500);
+}
+function playMark(m, done, allowLoop){
+  var card = document.getElementById('card-'+m.id);
+  var cells = card.querySelectorAll('.cell');
+  var steps = m.cells.map(function(c,i){ return {ms:dur(LETTERS[c].n), el:cells[i], gap:null}; });
+  runSteps(steps, card, done, allowLoop !== false);
+}
+function playAttention(a, done, allowLoop){
+  var card = document.getElementById('card-'+a.id);
+  var cells = card.querySelectorAll('.cell');
+  var steps = a.beats.map(function(b,i){ return {ms:b.ms, el:cells[i], gap:b.gap}; });
+  runSteps(steps, card, done, allowLoop !== false);
+}
+function playPrefix(done, allowLoop){
+  var card = document.getElementById('card-prefix');
+  var els = card.querySelectorAll('.cell');           /* 3 mark cells, then the tail beats */
+  var beatEls = card.querySelectorAll('.beatcell');
+  var steps = [];
+  ['z','i','v'].forEach(function(c,i){ steps.push({ms:dur(LETTERS[c].n), el:els[i], gap:null}); });
+  findTail(prefixTail).beats.forEach(function(b,i){
+    steps.push({ms:b.ms, el:beatEls[i], gap:(i===0?550:b.gap)});
+  });
+  runSteps(steps, card, done, allowLoop !== false);
+}
+function playStim(id, done, allowLoop){
+  for (var k=0;k<MARKS.length;k++){ if (MARKS[k].id===id){ playMark(MARKS[k], done, allowLoop); return true; } }
+  for (k=0;k<ATTENTION.length;k++){ if (ATTENTION[k].id===id){ playAttention(ATTENTION[k], done, allowLoop); return true; } }
+  return false;
+}
+document.getElementById('cards').addEventListener('click', function(ev){
+  var p = ev.target.getAttribute('data-play');
+  var t = ev.target.getAttribute('data-stop');
+  if (p){ for (var k=0;k<MARKS.length;k++){ if (MARKS[k].id===p){ playMark(MARKS[k]); } } }
+  if (t){ stopAll(); }
+});
+vocab.addEventListener('click', function(ev){
+  var t = ev.target;
+  var pa = t.getAttribute('data-playa');
+  var pf = t.getAttribute('data-prefix');
+  var st = t.getAttribute('data-stop');
+  if (pa){ for (var k=0;k<ATTENTION.length;k++){ if (ATTENTION[k].id===pa){ playAttention(ATTENTION[k]); } } }
+  if (pf){
+    prefixTail = pf;
+    var btns = prefixCard.querySelectorAll('[data-prefix]');
+    for (k=0;k<btns.length;k++){ btns[k].className = (btns[k].getAttribute('data-prefix')===pf) ? 'primary' : ''; }
+    renderPrefixBeats();
+    playPrefix();
+  }
+  if (st){ stopAll(); }
+});
+document.getElementById('stopall').addEventListener('click', stopAll);
+document.getElementById('playall').addEventListener('click', function(){
+  var q = MARKS.slice();
+  function next(){ if (!q.length){ return; } var m = q.shift(); playMark(m, next); }
+  next();
+});
+var gap = document.getElementById('gap');
+gap.addEventListener('input', function(){ document.getElementById('gapval').textContent = gap.value; });
+
+/* ---------------- session mode: protocol M1 ---------------- */
+var M1_N = 8;
+var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz'];
+var LABELS = {ziv:'Ziv', raz:'Raz', boaz:'Boaz', razu:'Razu', buz:'Buz',
+              'double-tap':'double tap', 'triple-pulse':'triple pulse', 'long-buzz':'long buzz'};
+var sess = null;
+function shuffle(a){
+  for (var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
+  return a;
+}
+function median(a){
+  var b = a.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(b.length/2);
+  return b.length%2 ? b[m] : Math.round((b[m-1]+b[m])/2);
+}
+function ts(){
+  var d = new Date();
+  function p(n){ return (n<10?'0':'')+n; }
+  return ''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
+}
+function kindOf(id){
+  for (var k=0;k<ATTENTION.length;k++){ if (ATTENTION[k].id===id){ return 'attention'; } }
+  return id==='ziv' ? 'mark' : 'distractor';
+}
+function setAnswerEnabled(on){
+  el('m1name').disabled = !on; el('m1not').disabled = !on; el('m1replay').disabled = !on;
+}
+function startSession(){
+  var picks = shuffle(M1_POOL.slice()).slice(0,4);
+  var rounds = [{stim:'ziv',kind:'mark'},{stim:'ziv',kind:'mark'},{stim:'ziv',kind:'mark'},{stim:'ziv',kind:'mark'}];
+  picks.forEach(function(id){ rounds.push({stim:id, kind:kindOf(id)}); });
+  sess = {
+    id: 'm1-' + ts(),
+    participant: el('pid').value.trim(),
+    startedAt: new Date().toISOString(),
+    rounds: shuffle(rounds), i:-1, log:[], answerAt:0, replays:0, awaiting:false
+  };
+  el('m1setup').hidden = true; el('m1done').hidden = true; el('m1run').hidden = false;
+  nextRound();
+}
+function nextRound(){
+  sess.i++; sess.replays = 0; sess.awaiting = false;
+  if (sess.i >= sess.rounds.length){ endSession(); return; }
+  el('m1round').textContent = 'Round ' + (sess.i+1) + ' of ' + M1_N + ' — listen…';
+  setAnswerEnabled(false);
+  el('m1status').textContent = 'Feel the pattern, then answer.';
+  playStim(sess.rounds[sess.i].stim, function(){
+    sess.awaiting = true; sess.answerAt = Date.now();
+    setAnswerEnabled(true);
+    el('m1status').textContent = 'Name, or not name?';
+  }, false);
+}
+function m1Replay(){
+  if (!sess || !sess.awaiting){ return; }
+  sess.replays++;
+  setAnswerEnabled(false);
+  el('m1status').textContent = 'Replaying…';
+  playStim(sess.rounds[sess.i].stim, function(){
+    sess.answerAt = Date.now();
+    setAnswerEnabled(true);
+    el('m1status').textContent = 'Name, or not name?';
+  }, false);
+}
+function m1Answer(given){
+  if (!sess || !sess.awaiting){ return; }
+  sess.awaiting = false;
+  var r = sess.rounds[sess.i];
+  var expected = (r.kind==='mark') ? 'name' : 'not-name';
+  sess.log.push({
+    round: sess.i+1, stimulus_id: r.stim, stimulus_kind: r.kind,
+    expected: expected, answer: given, correct: (given===expected) ? 1 : 0,
+    rt_ms: Date.now() - sess.answerAt, replays: sess.replays
+  });
+  setAnswerEnabled(false);
+  el('m1status').textContent = 'Logged.';
+  setTimeout(nextRound, 600);
+}
+function endSession(){
+  el('m1run').hidden = true;
+  var ok = 0; sess.log.forEach(function(e){ ok += e.correct; });
+  var pct = Math.round(100*ok/sess.log.length);
+  var gate = pct >= 80;
+  el('m1score').innerHTML = '<b>'+ok+' / '+M1_N+' correct ('+pct+'%)</b> — ' +
+    (gate ? '<span class=good>meets the ≥ 80% working gate</span>'
+          : '<span class=bad>below the ≥ 80% working gate — more exposures, then run it again</span>') +
+    '<br><span class="rt-dim">median reaction time ' + median(sess.log.map(function(e){ return e.rt_ms; })) +
+    ' ms · session ' + sess.id + '</span>';
+  var rows = '<tr><th>#</th><th>played</th><th>kind</th><th>answer</th><th>rt</th><th></th></tr>';
+  sess.log.forEach(function(e){
+    rows += '<tr><td>'+e.round+'</td><td>'+LABELS[e.stimulus_id]+'</td><td>'+e.stimulus_kind+'</td><td>'+
+            e.answer+'</td><td class=rt-dim>'+(e.rt_ms/1000).toFixed(2)+' s</td><td>'+
+            (e.correct?'<span class=good>✓</span>':'<span class=bad>✗</span>')+'</td></tr>';
+  });
+  el('m1table').innerHTML = rows;
+  el('m1done').hidden = false;
+}
+function csvEsc(v){
+  v = String(v);
+  return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+}
+function sessionCSV(){
+  if (!sess){ return ''; }
+  var head = 'participant,session_id,started_at,round,stimulus_id,stimulus_kind,expected,answer,correct,rt_ms,replays,gap_ms';
+  var rows = sess.log.map(function(e){
+    return [csvEsc(sess.participant), sess.id, sess.startedAt, e.round, e.stimulus_id, e.stimulus_kind,
+            e.expected, e.answer, e.correct, e.rt_ms, e.replays, el('gap').value].join(',');
+  });
+  return head + '\n' + rows.join('\n') + '\n';
+}
+function download(name, text){
+  var b = new Blob([text], {type:'text/csv'});
+  var u = URL.createObjectURL(b);
+  var a = document.createElement('a');
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(u); }, 2000);
+}
+el('m1start').addEventListener('click', startSession);
+el('m1name').addEventListener('click', function(){ m1Answer('name'); });
+el('m1not').addEventListener('click', function(){ m1Answer('not-name'); });
+el('m1replay').addEventListener('click', m1Replay);
+el('m1abort').addEventListener('click', function(){
+  sess = null; stopAll();
+  el('m1run').hidden = true; el('m1done').hidden = true; el('m1setup').hidden = false;
+});
+el('m1again').addEventListener('click', function(){
+  el('m1done').hidden = true; el('m1setup').hidden = false;
+});
+el('m1dl').addEventListener('click', function(){ if (sess){ download(sess.id + '.csv', sessionCSV()); } });
+
+/* ---------------- blind A/B mode ---------------- */
+var AB_POOL = ['ziv','boaz','razu','buz'];
+var ab = {log:[], last:null, current:null, tally:{}};
+function abPoolIds(){
+  var ids = AB_POOL.slice();
+  if (el('abraz').checked){ ids.push('raz'); }
+  return ids;
+}
+function renderAbGuessButtons(){
+  el('abguess').innerHTML = abPoolIds().map(function(id){
+    return '<button data-abguess='+id+'>'+LABELS[id]+'</button>';
+  }).join('');
+}
+function renderAbTally(){
+  var chips = abPoolIds().map(function(id){
+    var t = ab.tally[id];
+    if (!t){ return '<span class=chip>'+LABELS[id]+' · no guesses yet</span>'; }
+    var pct = Math.round(100*t.ok/t.n);
+    return '<span class="chip'+(pct>=70?' good':'')+'">'+LABELS[id]+' · '+t.ok+'/'+t.n+' · '+pct+'%</span>';
+  });
+  var ok = 0; ab.log.forEach(function(e){ ok += e.correct; });
+  if (ab.log.length){
+    var pct = Math.round(100*ok/ab.log.length);
+    chips.push('<span class="chip'+(pct>=70?' good':'')+'"><b>overall · '+ok+'/'+ab.log.length+' · '+pct+'%</b></span>');
+  }
+  el('abtally').innerHTML = chips.join('');
+}
+function renderAbLog(){
+  var h = '';
+  ab.log.slice(-20).reverse().forEach(function(e){
+    h += '<div>#'+e.round+' · played <b>'+LABELS[e.played]+'</b> · guessed '+LABELS[e.guess]+' · '+
+         (e.correct?'<span class=good>✓</span>':'<span class=bad>✗</span>')+'</div>';
+  });
+  el('ablog').innerHTML = h ? '<div id=loglist>'+h+'</div>' : '';
+}
+function abNext(){
+  var ids = abPoolIds().filter(function(id){ return id !== ab.last; });
+  if (!ids.length){ ids = abPoolIds(); }
+  var id = ids[Math.floor(Math.random()*ids.length)];
+  ab.current = id; ab.last = id;
+  el('abreveal').textContent = 'Which arc was that?';
+  el('abreplay').disabled = false;
+  playStim(id, null, true);   /* respects the loop checkbox */
+}
+function abGuess(id){
+  if (!ab.current){
+    el('abreveal').innerHTML = '<span class=bad>Play a random mark first.</span>';
+    return;
+  }
+  var correct = (id === ab.current) ? 1 : 0;
+  ab.log.push({round: ab.log.length+1, played: ab.current, guess: id, correct: correct, at: new Date().toISOString()});
+  var t = ab.tally[ab.current] || {n:0, ok:0};
+  t.n++; t.ok += correct; ab.tally[ab.current] = t;
+  el('abreveal').innerHTML = 'It was <b>'+LABELS[ab.current]+'</b> — ' +
+    (correct ? '<span class=good>correct ✓</span>' : '<span class=bad>you said '+LABELS[id]+' ✗</span>');
+  ab.current = null;
+  el('abreplay').disabled = true;
+  renderAbTally(); renderAbLog();
+}
+function abCSV(){
+  if (!ab.log.length){ return ''; }
+  var head = 'round,played,guessed,correct,at';
+  var rows = ab.log.map(function(e){ return [e.round, e.played, e.guess, e.correct, e.at].join(','); });
+  return head + '\n' + rows.join('\n') + '\n';
+}
+el('abnext').addEventListener('click', abNext);
+el('abreplay').addEventListener('click', function(){ if (ab.current){ playStim(ab.current, null, true); } });
+el('abreset').addEventListener('click', function(){
+  ab = {log:[], last:null, current:null, tally:{}};
+  el('abreveal').textContent = 'Log cleared.';
+  el('abreplay').disabled = true;
+  renderAbTally(); renderAbLog();
+});
+el('abdl').addEventListener('click', function(){ if (ab.log.length){ download('blind-ab-'+ts()+'.csv', abCSV()); } });
+el('abraz').addEventListener('change', function(){ renderAbGuessButtons(); renderAbTally(); });
+el('abguess').addEventListener('click', function(ev){
+  var g = ev.target.getAttribute('data-abguess');
+  if (g){ abGuess(g); }
+});
+renderAbGuessButtons(); renderAbTally();
+</script>
+</body>
+</html>

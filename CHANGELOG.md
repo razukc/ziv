@@ -6,6 +6,128 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.24] — 2026-09-08 — Personal AI: the feel-tool speaks the full interaction language — attention vocabulary, M1 session mode, blind A/B
+
+Docs commit: [docs/haptic-name-marks.html](docs/haptic-name-marks.html) grows from a name-mark player into the whole interaction language, felt on the phone — the attention vocabulary now plays next to the marks, and the page runs its own measurements instead of only demonstrations.
+
+- **Attention vocabulary (plan §4)** — the non-letter patterns as playable cards with beat visuals: double tap = new message arrived (two 70 ms ticks), triple pulse = reminder fired (three even ticks), long buzz = error / attention needed (one 600 ms buzz, deliberately unlike any braille cell). Plus the **name-mark prefix** card: Z-I-V plays first, then the attention pattern says why the device buzzed — three buttons play "+ new message", "+ reminder", "+ error". That is the §4 morning-brief moment, felt end to end: the device says who is talking before it says what.
+- **Session mode (protocol M1)** — runs the [NAMING_VALIDATION_PROTOCOL.md](docs/NAMING_VALIDATION_PROTOCOL.md) M1 recognition test on the phone: 8 randomized rounds (4 × the Ziv mark, 4 × distractors drawn without replacement from the Boaz / Razu / Buz arcs and the attention patterns), big Name / Not-name answer buttons, per-round reaction time from end-of-pattern to tap (replays counted and logged, never hidden), no mid-session feedback, and the ≥ 80% working gate scored at the end. Results download as a CSV keyed to the logging sheet (participant label, session id, per-round stimulus / answer / rt / replays / gap).
+- **Blind A/B mode** — a random candidate arc plays (Ziv / Boaz / Razu / Buz; an optional checkbox adds the retired-Raz twin, which differs from Ziv only in the middle beat — a = 1 dot vs i = 2), you guess which it was before the reveal; per-arc tallies and a round-by-round guess log separate recognition from preference, measuring which arc is actually recognized, not which one is liked. Log downloads as CSV.
+- Protocol materials checklist now points at the new modes as the phone fallback's self-test layer.
+
+## [pre-v0.1.23] — 2026-09-08 — Personal AI: week-6 naming-validation session script
+
+Docs commit: the community-naming step now has a one-page facilitator script —
+[docs/NAMING_VALIDATION_PROTOCOL.md](docs/NAMING_VALIDATION_PROTOCOL.md) — covering
+how the Z-I-V mark is taught, what is measured, and how braille readers rename
+the device if they want to.
+
+- **Teach (braille first, rhythm second):** embossed Z-I-V card read
+  conventionally, then the mark played, then a palm-tap per beat, then
+  self-paced replays; exposures-to-got-it is logged (working gate: median ≤ 5).
+  The mark anchors to a literacy participants already own.
+- **Measure (M1–M4):** immediate recognition among distractors (≥ 80%),
+  delayed recall across the §7 reading blocks (≥ 70%), zero confusions with the
+  attention vocabulary, and an identity read ('someone calling' vs 'a
+  message'). M3–M4 answer the plan's §11 question: if a letter-mark reads as
+  content, the fallback is a pure-rhythm signature.
+- **Rename (the community holds the pen):** keep / change the word / change
+  both, preferences captured verbatim, no vote in the room; adoption only on
+  cross-session majority convergence and re-passing M1–M4; otherwise Ziv stays
+  working title. Includes communication-access prep (SSP/interpreter, braille
+  consent forms) and carries the no-clinical-claims rule through debrief and
+  follow-ups.
+- **Competition section (Devpost draft)** — profiles the five nearest
+  products — Neosensory (Buzz/Duo), RAZ Mobility, OrCam MyEye, Dot Inc.
+  (Dot Watch / Dot Pad), Hable One — what each ships and the gap that leaves
+  a deaf-blind wearer unserved: spoken output (OrCam, RAZ, Hable's screen
+  reader), notification mirroring (Dot), or abstract vibration (Neosensory);
+  none pairs haptic braille with a hearing, two-way agent. New grounding:
+  OrCam pricing $2,450–$4,500 (dealer listings / AFB review); Dot Watch
+  first generation discontinued Jun 2018 with a 4-cell display (AFB via
+  Dot Inc. news).
+- Cross-references: plan §7 (week-6 milestone) and §11 (naming-validation
+  question) now link to the script.
+
+## [pre-v0.1.22] — 2026-09-07 — Personal AI: collision sweep retires "Raz" — working title "Ziv", community holds naming authority
+
+Docs commit: a trademark-collision sweep retires the word "Raz"; the
+submission ships under the working title Ziv, and the naming principle and
+community-authority rule are written into the plan.
+
+- **Collision found** — the word "Raz" collides with RAZ Mobility
+  (razmobility.com), an established US assistive-tech company for
+  blind/low-vision users: RAZ Memory Cell Phone (sold by Verizon since
+  Jul 2025), SmartVision 3, Lucia; founder Robert Felgar, previously founder
+  of Odin Mobile, the first wireless carrier for blind users. Identical
+  word, same industry, same channels — screening verdict: not safe as a
+  product brand.
+- **Sweep result (ten names)** — Ziv (cleanest), Boaz (clean), Razu (clean),
+  Tov (TOV Furniture holds marks), Raz (critical: RAZ Mobility); later
+  probes rejected — Viz (Viz.ai, $1.2B AI-healthcare company with
+  FDA-cleared "Viz" products), Buz (Neosensory Buzz: a shipped haptic wrist
+  wearable for deaf users — same category, same audience, phonetic twin),
+  A2Z (on Amazon's own trademark list, next to the A-to-Z Guarantee;
+  generic). Pattern: every sensory-feeling word is claimed inside this
+  industry; arbitrary personal names stay clean. Screening only; formal
+  USPTO clearance deferred until any commercial step.
+- **Naming principle recorded** — the mark is the name; the word is a handle
+  chosen by cost (legal cleanliness, sayability for the sighted-hearing
+  buyers, braille agreement), not meaning. Z-I-V plays the identical
+  heavy-light-heavy mark Raz would have — the wearer's experience is
+  unchanged; the word exists for the rest of us.
+- **Community naming authority** — name marks are given by communities, not
+  self-declared: the submission ships as "Ziv (working title)", and the
+  week-6 braille-reader sessions validate the mark and the word — or rename
+  the device (replaces the old name-mark open question).
+- **Docs updated** — plan doc (§1 naming trail, §4 mark spec Z-I-V, §11
+  naming-validation question, §12 pitch, collision sources),
+  [DEVPOST_HAPTIC.md](DEVPOST_HAPTIC.md) (working title throughout, naming
+  challenge answer rewritten).
+- **Mark feel-tool** — [docs/haptic-name-marks.html](docs/haptic-name-marks.html):
+  a phone-first page that plays the candidate marks (Ziv, a retired-Raz
+  reference, Boaz, Razu, Buz) through the Android Vibration API — each
+  braille cell is one beat whose duration encodes its dot weight
+  (duration = 50 + 60 × dot count), with a gap slider, loop toggle,
+  play-all sequence, and a visual-cell fallback where vibration is
+  unsupported (iOS/desktop).
+
+## [pre-v0.1.21] — 2026-09-07 — Personal AI: named Raz + plan refinements + Devpost draft
+
+Docs commit: the haptic companion gets its name, the project brief's refinements are folded into the plan, and the Devpost draft exists.
+
+- **Named: Raz** — "Tact" withdrawn (too literal, and it named the feature from the sighted-hearing perspective). The word comes from the founder's own name; the name the wearer owns is the **haptic name mark** — R-A-Z spelled in vibro-braille (heavy-light-heavy, ends decisive), played at boot and as the prefix of every unsolicited message. Grounded in how Deaf/DeafBlind communities identify people by tactile name signs (sources added to the plan).
+- **Plan refinements** — [docs/HAPTIC_COMPANION_PLAN.md](docs/HAPTIC_COMPANION_PLAN.md): the four demo-shaped user flows (morning brief, conversation, ambient check on demand, agent task); challenge→exercise→fallback ladders for six named challenges (incl. the 30-phrase fixed-vocabulary fallback if long-form temporal braille doesn't teach — learnability de-risking explicitly gated on the founder's call); §12 founder pitch; open questions for name-mark validation and target-population braille literacy.
+- **Devpost draft** — [DEVPOST_HAPTIC.md](DEVPOST_HAPTIC.md) mirrors DEVPOST.md's format for the Personal AI track, with *(planned)* build-status markers and the no-clinical-claims rule carried over.
+
+## [pre-v0.1.20] — 2026-09-07 — Personal AI direction: haptic AI companion for deaf-blind users
+
+Docs commit: the second-submission direction is chosen and planned.
+
+- **Decision recorded** — the Personal AI track entry is a **haptic AI
+  companion for deaf-blind users**: an ESP32-S3 N16R8 wearable with 6
+  vibromotors (DRV2605L, one per braille dot) + a 6-key braille chord
+  keyboard + a push-to-talk mic. Nemotron-3-Nano-Omni (now on Nebius Token
+  Factory, audio input natively) hears for the wearer; vibro-braille on the
+  wrist speaks to them. ~$37–46 BOM against a $1,500–$12,000 device class.
+- **Concept + MVP plan** — [docs/HAPTIC_COMPANION_PLAN.md](docs/HAPTIC_COMPANION_PLAN.md)
+  (incl. a fine-tuning assessment from the Token Factory post-training
+  catalog — Qwen3-0.6B/1.7B/4B as the v2 braille-style distillation lever,
+  Nemotron stays served-not-tuned):
+  problem brief (price-gap table, population figures), interaction design v0
+  (haptic attention vocabulary + temporal vibro-braille, Grade 1),
+  architecture (firmware modules → thin self-hosted relay → Token Factory
+  model routing), Assemble/Secure/Run mapping, 8-week milestones with a
+  week-1 spike gate (mic clip → Omni → vibro-braille end-to-end), demo
+  script, risks, and open questions.
+- **Why the pivot beats the general pin** — removing the speaker removes
+  AEC, wake word, and the TTS pipeline (the old Route C's hard problems);
+  Omni's native audio input removes the separate STT service; the haptic
+  channel is the privacy story ("private by physics").
+- **Cross-references** — CAPABILITIES.md §6 and MIMICLAW_PIPIN_RESEARCH.md
+  §7 now point to the plan; the research note's "submit B" recommendation is
+  marked superseded with its carry-overs named.
+
 ## [pre-v0.1.19] — 2026-09-04 — grounding disclosure + opt-out in the UI
 
 Feature commit: `0957156` (surface registry grounding per compose and let
