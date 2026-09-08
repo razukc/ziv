@@ -1,0 +1,47 @@
+#!/bin/sh
+# Pre-commit hook — the haptic channel must never drift.
+#
+# Runs before every commit:
+#   1. python tools/haptic_timing.py            spec vs generated consumers
+#      (docs/haptic-timing.json -> feel-tool block, firmware header, doc
+#      tables).  Fails the commit on any drift.
+#   2. python firmware/haptic_out/run_tests.py  bench suite against the mock
+#      DRV2605L.  Skipped when no host C compiler is installed (run_tests.py
+#      exits 2 in that case); a real failure (exit 1) blocks the commit.
+#
+# Install once — the script is committed, no framework needed:
+#     git config core.hooksPath hooks
+#
+# Hooks run with the worktree root as cwd, so the relative paths below are
+# correct from any subdirectory of the repo.
+set -u
+
+PY=python
+command -v "$PY" >/dev/null 2>&1 || PY=python3
+
+fail=0
+
+echo "pre-commit: haptic timing verify..."
+if ! "$PY" tools/haptic_timing.py; then
+    echo "  FAIL: timing spec and generated consumers disagree."
+    echo "  Run: python tools/haptic_timing.py --write"
+    echo "  and commit the regenerated files together."
+    fail=1
+fi
+
+echo "pre-commit: haptic_out bench suite..."
+"$PY" firmware/haptic_out/run_tests.py
+bench=$?
+if [ "$bench" = "1" ]; then
+    echo "  FAIL: haptic_out bench suite failed."
+    fail=1
+elif [ "$bench" = "2" ]; then
+    echo "  (skipped — no host C compiler; install one to run the bench suite)"
+fi
+
+if [ "$fail" = "0" ]; then
+    echo "pre-commit: haptic timing in sync."
+    exit 0
+fi
+echo "pre-commit: FAILED — commit blocked."
+exit 1

@@ -9,7 +9,7 @@
 ## 0 · Facilitator prep
 
 - Communication access first: confirm each participant's preferred channel when scheduling (close vision, tactile sign, SSP support) and book an SSP/interpreter as needed. Participant-facing material exists in braille — embossed cards, braille consent form — not only in print.
-- Hardware: prototype band loaded with the five marks (Ziv; Boaz; Razu; Buz; retired-Raz reference) — or the phone fallback, *haptic-name-marks.html* on Android Chrome (beat duration = 50 + 60 × dots ms, gap 420 ms).
+- Hardware: prototype band loaded with the five marks (Ziv; Boaz; Razu; Buz; retired-Raz reference) — or the phone fallback, *haptic-name-marks.html* on Android Chrome (beat duration = 50 + 60 × dots ms, gap 420 ms — full timing spec: [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md)).
 - Embossed braille cards: Z-I-V plus distractors Boaz / Razu / Buz. One logging sheet per participant.
 - Quiet room, even lighting (many low-vision participants read close-vision).
 
@@ -49,8 +49,8 @@ M3 + M4 answer the §11 question directly: if the mark reads as *content* or col
 Open: 'The name is not ours to keep. In DeafBlind communities, name marks are given, not declared. Three options: A, keep it. B, keep the pattern and change the word. C, change both.'
 
 - **A — keep:** Ziv and its mark, done.
-- **B — new word, same mark:** any word whose letters spell to the heavy-light-heavy arc; check legal cleanliness first (the §1 ten-name sweep method) and braille agreement always.
-- **C — new mark and word:** pick a distractor arc from the cards or propose any rhythm; the facilitator plays any 3–5-letter spelling live on the band.
+- **B — new word, same mark:** any word whose letters spell to the heavy-light-heavy arc; check legal cleanliness first (the §1 ten-name sweep method) and braille agreement always. Pre-validated arc matches live in the timing spec's `rename_examples` ([HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md)); the phone fallback's **Spell any word** box plays any candidate live so the room can feel option B before voting.
+- **C — new mark and word:** pick a distractor arc from the cards or propose any rhythm; the facilitator plays any 3–5-letter spelling live on the band — or any word at all via the Spell any word box on the phone fallback.
 
 Capture every preference and reason verbatim. **No vote in the room.** Across sessions: adopt an alternative only when a clear majority converges on the same one *and* it re-passes M1–M4; otherwise Ziv remains the working title and the question stays open. Any adopted rename is recorded in §1/§4 of the plan and the CHANGELOG — dated and attributed to the sessions, never to a founder.
 
@@ -66,7 +66,7 @@ Capture every preference and reason verbatim. **No vote in the room.** Across se
 
 ## Materials checklist
 
-- Band charged, five marks loaded; fallback phone with *haptic-name-marks.html* — the page now also carries the attention vocabulary, an M1 session mode (8 randomized mark-vs-distractor rounds, tap-to-answer, per-round reaction times, downloadable CSV results) and a blind A/B mode for arc recognition
+- Band charged, five marks loaded; fallback phone with *haptic-name-marks.html* — the page now also carries the attention vocabulary, an M1 session mode (8 randomized mark-vs-distractor rounds, tap-to-answer, per-round reaction times, downloadable CSV results), a blind A/B mode for arc recognition, and a spell-any-word box (full 26-letter vibro-braille + rename-candidate fills) for the §5 rename conversation
 - Embossed cards: Z-I-V + Boaz / Razu / Buz; braille consent form + large-print copy
 - Logging sheets (exposures, M1–M4, rename preference, verbatims); this script printed
 - SSP/interpreter confirmed; quiet room, even lighting; compensation per host org

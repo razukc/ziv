@@ -64,7 +64,7 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <body>
 <header>
 <h1>Ziv <span style='color:#7ee2a8'>·</span> haptic name marks</h1>
-<p class=sub>Feel the full interaction language: each candidate name spelled in vibro-braille, the attention vocabulary that rides on it, and two self-test modes (M1 session, blind A/B). One beat per braille cell: long buzz = heavy cell (more dots), short buzz = light cell (fewer dots); attention patterns play as fixed ticks (▪) and one long buzz (▬).</p>
+<p class=sub>Feel the full interaction language: each candidate name spelled in vibro-braille, the attention vocabulary that rides on it, any word spelled on demand, and self-test modes (M1 session, blind A/B). One beat per braille cell: long buzz = heavy cell (more dots), short buzz = light cell (fewer dots); attention patterns play as ticks (▪), a ramp (▴), a heartbeat (♥) and one long buzz (▬).</p>
 <p id=support class=banner>checking…</p>
 </header>
 <section class=controls>
@@ -128,6 +128,21 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <button id=abreset>Reset log</button>
 </div>
 </section>
+<section class=mode id=spellbox>
+<h2>Spell any word — the whole alphabet, felt</h2>
+<p class=note>Type a word and feel it spelled in vibro-braille, one cell per letter (buzz = 50 + 60 × dots, gap = the slider). The 26-letter table is generated from the timing spec, so this box spells exactly what the band can spell — including the week-6 rename candidates: the quick fills below spell the same heavy-light-heavy arc as Z-I-V (protocol §5 option B — arc-validated only; legal screening per plan §1 before adoption).</p>
+<label for=spellword>Word to feel (a–z, up to 12 letters):</label>
+<input id=spellword type=text maxlength=12 autocomplete=off autocapitalize=none spellcheck=false placeholder='e.g. ziv or tin'>
+<div id=spellfills class=row style='margin-top:10px;flex-wrap:wrap'></div>
+<div class=row style='margin-top:10px'>
+<button id=spellplay class=primary>Spell it</button>
+<button id=spellstop>Stop</button>
+<button id=spellreplay disabled>Replay</button>
+<button id=spelldl disabled>Download log (CSV)</button>
+</div>
+<p class=note id=spellstatus>Enter a word to begin.</p>
+<div id=spellcells class=cells></div>
+</section>
 <section class=howto>
 <h2>Feel it on your Android phone</h2>
 <ol>
@@ -135,15 +150,10 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <li>On the phone (same Wi-Fi), open <code>http://COMPUTER-IP:8000/docs/haptic-name-marks.html</code> in Chrome</li>
 <li>Tap Play on a card. No vibration? Chrome menu → Site settings → Vibration → Allow. iOS Safari has no Vibration API — you get the visual rhythm only.</li>
 </ol>
-<p class=note style='margin-bottom:0'>On the page: the five name-mark cards · the attention vocabulary · <b>Session mode</b> (protocol M1 recognition test, downloadable CSV) · <b>Blind A/B</b> (random arc + guess log).</p>
+<p class=note style='margin-bottom:0'>On the page: the five name-mark cards · the attention vocabulary · <b>Session mode</b> (protocol M1 recognition test, downloadable CSV) · <b>Blind A/B</b> (random arc + guess log) · <b>Spell any word</b> (26-letter vibro-braille, rename-candidate fills).</p>
 </section>
-<footer>Working title: Ziv — but the mark is the name and the word is a handle. The community holds the pen in week 6. See docs/HAPTIC_COMPANION_PLAN.md §1 and §4. Screening, not medicine: this page makes no claims about reading braille by touch. Session mode implements M1 of docs/NAMING_VALIDATION_PROTOCOL.md; the A/B mode exists so the founder measures which arc is actually recognized, not which one is liked.</footer>
+<footer>Working title: Ziv — but the mark is the name and the word is a handle. The community holds the pen in week 6. See docs/HAPTIC_COMPANION_PLAN.md §1 and §4. Screening, not medicine: this page makes no claims about reading braille by touch. Session mode implements M1 of docs/NAMING_VALIDATION_PROTOCOL.md; the A/B mode exists so the founder measures which arc is actually recognized, not which one is liked. Timing constants are generated from docs/haptic-timing.json — this page and the firmware header share one clock (docs/HAPTIC_TIMING_SPEC.md).</footer>
 <script>
-var LETTERS = {
-  z:{n:4,g:'⠵'}, i:{n:2,g:'⠊'}, v:{n:4,g:'⠧'},
-  b:{n:2,g:'⠃'}, o:{n:3,g:'⠕'}, a:{n:1,g:'⠁'},
-  u:{n:3,g:'⠥'}, r:{n:4,g:'⠗'}
-};
 var MARKS = [
   {id:'ziv', word:'Ziv', cells:['z','i','v'], status:'working title',
    note:'Heavy-light-heavy. The identical arc Raz would have played — proof that the word is free and the mark is the name.'},
@@ -156,7 +166,43 @@ var MARKS = [
   {id:'buz', word:'Buz', cells:['b','u','z'], status:'word rejected',
    note:'Light-medium-heavy: the best crescendo of the ten. Rejected as a word (Neosensory Buzz) — but the arc itself stays on the table for week 6.'}
 ];
-function dur(d){ return 50 + 60*d; }
+/* haptic-timing:begin (generated — edit docs/haptic-timing.json, then run: python tools/haptic_timing.py --write) */
+var CELL_BASE=50, CELL_PER_DOT=60;
+var TICK=70,TICK_GAP=160,LONG=600,TAIL_GAP=420,PREFIX_BREATH=550;
+var LETTERS = {
+  a:{n:1,g:'⠁'}, b:{n:2,g:'⠃'}, c:{n:2,g:'⠉'}, d:{n:3,g:'⠙'},
+  e:{n:2,g:'⠑'}, f:{n:3,g:'⠋'}, g:{n:4,g:'⠛'}, h:{n:3,g:'⠓'},
+  i:{n:2,g:'⠊'}, j:{n:3,g:'⠚'}, k:{n:2,g:'⠅'}, l:{n:3,g:'⠇'},
+  m:{n:3,g:'⠍'}, n:{n:4,g:'⠝'}, o:{n:3,g:'⠕'}, p:{n:4,g:'⠏'},
+  q:{n:5,g:'⠟'}, r:{n:4,g:'⠗'}, s:{n:3,g:'⠎'}, t:{n:4,g:'⠞'},
+  u:{n:3,g:'⠥'}, v:{n:4,g:'⠧'}, w:{n:4,g:'⠺'}, x:{n:4,g:'⠭'},
+  y:{n:5,g:'⠽'}, z:{n:4,g:'⠵'}
+};
+var ATTENTION = [
+  {id:'double-tap', word:"Double tap", meaning:"new message arrived",
+   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
+   note:"Two short ticks — something just arrived for you. This is the tail of the name-mark prefix on every unprompted message."},
+  {id:'triple-pulse', word:"Triple pulse", meaning:"reminder fired",
+   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
+   note:"Three even ticks — a scheduled task fired. Plan §4 flow 4: at 9 pm a triple pulse arrives unprompted, then the message."},
+  {id:'long-buzz', word:"Long buzz", meaning:"error / attention needed",
+   beats:[{ms:LONG,gap:TAIL_GAP}],
+   note:"One sustained buzz — something failed and needs you. Deliberately unlike any braille cell so it cuts through playback."},
+  {id:'ramp-up', word:"Ramp up", meaning:"booting / connecting",
+   beats:[{ms:50,gap:90,k:'ramp'},{ms:90,gap:120,k:'ramp'},{ms:140,gap:160,k:'ramp'},{ms:200,gap:TAIL_GAP,k:'ramp'}],
+   note:"Four ticks swelling in length — the device is waking up and reaching the relay. Plays at boot and on reconnect; never during playback."},
+  {id:'heartbeat', word:"Heartbeat tick", meaning:"alive check — off by default",
+   beats:[{ms:TICK,gap:120,k:'heart'},{ms:TICK,gap:TAIL_GAP,k:'heart'}],
+   note:"Lub-dub — the device is alive and on the relay. Configurable and off by default (plan §4): an occasional pulse, not a metronome."}
+];
+window.ATTENTION=ATTENTION;
+function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }
+var SPELL_FILLS_NOTE = "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption.";
+var SPELL_FILLS = [
+  {word:"tin", note:"option B — same arc as ziv (290·170·290)"},
+  {word:"wiz", note:"option B — same arc as ziv (290·170·290)"}
+];
+/* haptic-timing:end */
 window.LETTERS=LETTERS; window.MARKS=MARKS; window.dur=dur;
 var support = document.getElementById('support');
 if (navigator.vibrate) { support.textContent='Vibration supported — tap Play and hold the phone loosely.'; support.className='banner ok'; }
@@ -175,27 +221,18 @@ MARKS.forEach(function(m){
   cards.appendChild(el);
 });
 
-/* ---------------- attention vocabulary (plan §4) ---------------- */
-var TICK=70, TICK_GAP=160, LONG=600, TAIL_GAP=420;
-var ATTENTION = [
-  {id:'double-tap', word:'Double tap', meaning:'new message arrived',
-   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
-   note:'Two short ticks — something just arrived for you. This is the tail of the name-mark prefix on every unprompted message.'},
-  {id:'triple-pulse', word:'Triple pulse', meaning:'reminder fired',
-   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
-   note:'Three even ticks — a scheduled task fired. Plan §4 flow 4: at 9 pm a triple pulse arrives unprompted, then the message.'},
-  {id:'long-buzz', word:'Long buzz', meaning:'error / attention needed',
-   beats:[{ms:LONG,gap:TAIL_GAP}],
-   note:'One sustained buzz — something failed and needs you. Deliberately unlike any braille cell so it cuts through playback.'}
-];
+/* ---------------- attention vocabulary (plan §4) — patterns generated above from docs/haptic-timing.json ---------------- */
+function attentionById(id){
+  for (var k=0;k<ATTENTION.length;k++){ if (ATTENTION[k].id===id){ return ATTENTION[k]; } }
+  return null;
+}
 var PREFIX_TAILS = [
-  {id:'message',  label:'+ new message', beats:ATTENTION[0].beats},
-  {id:'reminder', label:'+ reminder',    beats:ATTENTION[1].beats},
-  {id:'error',    label:'+ error',       beats:ATTENTION[2].beats}
+  {id:'message',  label:'+ new message', beats:attentionById('double-tap').beats},
+  {id:'reminder', label:'+ reminder',    beats:attentionById('triple-pulse').beats},
+  {id:'error',    label:'+ error',       beats:attentionById('long-buzz').beats}
 ];
-window.ATTENTION=ATTENTION;
-function beatGlyph(b){ return b.ms>=LONG ? '▬' : '▪'; }
-function beatLabel(b){ return (b.ms>=LONG?'long · ':'tick · ')+b.ms+' ms'; }
+function beatGlyph(b){ return b.k==='ramp' ? '▴' : b.k==='heart' ? '♥' : (b.ms>=LONG ? '▬' : '▪'); }
+function beatLabel(b){ return (b.k ? b.k : (b.ms>=LONG?'long':'tick'))+' · '+b.ms+' ms'; }
 function el(id){ return document.getElementById(id); }
 var vocab = document.getElementById('vocab');
 ATTENTION.forEach(function(a){
@@ -252,6 +289,7 @@ function stopAll(){
   if (navigator.vibrate){ navigator.vibrate(0); }
   var cs = document.querySelectorAll('.card');
   for (var k=0;k<cs.length;k++){ clearHi(cs[k]); }
+  clearHi(el('spellcells'));
 }
 /* steps: [{ms, el, gap}] — gap null reads the slider (mark cells); a number overrides (attention beats) */
 function runSteps(steps, card, done, allowLoop){
@@ -291,9 +329,12 @@ function playPrefix(done, allowLoop){
   var els = card.querySelectorAll('.cell');           /* 3 mark cells, then the tail beats */
   var beatEls = card.querySelectorAll('.beatcell');
   var steps = [];
-  ['z','i','v'].forEach(function(c,i){ steps.push({ms:dur(LETTERS[c].n), el:els[i], gap:null}); });
+  ['z','i','v'].forEach(function(c,i){
+    var gap = (i === 2) ? PREFIX_BREATH : null;   /* the breath: after the last mark cell, before the tail */
+    steps.push({ms:dur(LETTERS[c].n), el:els[i], gap:gap});
+  });
   findTail(prefixTail).beats.forEach(function(b,i){
-    steps.push({ms:b.ms, el:beatEls[i], gap:(i===0?550:b.gap)});
+    steps.push({ms:b.ms, el:beatEls[i], gap:b.gap});
   });
   runSteps(steps, card, done, allowLoop !== false);
 }
@@ -334,9 +375,10 @@ gap.addEventListener('input', function(){ document.getElementById('gapval').text
 
 /* ---------------- session mode: protocol M1 ---------------- */
 var M1_N = 8;
-var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz'];
+var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz','ramp-up','heartbeat'];
 var LABELS = {ziv:'Ziv', raz:'Raz', boaz:'Boaz', razu:'Razu', buz:'Buz',
-              'double-tap':'double tap', 'triple-pulse':'triple pulse', 'long-buzz':'long buzz'};
+              'double-tap':'double tap', 'triple-pulse':'triple pulse', 'long-buzz':'long buzz',
+              'ramp-up':'ramp up', 'heartbeat':'heartbeat'};
 var sess = null;
 function shuffle(a){
   for (var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
@@ -373,6 +415,7 @@ function startSession(){
   nextRound();
 }
 function nextRound(){
+  if (!sess){ return; }   /* aborted while the 600 ms answer-pause was pending */
   sess.i++; sess.replays = 0; sess.awaiting = false;
   if (sess.i >= sess.rounds.length){ endSession(); return; }
   el('m1round').textContent = 'Round ' + (sess.i+1) + ' of ' + M1_N + ' — listen…';
@@ -542,6 +585,74 @@ el('abguess').addEventListener('click', function(ev){
   if (g){ abGuess(g); }
 });
 renderAbGuessButtons(); renderAbTally();
+
+/* ---------------- spell any word: the whole alphabet, felt ---------------- */
+var SPELL_MAX = 12;
+var spell = { word:null, last:null };
+function spellSteps(word){
+  var cells = el('spellcells').querySelectorAll('.cell');
+  return word.split('').map(function(ch, i){
+    return {ms:dur(LETTERS[ch].n), el:cells[i], gap:null};
+  });
+}
+function renderSpellWord(word){
+  var h = word.split('').map(function(ch){
+    return '<span class=cell><span class=g>'+LETTERS[ch].g+'</span><span class=l>'+ch+' · '+LETTERS[ch].n+' dots · '+dur(LETTERS[ch].n)+' ms</span></span>';
+  }).join('');
+  el('spellcells').innerHTML = h;
+}
+function spellPlay(word, done){
+  renderSpellWord(word);
+  spell.last = {word:word, gap_ms:parseInt(document.getElementById('gap').value,10), at:new Date().toISOString()};
+  el('spelldl').disabled = false;
+  runSteps(spellSteps(word), el('spellcells'), done, true);   /* respects the loop checkbox */
+  el('spellreplay').disabled = false;
+}
+function spellSubmit(){
+  var word = el('spellword').value.toLowerCase().replace(/[^a-z]/g, '');
+  if (!word){
+    spellStatus('Letters a–z only — enter a word.');
+    return;
+  }
+  if (word.length > SPELL_MAX){
+    spellStatus('Up to '+SPELL_MAX+' letters — that word is '+word.length+' long.');
+    return;
+  }
+  spell.word = word;
+  spellStatus('Spelling <b>'+word+'</b> — '+word.length+' cells, '+(word.length*2)+' beats (buzz + gap each).');
+  spellPlay(spell.word);
+}
+function spellReplay(){
+  if (!spell.word){ return; }
+  spellPlay(spell.word);
+}
+function spellStatus(html){ el('spellstatus').innerHTML = html; }
+function spellCSV(){
+  if (!spell.last){ return ''; }
+  var e = spell.last;
+  var head = 'word,letters,letter_count,dots_per_letter,cell_ms_per_letter,gap_ms,played_at';
+  var dots = e.word.split('').map(function(ch){ return LETTERS[ch].n; }).join(' ');
+  var ms = e.word.split('').map(function(ch){ return dur(LETTERS[ch].n); }).join(' ');
+  return head + '\n' + [csvEsc(e.word), e.word.split('').join(' '), e.word.length, dots, ms, e.gap_ms, e.at].join(',') + '\n';
+}
+el('spellplay').addEventListener('click', spellSubmit);
+el('spellreplay').addEventListener('click', spellReplay);
+el('spellstop').addEventListener('click', stopAll);
+el('spelldl').addEventListener('click', function(){ if (spell.last){ download('spelled-'+spell.last.word+'-'+ts()+'.csv', spellCSV()); } });
+el('spellword').addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ spellSubmit(); } });
+(function initSpellFills(){
+  el('spellfills').innerHTML = SPELL_FILLS.map(function(f){
+    return '<button data-spellfill='+f.word+'>'+f.word+'</button>';
+  }).join('');
+  el('spellfills').addEventListener('click', function(ev){
+    var w = ev.target.getAttribute('data-spellfill');
+    if (!w){ return; }
+    el('spellword').value = w;
+    spell.word = w;
+    spellStatus('Spelling <b>'+w+'</b> — '+SPELL_FILLS_NOTE);
+    spellPlay(w);
+  });
+})();
 </script>
 </body>
 </html>

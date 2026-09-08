@@ -70,8 +70,11 @@ git tag pre-v0.1.1    # next verified milestone
 
 ## Before you commit
 
+0. Install the pre-commit hook once per clone: `git config core.hooksPath hooks`
+   — it runs the haptic timing verify (`tools/haptic_timing.py`) and the
+   haptic_out bench suite, and blocks any commit that would ship spec drift
 1. `cd frontend && npx tsc --noEmit`
-2. `cd agent && python -m pytest -q` (hermetic suite — currently 86 tests — passes, e2e deselected)
+2. `cd agent && python -m pytest -q` (hermetic suite — currently 89 tests — passes, e2e deselected; includes the haptic timing drift guard)
 3. `cd agent && python -m pytest -m e2e` if the backend (:8000) and frontend
    (:3000) are running (10 tests, ~3.5 min)
 4. Live checks against real services: `python live_check.py journey|edit`
@@ -79,6 +82,11 @@ git tag pre-v0.1.1    # next verified milestone
 5. Behavior changed → add a `CHANGELOG.md` entry under `[Unreleased]` or the
    current milestone
 6. Commit with a conventional message, then push nothing (no remote yet)
+
+The haptic timing guard is belt-and-suspenders: the pre-commit hook blocks
+at commit time, and the hermetic suite (`tests/test_haptic_timing.py`)
+fails in CI/local runs even if a hook is never installed. Drift cannot be
+committed either way.
 
 ## Docs map
 

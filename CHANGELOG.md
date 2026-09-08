@@ -6,6 +6,43 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.28] — 2026-09-08 — Personal AI: haptic_out firmware module — and drift can no longer be committed
+
+Docs commit: the band's haptic channel gets its first real code — the cell sequencer + pattern player drafted around the generated header — and the spec's one-clock guarantee gets teeth: a pre-commit hook and a hermetic test refuse any commit that ships spec drift.
+
+- **The module** — [firmware/haptic_out/](firmware/haptic_out/) drafts the plan §5 `haptic_out` unit: `haptic_out.c` is a pull-model state machine (the app calls `haptic_out_step(now_ms)` and gets the next deadline back — no blocking, no sleeps) that plays marks, attention patterns, arbitrary words, and the name-mark prefix (mark → 550 ms breath → tail) from the generated timing tables; `drv2605.c` is the register-level DRV2605L driver in real-time playback mode (one cell = six dot channels at their levels for `buzz_ms`, then zero); `drv2605_i2c.h` abstracts the bus behind a vtable so the same code runs on the bench and the band; `haptic_out_task.c` + `drv2605_i2c_esp32.c` + `CMakeLists.txt` sketch the ESP-IDF glue (TCA9548A mux, FreeRTOS task) pending real hardware.
+- **Mock DRV2605L + bench suite** — `mock_drv2605.c` emulates six register files behind the mux with fault injection; `test_haptic_out.c` drives the real sequencer against it and asserts exact timelines (buzz start, duration, gap, dot bitmask per beat) against the generated tables — including the rename-arc property (tin/wiz spell the same arc as ziv) — plus a dead-dot-channel error path. `run_tests.py` builds and runs it with any host C compiler (auto-detected; skipped when none is installed).
+- **Phone fix found by encoding the spec** — the prefix player placed the 550 ms breath *after* the tail's first tick instead of between the mark and the tail; the firmware work forced the exact semantics, the phone now matches (verified in the preview: mark → 550 → tail).
+- **The guard** — [hooks/pre-commit](hooks/pre-commit) (install: `git config core.hooksPath hooks`) runs the timing verify + bench suite before every commit and blocks on drift; [agent/tests/test_haptic_timing.py](agent/tests/test_haptic_timing.py) runs the same verify in the hermetic suite and proves the checker itself detects drift (it caught a latent crash in the checker's own path handling — fixed). 89 hermetic tests pass.
+
+## [pre-v0.1.27] — 2026-09-08 — Personal AI: spell any word — the full 26-letter vibro-braille alphabet in the feel-tool
+
+Docs commit: the haptic feel-tool grows a **Spell any word** box — type any word (a–z, up to 12 letters) and feel it spelled one cell per letter, powered by the timing spec's full alphabet. This is the tool for the week-6 rename conversation (protocol §5): option B candidates can be felt live in the room.
+
+- **Dot positions join the single source** — [docs/haptic-timing.json](docs/haptic-timing.json) v2 adds `letter_patterns` (dot positions 1–6 per letter, verified against the standard Grade-1 table) alongside the existing dot counts; the Unicode braille glyphs and the firmware's per-letter motor bitmask are now *derived* from them, not hand-written. The generator cross-checks counts against positions and validates the new `rename_examples` block.
+- **The generated LETTERS table** — [docs/haptic-name-marks.html](docs/haptic-name-marks.html) no longer hand-writes the 8 letters the marks use; all 26 letters (dot count + glyph) are generated into the timing block, and the verifier checks them. A drift in the spec's alphabet now fails `tools/haptic_timing.py` instead of shipping silently.
+- **Spell any word box** — text input with a–z normalization (case/punctuation stripped, 12-letter cap), per-letter cell rendering (glyph · dots · ms), playback through the shared sequencer (loop + gap slider respected), replay, and a one-row CSV log (word, per-letter dot counts and cell durations, gap, timestamp).
+- **Rename-candidate quick fills** — the spec's `rename_examples` (protocol §5 option B: words that spell the same dot-count arc as Ziv — currently *tin*, *wiz*, arc-validated only) generate one-tap buttons on the page and are documented in [docs/HAPTIC_TIMING_SPEC.md](docs/HAPTIC_TIMING_SPEC.md).
+- **Firmware gains the dot bitmask table** — `HAPTIC_LETTER_MASKS[26]` in [firmware/haptic_out/haptic_timing.h](firmware/haptic_out/haptic_timing.h) (bit n = dot n), the plan §5 cell → bitmask step, plus a `HAPTIC_RENAME_*` block mirroring the spec's rename examples.
+- **Fix: abort race in session mode** — aborting inside the 600 ms answer-pause crashed the pending round transition (`sess` already nulled); guarded.
+
+## [pre-v0.1.26] — 2026-09-08 — Personal AI: one clock for wrist and phone — haptic timing extracted into a generated spec
+
+Docs commit: every buzz and silence the haptic channel plays now has exactly one source — [docs/haptic-timing.json](docs/haptic-timing.json) — and both players are generated from it, so the phone mock and the band can no longer drift apart.
+
+- **Canonical spec** — constants (cell base/per-dot, cell-gap default + tuning envelope, tick, tick-gap, long buzz, tail gap, prefix breath), the full 26-letter Grade-1 dot table, the five candidate marks, the five attention patterns with each beat annotated by the constant it references, and the prefix composition (mark → 550 ms breath → tail). Feel-tool-only affordances (play lead-in, loop restart, slider step) are marked `ui`, so the firmware never inherits page quirks.
+- **Generated consumers** — `tools/haptic_timing.py --write` rewrites the feel-tool's timing block and gap slider ([docs/haptic-name-marks.html](docs/haptic-name-marks.html)) and emits [firmware/haptic_out/haptic_timing.h](firmware/haptic_out/haptic_timing.h) — the plan §5 module's first artifact: compile-ready C with the beat struct, per-pattern tables, a dispatch enum + table, the 26-letter cell durations, and the mark letter-index arrays. The readable tables live in [docs/HAPTIC_TIMING_SPEC.md](docs/HAPTIC_TIMING_SPEC.md), generated too.
+- **Drift is a failure** — `python tools/haptic_timing.py` in verify mode regenerates every consumer and diffs it against what is on disk (block text, slider envelope, the page's LETTERS/MARKS tables, the M1 distractor pool ids) and exits non-zero on any mismatch; the JSON itself self-validates (beat ranges, constant references, the tail rule, mark letters).
+- **Behavior unchanged** — the generated block emits the same numbers the hand-written code had; `PREFIX_BREATH` replaces the hard-coded 550 ms in the prefix player, and PREFIX_TAILS look patterns up by id instead of array position, so reordering the JSON cannot silently swap a prefix tail.
+
+## [pre-v0.1.25] — 2026-09-08 — Personal AI: the feel-tool's §4 attention vocabulary is complete — ramp up + heartbeat tick
+
+Docs commit: the two remaining plan §4 patterns join the haptic feel-tool — the whole attention table can now be felt on the phone.
+
+- **Ramp up = booting / connecting** — four quick ticks swelling in length (50 → 90 → 140 → 200 ms; the Vibration API has no amplitude control, so the ramp is duration), rendered as ▴ cells. Boot/reconnect only, never during playback.
+- **Heartbeat tick = alive check** — a lub-dub of two 70 ms ticks 120 ms apart, ♥ cells; the card carries the plan §4 caveat verbatim: configurable, off by default, an occasional pulse rather than a metronome.
+- Both patterns join the M1 session distractor pool (protocol M1: "Boaz / Razu / Buz arc / attention patterns" — the pool now draws 4 distractors from 7), which also strengthens the M3 mark-vs-content confusion check. The prefix card keeps its three content tails — booting and alive-check are lifecycle signals, not message reasons.
+
 ## [pre-v0.1.24] — 2026-09-08 — Personal AI: the feel-tool speaks the full interaction language — attention vocabulary, M1 session mode, blind A/B
 
 Docs commit: [docs/haptic-name-marks.html](docs/haptic-name-marks.html) grows from a name-mark player into the whole interaction language, felt on the phone — the attention vocabulary now plays next to the marks, and the page runs its own measurements instead of only demonstrations.

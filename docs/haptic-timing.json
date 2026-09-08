@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "title": "Ziv haptic timing — the single source for the phone feel-tool and the haptic_out firmware",
+  "units": "milliseconds",
+  "rule": "One beat = buzz for buzz_ms, then silence for gap_after_ms. Braille cell buzz = cell_base_ms + cell_per_dot_ms * dot_count.",
+  "constants": {
+    "cell_base_ms": 50,
+    "cell_per_dot_ms": 60,
+    "cell_gap_default_ms": 420,
+    "cell_gap_min_ms": 250,
+    "cell_gap_max_ms": 700,
+    "tick_ms": 70,
+    "tick_gap_ms": 160,
+    "long_buzz_ms": 600,
+    "tail_gap_ms": 420,
+    "prefix_breath_ms": 550
+  },
+  "ui": {
+    "play_lead_ms": 500,
+    "loop_restart_ms": 700,
+    "cell_gap_step_ms": 10,
+    "note": "Feel-tool page affordances only — the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope."
+  },
+  "letters": {
+    "a": 1, "b": 2, "c": 2, "d": 3, "e": 2, "f": 3, "g": 4, "h": 3, "i": 2, "j": 3,
+    "k": 2, "l": 3, "m": 3, "n": 4, "o": 3, "p": 4, "q": 5, "r": 4, "s": 3, "t": 4,
+    "u": 3, "v": 4, "w": 4, "x": 4, "y": 5, "z": 4
+  },
+  "letter_patterns": {
+    "a": [1], "b": [1, 2], "c": [1, 4], "d": [1, 4, 5], "e": [1, 5],
+    "f": [1, 2, 4], "g": [1, 2, 4, 5], "h": [1, 2, 5], "i": [2, 4], "j": [2, 4, 5],
+    "k": [1, 3], "l": [1, 2, 3], "m": [1, 3, 4], "n": [1, 3, 4, 5], "o": [1, 3, 5],
+    "p": [1, 2, 3, 4], "q": [1, 2, 3, 4, 5], "r": [1, 2, 3, 5], "s": [2, 3, 4], "t": [2, 3, 4, 5],
+    "u": [1, 3, 6], "v": [1, 2, 3, 6], "w": [2, 4, 5, 6], "x": [1, 3, 4, 6], "y": [1, 3, 4, 5, 6],
+    "z": [1, 3, 5, 6]
+  },
+  "marks": {
+    "ziv": ["z", "i", "v"],
+    "raz": ["r", "a", "z"],
+    "boaz": ["b", "o", "a", "z"],
+    "razu": ["r", "a", "z", "u"],
+    "buz": ["b", "u", "z"]
+  },
+  "rename_examples": {
+    "note": "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption.",
+    "same_arc_as": "ziv",
+    "words": ["tin", "wiz"]
+  },
+  "attention_patterns": [
+    {
+      "id": "double-tap",
+      "word": "Double tap",
+      "meaning": "new message arrived",
+      "beats": [
+        { "buzz_ms": 70, "gap_after_ms": 160, "buzz_ref": "tick", "gap_ref": "tick_gap" },
+        { "buzz_ms": 70, "gap_after_ms": 420, "buzz_ref": "tick", "gap_ref": "tail" }
+      ],
+      "note": "Two short ticks — something just arrived for you. This is the tail of the name-mark prefix on every unprompted message."
+    },
+    {
+      "id": "triple-pulse",
+      "word": "Triple pulse",
+      "meaning": "reminder fired",
+      "beats": [
+        { "buzz_ms": 70, "gap_after_ms": 160, "buzz_ref": "tick", "gap_ref": "tick_gap" },
+        { "buzz_ms": 70, "gap_after_ms": 160, "buzz_ref": "tick", "gap_ref": "tick_gap" },
+        { "buzz_ms": 70, "gap_after_ms": 420, "buzz_ref": "tick", "gap_ref": "tail" }
+      ],
+      "note": "Three even ticks — a scheduled task fired. Plan §4 flow 4: at 9 pm a triple pulse arrives unprompted, then the message."
+    },
+    {
+      "id": "long-buzz",
+      "word": "Long buzz",
+      "meaning": "error / attention needed",
+      "beats": [
+        { "buzz_ms": 600, "gap_after_ms": 420, "buzz_ref": "long", "gap_ref": "tail" }
+      ],
+      "note": "One sustained buzz — something failed and needs you. Deliberately unlike any braille cell so it cuts through playback."
+    },
+    {
+      "id": "ramp-up",
+      "word": "Ramp up",
+      "meaning": "booting / connecting",
+      "beats": [
+        { "buzz_ms": 50, "gap_after_ms": 90, "kind": "ramp" },
+        { "buzz_ms": 90, "gap_after_ms": 120, "kind": "ramp" },
+        { "buzz_ms": 140, "gap_after_ms": 160, "kind": "ramp" },
+        { "buzz_ms": 200, "gap_after_ms": 420, "kind": "ramp", "gap_ref": "tail" }
+      ],
+      "note": "Four ticks swelling in length — the device is waking up and reaching the relay. Plays at boot and on reconnect; never during playback."
+    },
+    {
+      "id": "heartbeat",
+      "word": "Heartbeat tick",
+      "meaning": "alive check — off by default",
+      "beats": [
+        { "buzz_ms": 70, "gap_after_ms": 120, "buzz_ref": "tick", "kind": "heart" },
+        { "buzz_ms": 70, "gap_after_ms": 420, "buzz_ref": "tick", "kind": "heart", "gap_ref": "tail" }
+      ],
+      "note": "Lub-dub — the device is alive and on the relay. Configurable and off by default (plan §4): an occasional pulse, not a metronome."
+    }
+  ],
+  "prefix": {
+    "mark": "ziv",
+    "breath_after_mark_ms_ref": "prefix_breath_ms",
+    "tails": {
+      "message": "double-tap",
+      "reminder": "triple-pulse",
+      "error": "long-buzz"
+    }
+  }
+}

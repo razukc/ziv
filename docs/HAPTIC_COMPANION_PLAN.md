@@ -177,6 +177,8 @@ letters, learned in minutes:
 | ramp up | device booting / connecting |
 | heartbeat tick | alive check (configurable, off by default) |
 
+Every pattern's exact beats live in [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md): the phone feel-tool and the `haptic_out` firmware are generated from the same [haptic-timing.json](./haptic-timing.json), so the mock and the band play identical patterns by construction.
+
 **Device identity — the name mark.** The pin identifies itself haptically: at boot, and as the first element of any message that arrives *unprompted*, it plays its name — **Z-I-V spelled in vibro-braille** on the 6 motors (Z = dots 1-3-5-6 → four motors pulse as one heavy beat; I = dots 2-4 → two motors, a light beat; V = dots 1-2-3-6 → four motors, heavy again: a *heavy-light-heavy* arc that ends decisive — the identical arc "Raz" would have played). This mirrors how DeafBlind communities identify people by tactile name signs rather than descriptive labels — the wearer learns the device's name as a felt pattern, and the same learning reinforces the braille alphabet. A second device (caregiver bridge, v2 form factor) gets its own mark, so multi-device haptic "caller ID" falls out for free.
 
 **Vibro-braille playback (content layer)** — the reply text is rendered as
@@ -249,7 +251,7 @@ in §9, not a footnote.
 | Module | Job |
 |---|---|
 | `audio_capture` | I2S → WAV frames on push-to-talk; upload as binary WS frames |
-| `haptic_out` | DRV2605L driver; pattern vocabulary + vibro-braille sequencer (cell → dot bitmask → LRA waveforms; per-dot timing) |
+| `haptic_out` | DRV2605L driver; pattern vocabulary + vibro-braille sequencer (cell → dot bitmask → LRA waveforms; per-dot timing); timing constants + per-letter dot bitmasks generated from [haptic-timing.json](./haptic-timing.json) via `tools/haptic_timing.py` (header: [firmware/haptic_out/haptic_timing.h](../firmware/haptic_out/haptic_timing.h)) |
 | `braille_in` | 6-key GPIO polling/debounce → chord decode → text buffer |
 | `ws_client` | WSS to relay; text JSON frames + binary audio; reconnect/backoff |
 | `memory` | SOUL.md / MEMORY.md / session JSONL on SPIFFS (the MimiClaw pattern, kept) |
