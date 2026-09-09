@@ -6,6 +6,33 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [pre-v0.1.33] — 2026-09-09 — Personal AI: rename candidates validated by the checker, not by hand
+
+Option-B rename management becomes mechanical. `tools/rename_check.py <word>…` checks a candidate against the mark's dot-count arc through the same validation engine (`rename_word_problems`, extracted) the timing checker uses to self-validate the spec — so a candidate that fails never reaches the spec, and a hand-edited spec entry that fails fails the checker. Failure messages carry both shapes ("'nattin' spells 4-1-4-4-2-4 (heavy-light-heavy-…) — the 'ziv' mark is 4-2-4"); the mark's own word is rejected (option B changes the word), as are non-letters and words beyond the spell cap. `-a` adds passing words to `rename_examples` and regenerates all three consumers via the refactored `write_consumers()` path — refusing entirely if any listed word fails — and the drift guard + pre-commit hook then hold the spec and consumers together at commit time. The spell-box limit joined the spec (`ui.spell_max_letters`, generated into the page as SPELL_MAX; the firmware's 16-letter ceiling stays the stronger player). 13 new tests (engine rules, CLI exit codes, sandboxed add round-trip + refusal + idempotence) take the hermetic suite to 117 passing.
+
+## [pre-v0.1.32] — 2026-09-09 — Personal AI: the M1 data-collection protocol and gate analyzer
+
+The naming protocol's M1 measure becomes a defined data pipeline: §3a specifies the capture contract (the feel-tool session CSV), the session tiers (tier 1: 5 usable sessions — first gate; tier 2: 20 sessions across ≥ 4 participants — the evidence tier for the §5 rename conversation; tier 3: live rename-candidate pivot), the success gates (≥ 80% mark-only accuracy, no session below 3/4 mark rounds, zero M3 mark-vs-content confusions, pooled median RT ≤ 5 s), the failure-path triage (floor miss → retune the arc; RT/late failure with accuracy fine → short-cell rhythm problem; fast confident misses → arc confusion), and the analysis rules (the analyzer computes the gate, never the facilitator; CSVs are never rewritten; tiers are never pooled).
+
+`tools/m1_summary.py` applies those gates deterministically (exit 1 on gate failure, 2 on unusable input) — per-session metrics (mark-only accuracy, median RT, late count, replays, M3 confusions, distractor false alarms), tier gates with per-check detail, `--json` output. The feel-tool session mode gained the one field the protocol needed: a 10 s answer deadline — an unanswered round is scored not-name and flagged `late:1` (unanswered is data, not a dropped round), with replay restarting the window and abort clearing the timer. 15 new analyzer tests take the hermetic suite to 104 passing.
+
+## [pre-v0.1.31] — 2026-09-09 — Personal AI: the hardware bring-up checklist
+
+[docs/HARDWARE_BRINGUP.md](docs/HARDWARE_BRINGUP.md): parts list (ESP32-S3 devkit, six DRV2605L breakouts behind a TCA9548A mux, 2–3 V LRAs, external 5 V motor rail with mandatory common ground), the dot-map wiring (dot n = mux channel n−1), and a six-stage flash-and-feel test — I2C scan, one dot, then the first phone-vs-band comparison of the Ziv mark, the full §4 attention table, the who→why prefix, and bus-fault drills. Every register, constant, and API name is verified against the module sources; writing it caught two gaps in the task sketch itself (no header, no `haptic_post_prefix`), both documented for the bring-up session.
+
+## [pre-v0.1.30] — 2026-09-08 — Personal AI: the bench suite's first real compile
+
+The haptic_out bench suite compiled and ran on this machine for the first time: `ziglang` installed into the agent venv (`pip install ziglang`, self-contained, no machine-wide changes), `run_tests.py` taught the `python -m ziglang cc` fallback. Result: **274 checks, 0 failures**, zero warnings under `-Wall -Wextra -Werror -std=c11`. The compile caught three real defects the hand-review had missed:
+
+- **Module — gap ownership**: after a buzz ended, the sequencer took the following silence from the *next* beat's `gap_after_ms` instead of the beat that just buzzed. That stretched every inter-beat silence to the wrong value (the prefix's 550 ms breath landed one beat early, double-tap's second tick fired 260 ms late). The silence now comes from the buzzing beat's own gap — the same `gap_after` semantics the phone plays.
+- **Module — stale deadline across plays**: `begin_play` reset the state flags but not `next_deadline`, so a play started right after another one waited out the previous play's leftover deadline before its first buzz. Fixed (would have stalled a prefix played back-to-back).
+- **Test harness — contract violations**: `run_play` pre-initialised the event output (reading its own stale value on no-event returns) and treated a `0` return as end-of-play even though the *first* call legitimately returns 0 for the START event; `CHECK_EQ` mixed `uint32_t` with `int` literals (a `-Wsign-compare` trap). Plus one wrong hand-computed expectation (the raz timeline assumed Ziv's 170 ms `i` instead of `a`'s 110 ms).
+
+Bench build artifacts are now gitignored.
+## [pre-v0.1.29] — 2026-09-08 — Personal AI: the drift guard reaches CI
+
+Repo commit: a GitHub Actions workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every push — the hermetic suite (`agent: python -m pytest -q`, e2e deselected), the haptic timing verify (`python tools/haptic_timing.py`), and the haptic_out bench suite. The runner has gcc preinstalled, so the bench tests compile and run for real in CI even on machines without a C toolchain. Triggered on every branch push, with a manual `workflow_dispatch` for ad-hoc runs.
+
 ## [pre-v0.1.28] — 2026-09-08 — Personal AI: haptic_out firmware module — and drift can no longer be committed
 
 Docs commit: the band's haptic channel gets its first real code — the cell sequencer + pattern player drafted around the generated header — and the spec's one-clock guarantee gets teeth: a pre-commit hook and a hermetic test refuse any commit that ships spec drift.

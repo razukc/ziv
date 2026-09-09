@@ -16,8 +16,12 @@
 # correct from any subdirectory of the repo.
 set -u
 
+# Prefer the project venv (agent/venv) when present: it is where the
+# ziglang pip package lives, so the bench suite gets its compiler there.
 PY=python
-command -v "$PY" >/dev/null 2>&1 || PY=python3
+if [ -x agent/venv/Scripts/python.exe ]; then PY=agent/venv/Scripts/python.exe
+elif [ -x agent/venv/bin/python ]; then PY=agent/venv/bin/python
+elif command -v "$PY" >/dev/null 2>&1; then :; else PY=python3; fi
 
 fail=0
 

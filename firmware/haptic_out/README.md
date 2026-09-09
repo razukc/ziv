@@ -79,7 +79,9 @@ No compiler on this box? `winget install w64devkit` (Windows) or
 
 The `drv2605_i2c_esp32.c` and `haptic_out_task.c` files are deliberately
 sketches — the register map and the sequencer are what the bench tests
-lock down; the ESP-IDF glue needs a real board to finish.
+lock down; the ESP-IDF glue needs a real board to finish. Parts, wiring,
+and the staged flash-and-feel test live in
+[HARDWARE_BRINGUP.md](../../docs/HARDWARE_BRINGUP.md).
 
 ## Change discipline
 

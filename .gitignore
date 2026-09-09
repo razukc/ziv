@@ -8,6 +8,12 @@ agent/pipeline_store.json
 *.log
 *.tsbuildinfo
 
+# Bench-test build artifacts (haptic_out)
+firmware/haptic_out/test_haptic_out
+firmware/haptic_out/test_haptic_out.exe
+firmware/haptic_out/test_haptic_out.pdb
+firmware/haptic_out/test_haptic_out.obj
+
 # Python
 agent/venv/
 agent/__pycache__/

@@ -13,6 +13,10 @@ toolchain: "winget install w64devkit" (portable gcc), or
 Sources build with -Wall -Wextra -Werror -std=c11 for zero-warning
 discipline; the module headers carry no dependencies, so the same sources
 compile under ESP-IDF later with the real I2C bus swapped in.
+
+Compiler detection order: cc/gcc/clang/tcc in PATH, `zig cc`, the
+`ziglang` pip package in the running interpreter (`pip install ziglang`),
+then a real WSL install.
 """
 
 import re
@@ -54,6 +58,14 @@ def find_cc():
             return [path]
     if shutil.which("zig"):
         return ["zig", "cc"]   # zig cc is a drop-in C compiler
+    # ziglang pip package (e.g. installed into a project venv):
+    #   pip install ziglang  ->  python -m ziglang cc ...
+    probe = subprocess.run(
+        [sys.executable, "-m", "ziglang", "version"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if probe.returncode == 0 and probe.stdout.strip():
+        return [sys.executable, "-m", "ziglang", "cc"]
     return wsl_cc()
 
 

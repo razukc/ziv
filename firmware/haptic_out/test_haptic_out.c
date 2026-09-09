@@ -27,21 +27,28 @@ static int checks = 0;
 } while (0)
 
 #define CHECK_EQ(a, b, msg) do { \
+    long long got_ = (long long) (a), want_ = (long long) (b); \
     checks++; \
-    if ((a) != (b)) { failures++; printf("FAIL: %s (got %lld, want %lld)\n", msg, (long long) (a), (long long) (b)); } \
+    if (got_ != want_) { failures++; printf("FAIL: %s (got %lld, want %lld)\n", msg, got_, want_); } \
 } while (0)
 
 typedef struct { uint32_t at, buzz, gap; uint8_t mask; } buzz_rec;
 
-/* Walk a play to completion, recording every buzz. */
+/* Walk a play to completion, recording every buzz.
+ *
+ * The module's contract: ev/step are written only when an event fires, so
+ * the caller must pre-fill ev with a sentinel and trust it only after the
+ * module actually reported something. */
+#define EV_NONE ((haptic_out_event_t) 0xFF)
 static int run_play(haptic_out *h, buzz_rec *out, int max)
 {
     uint32_t now = 0;
     int n = 0;
     for (;;) {
-        haptic_out_event_t ev = HAPTIC_OUT_EV_BUZZ;
-        haptic_out_step_t st;
+        haptic_out_event_t ev = EV_NONE;
+        haptic_out_step_t st = {0};
         uint32_t next = haptic_out_step(h, now, &ev, &st);
+        if (ev == HAPTIC_OUT_EV_START) { continue; }   /* call again immediately */
         if (ev == HAPTIC_OUT_EV_BUZZ && n < max) {
             out[n].at = now;
             out[n].buzz = st.buzz_ms;
@@ -237,7 +244,7 @@ static void test_cancel_with_new_play(void)
     CHECK_EQ(n, 3, "raz has 3 cells");
     check_buzz(r, 0, 0, 290, 420, 0x17);   /* r = 4 dots, dots 1-2-3-5 */
     check_buzz(r, 1, 710, 110, 420, 0x01); /* a = 1 dot */
-    check_buzz(r, 2, 1300, 290, 420, 0x35);/* z */
+    check_buzz(r, 2, 1240, 290, 420, 0x35);/* z — a is 110 ms, so z lands at 710+110+420 */
 }
 
 static void test_bus_fault(void)

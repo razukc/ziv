@@ -19,7 +19,8 @@
     "play_lead_ms": 500,
     "loop_restart_ms": 700,
     "cell_gap_step_ms": 10,
-    "note": "Feel-tool page affordances only — the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope."
+    "spell_max_letters": 12,
+    "note": "Feel-tool page affordances only — the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope. spell_max_letters caps the page's spell box; the firmware accepts up to 16 (HAPTIC_OUT_MAX_WORD_LEN) so the band is never the weaker player."
   },
   "letters": {
     "a": 1, "b": 2, "c": 2, "d": 3, "e": 2, "f": 3, "g": 4, "h": 3, "i": 2, "j": 3,
@@ -42,7 +43,7 @@
     "buz": ["b", "u", "z"]
   },
   "rename_examples": {
-    "note": "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption.",
+    "note": "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption. Manage with tools/rename_check.py: 'python tools/rename_check.py <word>...' checks a candidate against the arc, '-a' adds spec-validated words.",
     "same_arc_as": "ziv",
     "words": ["tin", "wiz"]
   },

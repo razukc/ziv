@@ -370,7 +370,7 @@ interface; only the relay changes.
 | Latency: capture + upload + Omni + playback must feel conversational | medium | budget ≈ clip length + 2–5 s (Route B anchor); keep clips short; stream text cells as they arrive if Omni streams |
 | Board availability / N16R8 variant confusion | low | order week 1; the research note's board table lists 6 candidates |
 | Battery life with WiFi bursts | low–medium | deep sleep between events; no continuous streaming; measure in week 5 |
-| I²C address conflicts / wiring on small boards | low | single DRV2605L at 0x5A; standard wiring; devkit bench first |
+| I²C address conflicts / wiring on small boards | low | all six DRV2605L share fixed 0x5A behind a TCA9548A mux at 0x70 (see [HARDWARE_BRINGUP.md](./HARDWARE_BRINGUP.md)); devkit bench first |
 
 **Challenge → exercise → fallback (ladders wired in advance):**
 

@@ -123,6 +123,7 @@ static haptic_err_t begin_play(haptic_out *h, haptic_out_mode_t mode)
     h->buzzing = false;
     h->draining = false;
     h->last_gap_ms = 0;
+    h->next_deadline = 0;   /* a new play must not inherit the old deadline */
     h->last_err = HAPTIC_OK;
     return HAPTIC_OK;
 }
@@ -199,14 +200,12 @@ uint32_t haptic_out_step(haptic_out *h, uint32_t now_ms, haptic_out_event_t *ev,
         uint32_t buzz_ms = 0, gap_ms = 0;
         uint8_t mask = 0;
         if (!beat_info(h, &buzz_ms, &gap_ms, &mask)) {
-            /* beats exhausted: the last buzz's gap_after_ms IS the tail gap
-             * (mark/word last cell = TAIL_GAP_MS; a pattern's last beat ends
-             * with gap_ref tail) — drain exactly that, then END. */
-            h->draining = true;
-            h->next_deadline = now_ms + h->last_gap_ms;
-            return h->next_deadline;
+            h->draining = true;   /* beats exhausted: END after the silence */
         }
-        h->next_deadline = now_ms + gap_ms;
+        /* The silence that follows a buzz belongs to the beat that just
+         * buzzed — its own gap_after_ms (for a play's last beat that IS the
+         * tail gap) — never to the next one. */
+        h->next_deadline = now_ms + h->last_gap_ms;
         return h->next_deadline;
     }
 

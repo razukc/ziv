@@ -48,7 +48,7 @@ REQUIRED_CONSTANTS = [
     "cell_gap_max_ms", "tick_ms", "tick_gap_ms", "long_buzz_ms", "tail_gap_ms",
     "prefix_breath_ms",
 ]
-REQUIRED_UI = ["play_lead_ms", "loop_restart_ms", "cell_gap_step_ms"]
+REQUIRED_UI = ["play_lead_ms", "loop_restart_ms", "cell_gap_step_ms", "spell_max_letters"]
 
 
 def js_str(s):
@@ -77,7 +77,41 @@ def bitmask(dots):
     return bits
 
 
+def arc_name(arc):
+    """Spoken shape of a dot-count arc: heavy = 4+ dots, light = fewer."""
+    return "-".join("heavy" if d >= 4 else "light" for d in arc)
+
+
 # --- validation -----------------------------------------------------------
+
+def rename_word_problems(spec, word):
+    """Protocol §5 option-B validation for one candidate word.
+
+    Returns a list of problem strings (empty = the word spells the same
+    dot-count arc as rename_examples.same_arc_as).  Shared by the spec's
+    own validate() and by tools/rename_check.py.
+    """
+    problems = []
+    letters = spec.get("letters", {})
+    rex = spec.get("rename_examples") or {}
+    mark = rex.get("same_arc_as")
+    if mark not in spec.get("marks", {}):
+        return [f"spec: rename_examples.same_arc_as {mark!r} is not a known mark"]
+    if not isinstance(word, str) or not re.fullmatch(r"[a-z]+", word):
+        return [f"{word!r}: must be lowercase a-z"]
+    if word == "".join(spec["marks"][mark]):
+        return [f"{word!r}: is the mark's current word — option B changes the word"]
+    if len(word) > spec.get("ui", {}).get("spell_max_letters", 12):
+        return [f"{word!r}: {len(word)} letters exceeds spell_max_letters "
+                f"({spec['ui']['spell_max_letters']})"]
+    arc = [letters.get(ch) for ch in spec["marks"][mark]]
+    word_arc = [letters.get(ch) for ch in word]
+    if word_arc != arc:
+        problems.append(
+            f"{word!r} spells {'-'.join(str(d) for d in word_arc)} ({arc_name(word_arc)}) — "
+            f"the {mark!r} mark is {'-'.join(str(d) for d in arc)} ({arc_name(arc)})")
+    return problems
+
 
 def validate(spec, problems):
     c = spec.get("constants", {})
@@ -112,18 +146,8 @@ def validate(spec, problems):
 
     rex = spec.get("rename_examples")
     if rex is not None:
-        mark = rex.get("same_arc_as")
-        if mark not in spec.get("marks", {}):
-            problems.append(f"rename_examples.same_arc_as {mark!r}: not a known mark")
-        else:
-            arc = [letters.get(ch) for ch in spec["marks"][mark]]
-            for word in rex.get("words", []):
-                if not isinstance(word, str) or not re.fullmatch(r"[a-z]+", word):
-                    problems.append(f"rename_examples: word {word!r} must be lowercase a-z")
-                elif [letters.get(ch) for ch in word] != arc:
-                    problems.append(
-                        f"rename_examples: {word!r} does not spell the same dot-count arc as {mark!r}"
-                    )
+        for word in rex.get("words", []):
+            problems.extend(rename_word_problems(spec, word))
 
     pattern_ids = set()
     for p in spec.get("attention_patterns", []):
@@ -213,6 +237,7 @@ def js_block(spec):
         L.append("   note:" + js_str(p["note"]) + "}" + comma)
     L.append("];")
     L.append("window.ATTENTION=ATTENTION;")
+    L.append(f"var SPELL_MAX={spec['ui']['spell_max_letters']};")
     L.append("function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }")
     rex = spec.get("rename_examples", {})
     mark = rex.get("same_arc_as", "")
@@ -539,6 +564,29 @@ def rel(path):
         return path
 
 
+def write_consumers(spec, problems):
+    """Regenerate every consumer from the spec.  Used by --write and by
+    tools/rename_check.py -a (a spec change invalidates nothing else: the
+    consumers are pure functions of the JSON)."""
+    js = js_block(spec)
+    hdr = header(spec)
+    doc = doc_tables(spec)
+
+    html = HTML_PATH.read_text(encoding="utf-8")
+    patched = splice(html, JS_BEGIN, JS_END, js, problems, "html block")
+    if patched is None:
+        return False
+    write_lf(HTML_PATH, rewrite_slider(patched, spec))
+    HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    write_lf(HEADER_PATH, hdr)
+    doc_text = DOC_PATH.read_text(encoding="utf-8")
+    patched = splice(doc_text, DOC_BEGIN, DOC_END, doc, problems, "spec doc tables")
+    if patched is None:
+        return False
+    write_lf(DOC_PATH, patched)
+    return True
+
+
 def write_lf(path, text):
     """Write with LF endings regardless of platform, preserving repo line style."""
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -572,22 +620,10 @@ def main():
     doc = doc_tables(spec)
 
     if args.write:
-        html = HTML_PATH.read_text(encoding="utf-8")
-        patched = splice(html, JS_BEGIN, JS_END, js, problems, "html block")
-        if patched is None:
+        if not write_consumers(spec, problems):
             for p in problems:
                 print("error:", p)
             return 1
-        write_lf(HTML_PATH, rewrite_slider(patched, spec))
-        HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
-        write_lf(HEADER_PATH, hdr)
-        doc_text = DOC_PATH.read_text(encoding="utf-8")
-        patched = splice(doc_text, DOC_BEGIN, DOC_END, doc, problems, "spec doc tables")
-        if patched is None:
-            for p in problems:
-                print("error:", p)
-            return 1
-        write_lf(DOC_PATH, patched)
 
     # verification (always runs — also right after --write, so it checks what landed on disk)
     problems = []

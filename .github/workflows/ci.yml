@@ -1,0 +1,36 @@
+name: CI — hermetic suite + haptic timing guard
+
+# Runs on every push to any branch. The haptic channel has one clock
+# (docs/haptic-timing.json); this workflow refuses to go green when the
+# generated consumers drift from it, and runs the full hermetic suite plus
+# the haptic_out bench tests (gcc is preinstalled on the runner, so the
+# bench suite runs for real here even when a local box has no C compiler).
+on:
+  push:
+  workflow_dispatch:   # allow a manual run from the Actions tab
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements-dev.txt
+
+      - name: Install Python dependencies
+        working-directory: agent
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Haptic timing spec — consumers in sync
+        run: python tools/haptic_timing.py
+
+      - name: Hermetic suite (e2e deselected)
+        working-directory: agent
+        run: python -m pytest -q
+
+      - name: haptic_out bench suite (host C compiler)
+        run: python firmware/haptic_out/run_tests.py

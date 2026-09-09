@@ -82,7 +82,7 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <div id=vocab></div>
 <section class=mode>
 <h2>Session mode — protocol M1: name, or not name?</h2>
-<p class=note>8 randomized rounds: 4 × the Ziv mark, 4 × distractors drawn without replacement from the Boaz / Razu / Buz arcs and the attention patterns. Answer <b>Name</b> or <b>Not name</b> right after each pattern — reaction time runs from the end of the pattern to your tap (replays are counted and logged, never hidden). No feedback mid-session; the ≥ 80% working gate is scored at the end and everything downloads as CSV for the logging sheet. For self-administered checks — the facilitated session runs per <code>docs/NAMING_VALIDATION_PROTOCOL.md</code> §3.</p>
+<p class=note>8 randomized rounds: 4 × the Ziv mark, 4 × distractors drawn without replacement from the Boaz / Razu / Buz arcs and the attention patterns. Answer <b>Name</b> or <b>Not name</b> right after each pattern — reaction time runs from the end of the pattern to your tap (replays are counted and logged, never hidden; a round left unanswered 10 s after the pattern ends is scored not-name and flagged late in the CSV). No feedback mid-session; the ≥ 80% working gate is scored at the end and everything downloads as CSV for the logging sheet. For self-administered checks — the facilitated session runs per <code>docs/NAMING_VALIDATION_PROTOCOL.md</code> §3.</p>
 <div id=m1setup>
 <label for=pid>Participant ID / session label (goes in the CSV):</label>
 <input id=pid type=text placeholder='e.g. pilot-01 or founder-self'>
@@ -196,8 +196,9 @@ var ATTENTION = [
    note:"Lub-dub — the device is alive and on the relay. Configurable and off by default (plan §4): an occasional pulse, not a metronome."}
 ];
 window.ATTENTION=ATTENTION;
+var SPELL_MAX=12;
 function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }
-var SPELL_FILLS_NOTE = "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption.";
+var SPELL_FILLS_NOTE = "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption. Manage with tools/rename_check.py: 'python tools/rename_check.py <word>...' checks a candidate against the arc, '-a' adds spec-validated words.";
 var SPELL_FILLS = [
   {word:"tin", note:"option B — same arc as ziv (290·170·290)"},
   {word:"wiz", note:"option B — same arc as ziv (290·170·290)"}
@@ -375,6 +376,7 @@ gap.addEventListener('input', function(){ document.getElementById('gapval').text
 
 /* ---------------- session mode: protocol M1 ---------------- */
 var M1_N = 8;
+var M1_TIMEOUT_MS = 10000;   /* unanswered 10 s after the pattern ends = scored not-name, late:1 */
 var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz','ramp-up','heartbeat'];
 var LABELS = {ziv:'Ziv', raz:'Raz', boaz:'Boaz', razu:'Razu', buz:'Buz',
               'double-tap':'double tap', 'triple-pulse':'triple pulse', 'long-buzz':'long buzz',
@@ -409,7 +411,7 @@ function startSession(){
     id: 'm1-' + ts(),
     participant: el('pid').value.trim(),
     startedAt: new Date().toISOString(),
-    rounds: shuffle(rounds), i:-1, log:[], answerAt:0, replays:0, awaiting:false
+    rounds: shuffle(rounds), i:-1, log:[], answerAt:0, replays:0, awaiting:false, timer:0
   };
   el('m1setup').hidden = true; el('m1done').hidden = true; el('m1run').hidden = false;
   nextRound();
@@ -425,6 +427,9 @@ function nextRound(){
     sess.awaiting = true; sess.answerAt = Date.now();
     setAnswerEnabled(true);
     el('m1status').textContent = 'Name, or not name?';
+    sess.timer = setTimeout(function(){
+      if (sess && sess.awaiting){ m1Answer('not-name'); }   /* answer window elapsed */
+    }, M1_TIMEOUT_MS);
   }, false);
 }
 function m1Replay(){
@@ -432,21 +437,27 @@ function m1Replay(){
   sess.replays++;
   setAnswerEnabled(false);
   el('m1status').textContent = 'Replaying…';
+  if (sess.timer){ clearTimeout(sess.timer); }   /* a replay restarts the answer window */
   playStim(sess.rounds[sess.i].stim, function(){
     sess.answerAt = Date.now();
     setAnswerEnabled(true);
     el('m1status').textContent = 'Name, or not name?';
+    sess.timer = setTimeout(function(){
+      if (sess && sess.awaiting){ m1Answer('not-name'); }   /* answer window elapsed */
+    }, M1_TIMEOUT_MS);
   }, false);
 }
 function m1Answer(given){
   if (!sess || !sess.awaiting){ return; }
+  if (sess.timer){ clearTimeout(sess.timer); sess.timer = 0; }
   sess.awaiting = false;
   var r = sess.rounds[sess.i];
   var expected = (r.kind==='mark') ? 'name' : 'not-name';
   sess.log.push({
     round: sess.i+1, stimulus_id: r.stim, stimulus_kind: r.kind,
     expected: expected, answer: given, correct: (given===expected) ? 1 : 0,
-    rt_ms: Date.now() - sess.answerAt, replays: sess.replays
+    rt_ms: Date.now() - sess.answerAt, replays: sess.replays,
+    late: (Date.now() - sess.answerAt) > M1_TIMEOUT_MS ? 1 : 0
   });
   setAnswerEnabled(false);
   el('m1status').textContent = 'Logged.';
@@ -461,7 +472,7 @@ function endSession(){
     (gate ? '<span class=good>meets the ≥ 80% working gate</span>'
           : '<span class=bad>below the ≥ 80% working gate — more exposures, then run it again</span>') +
     '<br><span class="rt-dim">median reaction time ' + median(sess.log.map(function(e){ return e.rt_ms; })) +
-    ' ms · session ' + sess.id + '</span>';
+    ' ms · unanswered rounds scored not-name · session ' + sess.id + '</span>';
   var rows = '<tr><th>#</th><th>played</th><th>kind</th><th>answer</th><th>rt</th><th></th></tr>';
   sess.log.forEach(function(e){
     rows += '<tr><td>'+e.round+'</td><td>'+LABELS[e.stimulus_id]+'</td><td>'+e.stimulus_kind+'</td><td>'+
@@ -477,10 +488,10 @@ function csvEsc(v){
 }
 function sessionCSV(){
   if (!sess){ return ''; }
-  var head = 'participant,session_id,started_at,round,stimulus_id,stimulus_kind,expected,answer,correct,rt_ms,replays,gap_ms';
+  var head = 'participant,session_id,started_at,round,stimulus_id,stimulus_kind,expected,answer,correct,rt_ms,replays,late,gap_ms';
   var rows = sess.log.map(function(e){
     return [csvEsc(sess.participant), sess.id, sess.startedAt, e.round, e.stimulus_id, e.stimulus_kind,
-            e.expected, e.answer, e.correct, e.rt_ms, e.replays, el('gap').value].join(',');
+            e.expected, e.answer, e.correct, e.rt_ms, e.replays, e.late, el('gap').value].join(',');
   });
   return head + '\n' + rows.join('\n') + '\n';
 }
@@ -497,6 +508,7 @@ el('m1name').addEventListener('click', function(){ m1Answer('name'); });
 el('m1not').addEventListener('click', function(){ m1Answer('not-name'); });
 el('m1replay').addEventListener('click', m1Replay);
 el('m1abort').addEventListener('click', function(){
+  if (sess && sess.timer){ clearTimeout(sess.timer); }
   sess = null; stopAll();
   el('m1run').hidden = true; el('m1done').hidden = true; el('m1setup').hidden = false;
 });
@@ -587,7 +599,6 @@ el('abguess').addEventListener('click', function(ev){
 renderAbGuessButtons(); renderAbTally();
 
 /* ---------------- spell any word: the whole alphabet, felt ---------------- */
-var SPELL_MAX = 12;
 var spell = { word:null, last:null };
 function spellSteps(word){
   var cells = el('spellcells').querySelectorAll('.cell');
