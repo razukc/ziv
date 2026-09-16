@@ -8,7 +8,9 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased]
 
-- **Queue-rejection telemetry in health** — ``GET /api/ziv/health`` now carries ``queue_rejections`` (cumulative ``count``, ``last_reason``, ``last_at``), so the operator can see the 429s the relay hands out instead of only the sender feeling them: every ``message:rejected`` the gate returns is counted with its reason and a wall-clock timestamp. Cumulative by design (a rate signal over the server's life, unlike the drain-on-read corrupt-store lists); reset by the test fixture like the rest of the process-wide relay state. Hermetic test proves a zeroed snapshot before any refusal and count=2/``queue_full`` after two overflowing posts.
+- **The client renders a refusal instead of failing silently** — when the relay answers 429 (replay queue full), the dev-band PWA now shows a plain-language "wrist is busy — try after the current message" note in the header state, the wire log ("✋ refused … your text stays in the box"), and the Omni mic status, instead of one dim HTTP line. Honors the server contract that the wrist stays silent for a refusal: the note is visual only, no vibration is fired, and the drafted text remains in the input so the retry is one tap. Both send paths are covered (``/api/ziv/message`` and ``/inject/audio``), and the page's help text says what a refusal means.
+
+- **Queue-rejection telemetry in health** — ``GET /api/ziv/health`` now carries ``queue_rejections`` (cumulative ``count``, ``last_reason``, ``last_at``), so the operator can see the 429s the relay hands out instead of only the sender feeling them: every ``message:rejected`` the gate returns is counted with its reason and a wall-clock timestamp. Cumulative by design (a lifetime signal, unlike the drain-on-read corrupt-store lists); reset by the test fixture like the rest of the process-wide relay state. Hermetic tests prove a zeroed snapshot before any refusal, count=2/``queue_full`` after two overflowing posts.
 
 ## [pre-v0.1.44] — 2026-09-17 — Personal AI: the tracks separate, the demo single-sources, the seam hardens
 

@@ -101,7 +101,8 @@
     <p class="cap">Mic records → POST /inject/audio → Nemotron-3-Nano-Omni (Token Factory)
     transcribes → the reply plays as braille. “Stub demo” sends the text field directly
     (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
-    release come back over /ws.</p>
+    release come back over /ws. If the wrist is mid-message and its queue is full,
+    a send is refused with a “wrist is busy” note — never a silent drop.</p>
     <div id="cells"></div>
   </div>
 
@@ -215,6 +216,17 @@ function onCell(frame) {
   }
 }
 
+// A 429 from the relay: the replay queue is full and the gate refused the
+// message. By contract the wrist stays silent for a refusal (no cue for a
+// no) — so the refusal is rendered *visually*: a plain-language note in the
+// header state and the wire log. The text stays in the input box, so the
+// fix is one tap away: send again after the current message ends.
+function renderWristBusy(detail) {
+  setState("wrist is busy — try after the current message", "bad");
+  log("sys", "✋ refused — the wrist is busy reading. Your text stays in the box; send again after the current message ends"
+    + (detail ? " (" + detail + ")" : ""));
+}
+
 async function send(url, body) {
   if (!S.ws || S.ws.readyState !== 1) {
     setState("not connected", "bad");
@@ -228,7 +240,11 @@ async function send(url, body) {
     });
     const data = await res.json();
     if (!res.ok) {
-      log("sys", "HTTP " + res.status + ": " + (data.detail || "?"));
+      if (res.status === 429) {
+        renderWristBusy(typeof data.detail === "string" ? data.detail : "");
+      } else {
+        log("sys", "HTTP " + res.status + ": " + (data.detail || "?"));
+      }
       return;
     }
     log("sys", "POST ok — " + JSON.stringify(data));
@@ -414,8 +430,13 @@ async function omniSend() {
     const data = await res.json();
     if (!res.ok) {
       const d = typeof data.detail === "string" ? data.detail : "?";
-      omniStatus("HTTP " + res.status + ": " + d, "bad");
-      log("sys", "Omni POST failed: " + d);
+      if (res.status === 429) {
+        renderWristBusy(d);
+        omniStatus("wrist is busy — try after the current message", "bad");
+      } else {
+        omniStatus("HTTP " + res.status + ": " + d, "bad");
+        log("sys", "Omni POST failed: " + d);
+      }
       return;
     }
     log("sys", "Omni heard — turn " + (data.event || "?") + ", source " + data.source);
