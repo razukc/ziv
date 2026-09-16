@@ -6,7 +6,7 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
-## [Unreleased]
+## [pre-v0.1.45] — 2026-09-17 — Personal AI: the wrist learns to say no — and shows it
 
 - **A live queue badge on the dev band** — the PWA header now shows how close the wrist is to refusing: ``queue 3/8 · 2/min refused`` as a small pill, amber at half capacity or after any recent refusal, red ``refusing — queue full`` at the cap. Health gained ``gate_queue_cap`` (the server owns the number; the client invents none — the same discipline as the timing bootstrap), the client polls it every 2 s while the page is visible (paused on hidden tabs) and refreshes immediately after a refusal. Node harness proves the rendering logic across five real shapes (empty, half, full, recent-refusals, idle-again).
 
