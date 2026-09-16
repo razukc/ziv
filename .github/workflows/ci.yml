@@ -10,7 +10,11 @@ name: CI — hermetic suite + haptic timing guard + firmware suites
 #      visible per-track: the SkillForge suite (tests) and the Ziv suite
 #      (tests_ziv, incl. the relay e2e + the dev-band relay server tests)
 #   3. haptic_out bench     — the real sequencer vs the mock bus (gcc on runner)
-#   4. ziv_qemu host suite  — the boot app's core vs the 27-line HAP fixture
+#   4. ziv_qemu host suite  — the boot app's core vs the derived HAP fixture,
+#      plus the rung-2 boot-check plumbing: host_demo --hap-log piped through
+#      tools/qemu_timeline.py, whose expected side is the derived
+#      k_demo_expected fixture (the QEMU boot job will swap the bench log for
+#      the boot capture)
 on:
   push:
   workflow_dispatch:   # allow a manual run from the Actions tab
@@ -45,5 +49,5 @@ jobs:
       - name: haptic_out bench suite (host C compiler)
         run: python firmware/haptic_out/run_tests.py
 
-      - name: ziv_qemu host suite (boot-app core vs HAP fixture)
+      - name: ziv_qemu host suite + rung-2 boot check (derived fixture)
         run: python firmware/app/ziv_qemu/run_ziv_tests.py

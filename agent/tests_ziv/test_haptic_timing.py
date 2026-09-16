@@ -15,9 +15,12 @@ touched.
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / "tools" / "haptic_timing.py"
@@ -25,6 +28,7 @@ SPEC = REPO_ROOT / "docs" / "haptic-timing.json"
 HEADER = REPO_ROOT / "firmware" / "haptic_out" / "haptic_timing.h"
 PY_MODULE = REPO_ROOT / "tools" / "haptic_timing_gen.py"
 LADDER_DOC_PATH = REPO_ROOT / "docs" / "QEMU_SIMULATION_LADDER.md"
+QEMU_TIMELINE = REPO_ROOT / "tools" / "qemu_timeline.py"
 
 
 def run_checker(argv=None):
@@ -185,3 +189,113 @@ def test_ladder_doc_stage_spans_match_the_spec():
     total_ms = int(haps[-1].split()[1])
     assert ("Total: %d ms" % total_ms) in block
     assert ("%d HAP lines" % len(haps)) in block
+
+
+# --- rung-2 boot check: tools/qemu_timeline.py reads the derived fixture -----
+
+def run_differ(argv):
+    return subprocess.run(
+        [sys.executable, str(QEMU_TIMELINE), *argv],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
+    )
+
+
+def _shift_at(line, delta_ms):
+    """Wall-clock jitter on one HAP line's timestamp (the fields stay exact)."""
+    return re.sub(r"^HAP (\d+)", lambda m: "HAP %d" % (int(m.group(1)) + delta_ms), line)
+
+
+def test_qemu_timeline_self_check_is_green():
+    """The differ's hermetic gate: the derived fixture parses, is internally
+    consistent, and the generated k_demo_expected[] agrees with the
+    DEMO_STAGES derivation — the cross-check the boot check leans on."""
+    r = run_differ([])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "self-check: OK" in r.stdout
+    assert "generated .c agrees" in r.stdout
+
+
+def test_qemu_timeline_boot_check_golden(tmp_path):
+    """The CI scenario: bench log (the derived fixture) vs a QEMU log with
+    boot-banner chatter and wall-clock jitter — PASSes within tolerance."""
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    import build_ziv_demo as bzd
+
+    expected = bzd.demo_fixture_lines()
+    bench = tmp_path / "bench_hap.log"
+    bench.write_text("\n".join(expected) + "\n", encoding="utf-8")
+    # The QEMU side: boot chatter the parser must ignore, +3 ms drift on
+    # every event (within the default ±10 ms), gaps untouched.
+    qemu_lines = ["ESP-ROM:esp32s3-20210310", "I (312) cpu_start: Starting app", ""]
+    qemu_lines += [_shift_at(ln, 3) for ln in expected]
+    qemu = tmp_path / "qemu.log"
+    qemu.write_text("\n".join(qemu_lines) + "\n", encoding="utf-8")
+
+    r = run_differ([str(bench), str(qemu)])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "PASS" in r.stdout
+    assert "%d HAP events" % len(expected) in r.stdout
+
+
+def test_qemu_timeline_catches_real_drift(tmp_path):
+    """The differ is a guard, not a rubber stamp: a dot-mask change, a
+    timestamp beyond tolerance, and a missing event each fail with a named
+    diff — against the derived fixture, not just against each other."""
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    import build_ziv_demo as bzd
+
+    expected = bzd.demo_fixture_lines()
+    bench = tmp_path / "bench_hap.log"
+    bench.write_text("\n".join(expected) + "\n", encoding="utf-8")
+
+    def run(qemu_lines, name):
+        q = tmp_path / name
+        q.write_text("\n".join(qemu_lines) + "\n", encoding="utf-8")
+        return run_differ([str(bench), str(q)])
+
+    # 1. A dot-mask change (wrong cell played) — exact-field mismatch.
+    word_buzz = next(i for i, ln in enumerate(expected) if " BUZZ WORD " in ln)
+    tampered = list(expected)
+    tampered[word_buzz] = tampered[word_buzz].replace(" BUZZ WORD ", " BUZZ WORD ", 1)
+    tampered[word_buzz] = re.sub(
+        r"(BUZZ WORD \S+ )([0-9A-F]{2})",
+        lambda m: m.group(1) + ("%02X" % ((int(m.group(2), 16) ^ 0x01) & 0x3F)),
+        tampered[word_buzz],
+    )
+    r = run(tampered, "mask.log")
+    assert r.returncode == 1 and "differs" in r.stdout
+
+    # 2. A timestamp beyond tolerance (the boot stalled mid-demo).
+    drifted = [_shift_at(ln, 500 if i == 10 else 3) for i, ln in enumerate(expected)]
+    r = run(drifted, "drift.log")
+    assert r.returncode == 1 and "timestamp drift" in r.stdout
+
+    # 3. A missing event (the boot dropped a beat).
+    r = run(expected[:-1], "short.log")
+    assert r.returncode == 1 and "event count differs" in r.stdout
+
+
+def test_qemu_timeline_refuses_a_stale_generated_fixture(tmp_path, monkeypatch):
+    """The cross-check has teeth: a generated .c that disagrees with the
+    DEMO_STAGES derivation (a stale file after a spec regen) makes the
+    differ exit 2 with the heal command — it never compares against the
+    wrong expected lines."""
+    sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    import tools.qemu_timeline as qt
+
+    stale = tmp_path / "ziv_demo_sequence.c"
+    stale.write_text(
+        'const char *const k_demo_expected[1] = {\n    "HAP 0 END",\n};\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(qt, "DEMO_C_PATH", stale)
+    with pytest.raises(SystemExit) as ei:
+        qt.demo_fixture_lines()
+    assert ei.value.code == 2
+
+    # A missing generated file is the same environmental failure.
+    monkeypatch.setattr(qt, "DEMO_C_PATH", tmp_path / "absent.c")
+    with pytest.raises(SystemExit) as ei:
+        qt.demo_fixture_lines()
+    assert ei.value.code == 2

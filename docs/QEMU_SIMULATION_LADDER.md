@@ -18,7 +18,7 @@ gaps land exactly on seams we already own.
 |---|---|---|---|
 | 0 | Bench suite: real sequencer, mock bus, virtual clock (`firmware/haptic_out/run_tests.py`) | timing tables + state machine produce exact dot-mask timelines | **shipped** (274 checks) |
 | 1 | **QEMU boot app** (`firmware/app/ziv_qemu`): the real `haptic_out` + task loop inside an ESP-IDF app, haptic bus → the bench mock, keys/mic → injected/console events | the binary boots in QEMU, FreeRTOS runs it, and the scripted demo plays the correct timelines on the emulated chip | **core shipped** — `ziv_app` proven on the bench (49 checks, the full derived `HAP` fixture); QEMU boot pending an IDF install |
-| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | speced |
+| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | **differ shipped** — reads the *derived* fixture (generator cross-checked against the generated `k_demo_expected[]`); QEMU boot itself pending an IDF install |
 | 3 | **Transport seam**: `ws_client` framing/reconnect/backoff behind a socket vtable; fake relay on host loopback; same vtable stubbed inside QEMU | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | speced |
 | 4 | **Audio seam**: capture reads frames from an injectable source (canned WAV in QEMU/host; real I²S on band) | capture → Omni payload framing testable without a mic | speced |
 | H | Hardware bring-up (HARDWARE_BRINGUP.md) | the one thing no simulator answers: does it *feel* right | gated on boards |
@@ -125,10 +125,19 @@ idf.py qemu                # capture stdout, Ctrl-A q to exit
 1. Bench emits the same `HAP` line format (a small serializer added to
    `test_haptic_out.c`'s harness — it already owns the timeline records; the
    events come from the identical `haptic_out_step()` stream).
-2. `tools/qemu_timeline.py <bench.log> <qemu.log>` compares: event order,
+2. `tools/qemu_timeline.py <bench.log> <qemu.log>` (shipped) compares: event order,
    dot masks, per-beat buzz/gap durations (from `at_ms` deltas), with a
-   wall-clock tolerance (±1 FreeRTOS tick) — mirroring how `tools/m1_summary.py`
-   tolerates real-world jitter instead of pretending clocks don't drift.
+   wall-clock tolerance (default ±10 ms, ~1 FreeRTOS tick) — mirroring how
+   `tools/m1_summary.py` tolerates real-world jitter instead of pretending
+   clocks don't drift. Its expected side is the **derived fixture**
+   (`build_ziv_demo.demo_fixture_lines()`, cross-checked against the
+   generated `k_demo_expected[]` — a stale generated file fails the differ
+   with exit 2), so the boot check inherits the demo's single source of
+   truth. The bench side is `host_demo --hap-log`: the same binary the C
+   suite runs, printing its demo HAP stream.
+   `run_ziv_tests.py` proves this plumbing every CI run by diffing the
+   bench log against the fixture; the QEMU job reuses the identical
+   invocation with the boot capture as the second log.
 3. If jitter ever pollutes the diff beyond tolerance, the lever is QEMU's
    `icount` virtual-clock mode passed via
    `idf.py qemu --qemu-extra-args="..."` ⚠ (verify icount support in the
@@ -151,8 +160,12 @@ Same vtable discipline as `drv2605_bus`, extracted before the relay exists:
 ## CI shape (rung ≥ 1 lands)
 
 GitHub Actions job `qemu-boot`: install Espressif QEMU prebuilt (x86_64 Linux),
-`idf.py build`, boot headless ~30 s, assert the scripted demo's `HAP` sequence
-appears in order. Start `continue-on-error` until the first green run, then make
+`idf.py build`, boot headless ~30 s, then
+`python tools/qemu_timeline.py bench_hap.log qemu.log` — the expected side
+(the derived `k_demo_expected` fixture) and the comparison logic already
+exist and are exercised on every CI run by the host suite's boot-check step,
+so the job's only new work is producing `qemu.log`. Start
+`continue-on-error` until the first green run, then make
 it blocking — same promote-a-check discipline as the drift guard.
 
 ## What this ladder does not answer

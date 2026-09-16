@@ -23,6 +23,13 @@
 static int failures = 0;
 static int checks = 0;
 
+/* --hap-log: run the scripted demo and print its HAP lines to stdout (a
+ * filter flag — the C suite's own assertions still run). This is the bench
+ * side of the rung-2 equivalence check: tools/qemu_timeline.py diffs this
+ * output against the QEMU boot's HAP log, with both expected sides read
+ * from the derived k_demo_expected fixture. */
+static int g_hap_log = 0;
+
 #define CHECK(cond, msg) do { \
     checks++; \
     if (!(cond)) { failures++; printf("FAIL: %s\n", msg); } \
@@ -91,6 +98,18 @@ static void test_scripted_demo_full_timeline(void)
     walk(&app);
 
     CHECK(app.demo_done == true, "demo finished");
+
+    /* Boot-check emission (--hap-log): the demo's complete HAP stream —
+     * the same lines k_demo_expected[] holds, derived from the same stage
+     * table — for the rung-2 differ (tools/qemu_timeline.py) and the future
+     * CI boot job. Both the bench and the QEMU boot emit through this flag,
+     * so the equivalence check compares like with like. */
+    if (g_hap_log) {
+        for (int i = 0; i < n_lines; i++) {
+            printf("%s\n", lines[i]);
+        }
+    }
+
     if (n_lines != (int) N_EXPECTED) {
         printf("FAIL: line count got %d want %d\n", n_lines, (int) N_EXPECTED);
         for (int i = (int) N_EXPECTED; i < n_lines; i++) {
@@ -146,8 +165,13 @@ static void test_manual_play_and_stop(void)
     CHECK(ziv_app_step(&app, 99999) == 0, "idle after stop returns 0");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--hap-log") == 0) {
+            g_hap_log = 1;
+        }
+    }
     test_console_lookups();
     test_scripted_demo_full_timeline();
     test_manual_play_and_stop();

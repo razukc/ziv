@@ -43,7 +43,6 @@ OUT_PATH = OUT_DIR / "ziv_demo_sequence.h"
 LADDER_DOC_PATH = ROOT / "docs" / "QEMU_SIMULATION_LADDER.md"
 LADDER_BEGIN = "<!-- haptic-demo-chain:begin (generated — do not edit; the stage table in this file is the single source; regenerate with tools/haptic_timing.py --write) -->"
 LADDER_END = "<!-- haptic-demo-chain:end -->"
-LADDER_DOC_PATH = ROOT / "docs" / "QEMU_SIMULATION_LADDER.md"
 
 # The staged scripted boot demo. The stage table is the single source; the
 # HAP fixture is derived from it. Add, remove, or reorder stages here and the
@@ -190,6 +189,18 @@ def _fixture_lines(spec):
         more, t = render_hap(spec, mode, payload, t)
         all_lines.extend(more)
     return all_lines
+
+
+def demo_fixture_lines(spec=None):
+    """The derived HAP fixture as Python strings — the public seam.
+
+    tools/qemu_timeline.py (the rung-2 differ) loads the expected side of
+    the boot check from here, so CI reads the *derived* fixture — the same
+    lines k_demo_expected[] holds — and never a hand-copied copy.
+    """
+    if spec is None:
+        spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
+    return _fixture_lines(spec)
 
 
 def stage_name(mode, payload):
