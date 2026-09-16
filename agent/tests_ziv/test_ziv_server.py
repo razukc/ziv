@@ -259,6 +259,9 @@ def test_health_counts_devices_and_gate(client):
         assert h["devices"] == 1
         assert h["spec_version"] == timing.SPEC_VERSION
         assert h["gate_queue"] == 0
+        # The client's queue badge divides by this — the server owns the cap
+        # (no client-side constant), like the timing bootstrap.
+        assert h["gate_queue_cap"] == zs.MessageGate.MAX_QUEUED
 
 
 # ---------------------------------------------------------------------------

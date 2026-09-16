@@ -33,6 +33,14 @@
   #state { font-size: 13px; color: var(--dim); }
   #state.ok { color: var(--accent); }
   #state.bad { color: var(--warn); }
+  #queueBadge {
+    display: inline-block; margin-top: 6px; padding: 2px 10px;
+    border-radius: 999px; font-size: 12px; color: var(--dim);
+    border: 1px solid var(--line); background: #10161e;
+  }
+  #queueBadge.warn { color: var(--warn); border-color: #5c4a1a; }
+  #queueBadge.full { color: #f87171; border-color: #7a2e2e; }
+  #queueBadge[hidden] { display: none; }
   main { padding: 12px 16px; }
   .panel {
     background: var(--panel); border: 1px solid var(--line);
@@ -78,6 +86,7 @@
 <header>
   <h1>Ziv dev band</h1>
   <div id="state">connecting…</div>
+  <div id="queueBadge" hidden></div>
 </header>
 <main>
   <div class="panel">
@@ -102,7 +111,9 @@
     transcribes → the reply plays as braille. “Stub demo” sends the text field directly
     (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
     release come back over /ws. If the wrist is mid-message and its queue is full,
-    a send is refused with a “wrist is busy” note — never a silent drop.</p>
+    a send is refused with a “wrist is busy” note — never a silent drop. The badge
+    below the header shows the live queue depth and refusal rate, so you can see
+    how close the wrist is to refusing before you send.</p>
     <div id="cells"></div>
   </div>
 
@@ -225,7 +236,61 @@ function renderWristBusy(detail) {
   setState("wrist is busy — try after the current message", "bad");
   log("sys", "✋ refused — the wrist is busy reading. Your text stays in the box; send again after the current message ends"
     + (detail ? " (" + detail + ")" : ""));
+  // Refresh the badge immediately — the refusal just changed the numbers.
+  pollQueueBadge();
 }
+
+// --- queue badge: how close is the wrist to refusing? -----------------------
+// The relay's health owns every number (depth, cap, per-minute rejections);
+// the client invents none of them — the same discipline as the timing
+// bootstrap. Polls every 2 s while the page is visible; hidden tabs pause.
+const QB = {
+  el: document.getElementById("queueBadge"),
+  timer: 0,
+};
+
+function renderQueueBadge(h) {
+  const depth = h.gate_queue;
+  const cap = h.gate_queue_cap;
+  if (typeof depth !== "number" || typeof cap !== "number") return;
+  const rate = h.queue_rejections ? h.queue_rejections.per_minute : 0;
+  let cls = "";
+  let text = "queue " + depth + "/" + cap;
+  if (rate > 0) text += " · " + rate + "/min refused";
+  if (depth >= cap) {
+    cls = "full";
+    text = "refusing — queue full (" + depth + "/" + cap + ")";
+  } else if (depth >= Math.ceil(cap / 2) || rate > 0) {
+    cls = "warn";
+  }
+  QB.el.textContent = text;
+  QB.el.className = cls;
+  QB.el.hidden = false;
+}
+
+async function pollQueueBadge() {
+  try {
+    const res = await fetch("/api/ziv/health");
+    if (!res.ok) return;
+    renderQueueBadge(await res.json());
+  } catch (e) {
+    // Transient — keep showing the last known numbers.
+  }
+}
+
+function startBadgePolling() {
+  pollQueueBadge();
+  QB.timer = setInterval(pollQueueBadge, 2000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    clearInterval(QB.timer);
+    QB.timer = 0;
+  } else if (!QB.timer) {
+    startBadgePolling();
+  }
+});
 
 async function send(url, body) {
   if (!S.ws || S.ws.readyState !== 1) {
@@ -466,6 +531,7 @@ if (!("vibrate" in navigator)) {
 }
 connect();
 loadTiming();
+startBadgePolling();
 </script>
 </body>
 </html>

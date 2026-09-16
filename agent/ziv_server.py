@@ -46,6 +46,7 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
 * ``GET/POST /api/ziv/prefs`` — the wearer's cell-gap preference (clamped
   into the spec envelope: structure universal, parameters personal).
 * ``GET /api/ziv/health`` — liveness, attached devices, inbox/prefs state,
+  live queue depth vs. its cap (how close the wrist is to refusing),
   queue-rejection telemetry (the 429s the relay has handed out: cumulative
   count, last refusal reason, and a per-minute rate so a spike is visible
   at a glance), turn telemetry, and any corrupt-store reports.
@@ -717,6 +718,7 @@ def health() -> dict[str, Any]:
         "auth": bool(ZIV_RELAY_TOKEN),
         "omni": {"key_set": bool(NEBIUS_API_KEY), "model": ZIV_OMNI_MODEL},
         "gate_queue": len(gate),
+        "gate_queue_cap": MessageGate.MAX_QUEUED,
         "queue_rejections": queue_rejections.snapshot(),
         "inbox_pending": inbox.count(),
         "prefs": {"cell_gap_ms": _effective_cell_gap_ms()},
