@@ -201,9 +201,12 @@ function onHaptic(frame) {
   } else {
     setState("haptic: " + frame.pattern, "ok");
   }
-  if (frame.pattern === "end-of-message") {
-    // The close just landed: the current turn is over and the gate is
-    // releasing — exactly when an armed redial fires.
+  if (frame.pattern === "end-of-message" && frame.free === true) {
+    // The marked close just landed: this is the LAST close of the whole
+    // turn-plus-drain sequence — the server says nothing more is playing
+    // and the queue holds nothing behind the replays. Exactly when an
+    // armed redial fires; firing on any other close would queue the
+    // redial behind the remaining replays.
     fireRedialIfFree();
   }
 }

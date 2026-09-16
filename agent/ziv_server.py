@@ -321,12 +321,24 @@ def _effective_cell_gap_ms() -> int:
     return max(timing.CELL_GAP_MIN_MS, min(timing.CELL_GAP_MAX_MS, v))
 
 
-async def _play_cells_and_close(text: str, *, note: str | None = None) -> int:
+async def _play_cells_and_close(
+    text: str, *, note: str | None = None, free_fn=None
+) -> int:
     """Content on the motors: the cell frames, the dwell, the close.
 
     Shared by the turn pump (after its processing phase) and by inbox
     delivery (a stored message has nothing to compute — no fake wait).
     Returns the number of cells played.
+
+    ``free_fn`` marks the close that truly frees the wrist: it is evaluated
+    LAZILY, at the close push — after every cell dwell — because messages
+    arriving mid-content queue during exactly those dwells (an eager flag
+    computed at call time would mark a close "free" while fills were still
+    landing). After the close it gates, the server plays nothing more for
+    this turn. The dev band fires its armed redial on exactly this frame —
+    a close that merely ends one replay of a drain sequence would queue the
+    redial behind the remaining replays, so "the close lands on the wire"
+    must mean the *last* one.
     """
     cells = [
         {"ch": ch, "ms": timing.cell_ms(ch)}
@@ -339,7 +351,10 @@ async def _play_cells_and_close(text: str, *, note: str | None = None) -> int:
     for cell in cells:
         await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
         await asyncio.sleep(cell["ms"] / 1000.0 + gap)
-    await _push(haptic_frame(PATTERN_END_OF_MESSAGE, why="close"))
+    close = haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
+    if free_fn is not None and free_fn():
+        close["free"] = True
+    await _push(close)
     return len(cells)
 
 
@@ -508,16 +523,28 @@ async def run_message_turn(text: str, *, source: str = "message") -> dict[str, A
         # phone literally renders the firmware's playback loop.
         turn.begin_playback()
         await _push(frame_for(turn.events[-1]))
-        await _play_cells_and_close(text)
 
-        # The close has played; the gate releases (invariants 2 + 4). Drained
-        # messages replay as their own full events (cue → cells → close).
+        # Content on the motors (the gate stays "playing" through every
+        # cell dwell — a message arriving mid-content queues, invariant 4).
+        # The wrist is freed by the LAST close of the sequence: the main
+        # close when the queue holds nothing AT THE CLOSE PUSH, else the
+        # final replay's close below. The flag is evaluated lazily (see
+        # _play_cells_and_close) — after the dwells, where fills land.
+        await _play_cells_and_close(text, free_fn=lambda: len(gate) == 0)
+
+        # The close has played; the gate releases (invariants 2 + 4) and the
+        # drained messages replay as their own full events (cue → cells →
+        # close), the last one carrying the ``free`` marker the dev band
+        # fires its armed redial on.
         replay = turn.finish_playback(now_s=round(time.monotonic() - t0, 1))
         drained = replay[1:]
-        for ev in drained:
+        for idx, ev in enumerate(drained):
             replay_text = str(ev.payload.get("text", ""))
             await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="queued replay cue"))
-            await _play_cells_and_close(replay_text, note=True)
+            await _play_cells_and_close(
+                replay_text, note=True,
+                free_fn=lambda idx=idx, n=len(drained): idx == n - 1,
+            )
 
         _telemetry.record(
             label="message_turn",
