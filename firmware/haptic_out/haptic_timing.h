@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define HAPTIC_SPEC_VERSION 2
+#define HAPTIC_SPEC_VERSION 3
 
 /* Vibro-braille cell: buzz_ms = CELL_BASE_MS + CELL_PER_DOT_MS * dot_count */
 #define CELL_BASE_MS 50
@@ -45,17 +45,17 @@ typedef struct {
 
 #define HAPTIC_DOUBLE_TAP_LEN 2
 static const haptic_beat HAPTIC_DOUBLE_TAP[HAPTIC_DOUBLE_TAP_LEN] = {
-    {TICK_MS, TICK_GAP_MS}, {TICK_MS, TAIL_GAP_MS}
+    {70, 160}, {70, TAIL_GAP_MS}
 };
 
 #define HAPTIC_TRIPLE_PULSE_LEN 3
 static const haptic_beat HAPTIC_TRIPLE_PULSE[HAPTIC_TRIPLE_PULSE_LEN] = {
-    {TICK_MS, TICK_GAP_MS}, {TICK_MS, TICK_GAP_MS}, {TICK_MS, TAIL_GAP_MS}
+    {70, 160}, {70, 160}, {70, TAIL_GAP_MS}
 };
 
 #define HAPTIC_LONG_BUZZ_LEN 1
 static const haptic_beat HAPTIC_LONG_BUZZ[HAPTIC_LONG_BUZZ_LEN] = {
-    {LONG_BUZZ_MS, TAIL_GAP_MS}
+    {600, TAIL_GAP_MS}
 };
 
 #define HAPTIC_RAMP_UP_LEN 4
@@ -65,7 +65,17 @@ static const haptic_beat HAPTIC_RAMP_UP[HAPTIC_RAMP_UP_LEN] = {
 
 #define HAPTIC_HEARTBEAT_LEN 2
 static const haptic_beat HAPTIC_HEARTBEAT[HAPTIC_HEARTBEAT_LEN] = {
-    {TICK_MS, 120}, {TICK_MS, TAIL_GAP_MS}
+    {70, 120}, {70, TAIL_GAP_MS}
+};
+
+#define HAPTIC_PROCESSING_LEN 2
+static const haptic_beat HAPTIC_PROCESSING[HAPTIC_PROCESSING_LEN] = {
+    {70, 350}, {70, TAIL_GAP_MS}
+};
+
+#define HAPTIC_END_OF_MESSAGE_LEN 4
+static const haptic_beat HAPTIC_END_OF_MESSAGE[HAPTIC_END_OF_MESSAGE_LEN] = {
+    {200, 120}, {140, 120}, {90, 120}, {50, TAIL_GAP_MS}
 };
 
 typedef enum {
@@ -74,14 +84,16 @@ typedef enum {
     HAPTIC_PAT_LONG_BUZZ,
     HAPTIC_PAT_RAMP_UP,
     HAPTIC_PAT_HEARTBEAT,
+    HAPTIC_PAT_PROCESSING,
+    HAPTIC_PAT_END_OF_MESSAGE,
     HAPTIC_PAT_COUNT
 } haptic_pattern;
 
 static const haptic_beat *const HAPTIC_PATTERN_TABLE[HAPTIC_PAT_COUNT] = {
-    HAPTIC_DOUBLE_TAP, HAPTIC_TRIPLE_PULSE, HAPTIC_LONG_BUZZ, HAPTIC_RAMP_UP, HAPTIC_HEARTBEAT
+    HAPTIC_DOUBLE_TAP, HAPTIC_TRIPLE_PULSE, HAPTIC_LONG_BUZZ, HAPTIC_RAMP_UP, HAPTIC_HEARTBEAT, HAPTIC_PROCESSING, HAPTIC_END_OF_MESSAGE
 };
 static const uint8_t HAPTIC_PATTERN_LEN_TABLE[HAPTIC_PAT_COUNT] = {
-    HAPTIC_DOUBLE_TAP_LEN, HAPTIC_TRIPLE_PULSE_LEN, HAPTIC_LONG_BUZZ_LEN, HAPTIC_RAMP_UP_LEN, HAPTIC_HEARTBEAT_LEN
+    HAPTIC_DOUBLE_TAP_LEN, HAPTIC_TRIPLE_PULSE_LEN, HAPTIC_LONG_BUZZ_LEN, HAPTIC_RAMP_UP_LEN, HAPTIC_HEARTBEAT_LEN, HAPTIC_PROCESSING_LEN, HAPTIC_END_OF_MESSAGE_LEN
 };
 
 /* --- Grade-1 alphabet: dot counts and derived cell durations (index 0 = 'a') --- */
@@ -123,9 +135,9 @@ static const uint8_t HAPTIC_MARK_LEN_TABLE[HAPTIC_MARK_COUNT] = {
 };
 
 /* --- Rename examples: protocol §5 option B — same arc, different word (arc-validated only; legal screening per plan §1) --- */
-/* same dot-count arc as ziv: 4-2-4 */
-#define HAPTIC_RENAME_ARC_REF HAPTIC_MARK_ZIV
-#define HAPTIC_RENAME_WORD_COUNT 2
+/* same dot-count arc as raz: 4-1-4 */
+#define HAPTIC_RENAME_ARC_REF HAPTIC_MARK_RAZ
+#define HAPTIC_RENAME_WORD_COUNT 1
 
 /* --- Name-mark prefix (plan §4): play a mark, keep silent PREFIX_BREATH_MS, then the tail --- */
 typedef enum {

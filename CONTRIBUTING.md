@@ -74,7 +74,7 @@ git tag pre-v0.1.1    # next verified milestone
    — it runs the haptic timing verify (`tools/haptic_timing.py`) and the
    haptic_out bench suite, and blocks any commit that would ship spec drift
 1. `cd frontend && npx tsc --noEmit`
-2. `cd agent && python -m pytest -q` (hermetic suite — currently 117 tests — passes, e2e deselected; includes the haptic timing drift guard, the M1 analyzer tests, and the rename-candidate validator tests)
+2. `cd agent && python -m pytest -q` (both hermetic suites — SkillForge `tests` and Ziv `tests_ziv` — pass, e2e deselected; the Ziv suite includes the haptic timing drift guard, the M1 analyzer tests, and the rename-candidate validator tests, and each suite can also be run on its own with `pytest tests -q` / `pytest tests_ziv -q`)
 3. `cd agent && python -m pytest -m e2e` if the backend (:8000) and frontend
    (:3000) are running (10 tests, ~3.5 min)
 4. Live checks against real services: `python live_check.py journey|edit`
@@ -84,7 +84,7 @@ git tag pre-v0.1.1    # next verified milestone
 6. Commit with a conventional message, then push nothing (no remote yet)
 
 The haptic timing guard is belt-and-suspenders: the pre-commit hook blocks
-at commit time, the hermetic suite (`tests/test_haptic_timing.py`) fails in
+at commit time, the hermetic suite (`agent/tests_ziv/test_haptic_timing.py`) fails in
 local runs even if a hook is never installed, and GitHub Actions
 (`.github/workflows/ci.yml`) runs the same verify + the full suite on every
 push — with gcc on the runner, the haptic_out bench tests also run for

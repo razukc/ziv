@@ -64,7 +64,7 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <body>
 <header>
 <h1>Ziv <span style='color:#7ee2a8'>·</span> haptic name marks</h1>
-<p class=sub>Feel the full interaction language: each candidate name spelled in vibro-braille, the attention vocabulary that rides on it, any word spelled on demand, and self-test modes (M1 session, blind A/B). One beat per braille cell: long buzz = heavy cell (more dots), short buzz = light cell (fewer dots); attention patterns play as ticks (▪), a ramp (▴), a heartbeat (♥) and one long buzz (▬).</p>
+<p class=sub>Feel the full interaction language: each candidate name spelled in vibro-braille, the attention vocabulary that rides on it, any word spelled on demand, and self-test modes (M1 session, blind A/B). One beat per braille cell: long buzz = heavy cell (more dots), short buzz = light cell (fewer dots); attention patterns play as ticks (▪), a ramp (▴), a heartbeat (♥), a falling close (▾) and one long buzz (▬).</p>
 <p id=support class=banner>checking…</p>
 </header>
 <section class=controls>
@@ -179,29 +179,36 @@ var LETTERS = {
   y:{n:5,g:'⠽'}, z:{n:4,g:'⠵'}
 };
 var ATTENTION = [
-  {id:'double-tap', word:"Double tap", meaning:"new message arrived",
-   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
-   note:"Two short ticks — something just arrived for you. This is the tail of the name-mark prefix on every unprompted message."},
-  {id:'triple-pulse', word:"Triple pulse", meaning:"reminder fired",
-   beats:[{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TICK_GAP},{ms:TICK,gap:TAIL_GAP}],
-   note:"Three even ticks — a scheduled task fired. Plan §4 flow 4: at 9 pm a triple pulse arrives unprompted, then the message."},
-  {id:'long-buzz', word:"Long buzz", meaning:"error / attention needed",
-   beats:[{ms:LONG,gap:TAIL_GAP}],
-   note:"One sustained buzz — something failed and needs you. Deliberately unlike any braille cell so it cuts through playback."},
-  {id:'ramp-up', word:"Ramp up", meaning:"booting / connecting",
-   beats:[{ms:50,gap:90,k:'ramp'},{ms:90,gap:120,k:'ramp'},{ms:140,gap:160,k:'ramp'},{ms:200,gap:TAIL_GAP,k:'ramp'}],
-   note:"Four ticks swelling in length — the device is waking up and reaching the relay. Plays at boot and on reconnect; never during playback."},
-  {id:'heartbeat', word:"Heartbeat tick", meaning:"alive check — off by default",
-   beats:[{ms:TICK,gap:120,k:'heart'},{ms:TICK,gap:TAIL_GAP,k:'heart'}],
-   note:"Lub-dub — the device is alive and on the relay. Configurable and off by default (plan §4): an occasional pulse, not a metronome."}
+  {id:'double-tap', word:"double tap", meaning:"acknowledge / you go",
+   beats:[{ms:70,gap:160},{ms:70,gap:TAIL_GAP}],
+   note:"two short ticks, spaced; the second gap ends the pattern."},
+  {id:'triple-pulse', word:"triple pulse", meaning:"reminder / look again",
+   beats:[{ms:70,gap:160},{ms:70,gap:160},{ms:70,gap:TAIL_GAP}],
+   note:"three short ticks; the last silence is the tail."},
+  {id:'long-buzz', word:"long buzz", meaning:"error / stop",
+   beats:[{ms:600,gap:TAIL_GAP}],
+   note:"one long buzz; the following silence is the tail."},
+  {id:'ramp-up', word:"ramp up", meaning:"attention building",
+   beats:[{ms:50,gap:90},{ms:90,gap:120},{ms:140,gap:160},{ms:200,gap:TAIL_GAP}],
+   note:"each buzz grows; the final silence is the tail."},
+  {id:'heartbeat', word:"heartbeat", meaning:"keep alive / I'm here",
+   beats:[{ms:70,gap:120},{ms:70,gap:TAIL_GAP}],
+   note:"two beats, closer first gap; the second silence is the tail."},
+  {id:'processing', word:"processing", meaning:"thinking / working",
+   beats:[{ms:70,gap:350},{ms:70,gap:TAIL_GAP}],
+   note:"two beats with a long first gap; the second silence is the tail."},
+  {id:'end-of-message', word:"end of message", meaning:"done / return",
+   beats:[{ms:200,gap:120},{ms:140,gap:120},{ms:90,gap:120},{ms:50,gap:TAIL_GAP}],
+   note:"a declining run that ends on the tail silence."}
 ];
 window.ATTENTION=ATTENTION;
 var SPELL_MAX=12;
+/* spell_max_letters cap on the spell box; the firmware's runtime word ceiling (HAPTIC_OUT_MAX_WORD_LEN=16) is a separate, deliberate asymmetry. See docs/haptic-timing.json note. */
+var SPELL_LIMIT_NOTE="Feel-tool page affordances only - the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope. spell_max_letters caps the page's spell box; the firmware accepts up to 16 (HAPTIC_OUT_MAX_WORD_LEN) so the band is never the weaker player. These two numbers are intentionally different and are NOT the same setting: spell_max_letters (12) is a page affordance that limits what the spell box headlines for the wearer, while HAPTIC_OUT_MAX_WORD_LEN (16) is the firmware's hard ceiling on word length the band will actually play. Do not unify them - the asymmetry is deliberate, and the drift guard (tools/haptic_timing.py --verify) treats the generated feel-tool JS block and the firmware header as separate consumers of the same spec, each free to use different UI vs. runtime limits.";
 function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }
-var SPELL_FILLS_NOTE = "Protocol §5 option B (new word, same mark): words validated to spell the same dot-count arc as this mark. Arc-validated only — legal screening per plan §1 required before adoption. Manage with tools/rename_check.py: 'python tools/rename_check.py <word>...' checks a candidate against the arc, '-a' adds spec-validated words.";
+var SPELL_FILLS_NOTE = "Same dot-count arc as raz.";
 var SPELL_FILLS = [
-  {word:"tin", note:"option B — same arc as ziv (290·170·290)"},
-  {word:"wiz", note:"option B — same arc as ziv (290·170·290)"}
+  {word:"zar", note:"option B — same arc as raz (290·110·290)"}
 ];
 /* haptic-timing:end */
 window.LETTERS=LETTERS; window.MARKS=MARKS; window.dur=dur;
@@ -377,7 +384,7 @@ gap.addEventListener('input', function(){ document.getElementById('gapval').text
 /* ---------------- session mode: protocol M1 ---------------- */
 var M1_N = 8;
 var M1_TIMEOUT_MS = 10000;   /* unanswered 10 s after the pattern ends = scored not-name, late:1 */
-var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz','ramp-up','heartbeat'];
+var M1_POOL = ['boaz','razu','buz','double-tap','triple-pulse','long-buzz','ramp-up','heartbeat','processing','end-of-message'];
 var LABELS = {ziv:'Ziv', raz:'Raz', boaz:'Boaz', razu:'Razu', buz:'Buz',
               'double-tap':'double tap', 'triple-pulse':'triple pulse', 'long-buzz':'long buzz',
               'ramp-up':'ramp up', 'heartbeat':'heartbeat'};

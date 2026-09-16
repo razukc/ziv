@@ -96,6 +96,47 @@ actively working them.
 - [ ] **Stale-card awareness in history** — mark live cards whose Redis copy
       expired, refresh all live cards in one batched request on load
 
+## Personal AI (Ziv)
+
+- [x] **Queue-don't-interrupt relay behavior** — incoming messages during haptic
+      playback get their attention cue only and queue their content until the
+      wearer closes the event (plan §4 invariant 4, from early-years deafblind
+      practice); `MessageGate` in `agent/ziv_relay.py`, proven in the hermetic
+      e2e suite (`pre-v0.1.34`, 2026-09-12)
+- [x] **Executable invariants (TurnTimeline)** — the turn state machine (kind
+      cue → processing ticks → playing → end-of-message → gate release),
+      wired to the queue gate; out-of-order transitions raise in the seam,
+      and the e2e suite proves the whole wearer-visible journey
+      (`pre-v0.1.39`, 2026-09-13)
+- [~] **Dev-band relay v0** — the phone stands in for the wrist until boards
+      ship: `agent/ziv_server.py` (WS transport with optional token auth,
+      message turn pump through the real `MessageGate` + `TurnTimeline`,
+      `/api/ziv/timing` serving the generated module) + the PWA client
+      (`agent/ziv_client/index.html`, Vibration API, zero hand-copied timing)
+      + `/inject/audio` as the Omni spike's seam (`pre-v0.1.41`); the spike's
+      mic half is real now — the PWA records a MediaRecorder clip and the
+      relay transcribes it with Nemotron-3-Nano-Omni on Nebius Token Factory
+      (`NEBIUS_API_KEY`-guarded: 503 without a key, 502 on provider errors;
+      the `simulate` stub keeps the keyless hermetic demo path)
+      (`pre-v0.1.43`)
+- [~] **WS relay v1 (dev-band form)** — per-wearer memory files
+      (`agent/ziv_store.py`: atomic JSON, corrupt-file recovery surfaced in
+      health) and a persistent, capped message inbox — a message that arrives
+      with no band attached is stored, not dropped, and delivered as a full
+      event on the next attach (mark-after-play: redelivery, never loss);
+      the wearer's playback pace is a stored preference, clamped into the
+      spec envelope. The full `ZivRelayAdapter` run_turn (device-side text
+      frames, Token Factory round-trip) stays open (plan §7 week 3)
+      (`pre-v0.1.42`)
+- [~] **QEMU boot app (rung 1)** — an ESP-IDF app skeleton that boots the real
+      `haptic_out` binary in Espressif's QEMU fork with the bench mock bus as
+      the haptic backend, prints `HAP` timelines from the sequencer's event
+      stream, and diffs bench vs QEMU for equivalence
+      ([QEMU_SIMULATION_LADDER.md](QEMU_SIMULATION_LADDER.md));
+      host-portable core shipped and proven (49-check bench fixture,
+      `python firmware/app/ziv_qemu/run_ziv_tests.py`) — QEMU boot + rung-2
+      differ pending an IDF/QEMU install
+
 ## Demo / hackathon stretch (from README "What's Next")
 
 - [ ] **Isaac Sim integration** — execute pipelines directly in simulation

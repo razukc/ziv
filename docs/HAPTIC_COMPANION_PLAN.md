@@ -164,10 +164,8 @@ board plus a battery, with:
 
 ---
 
-## 4. Interaction design v0
-
-**Haptic vocabulary (attention layer)** — short motor patterns that are *not*
-letters, learned in minutes:
+## 4. Interaction design v0**Haptic vocabulary (attention + lifecycle layers)** — short motor patterns that
+are *not* letters, learned in minutes:
 
 | Pattern | Meaning |
 |---|---|
@@ -176,8 +174,19 @@ letters, learned in minutes:
 | triple pulse | scheduled task completed |
 | ramp up | device booting / connecting |
 | heartbeat tick | alive check (configurable, off by default) |
+| processing | working — your request is being handled (repeats while a turn is in flight) |
+| end of message | message complete — the wrist is quiet until you ask |
 
-Every pattern's exact beats live in [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md): the phone feel-tool and the `haptic_out` firmware are generated from the same [haptic-timing.json](./haptic-timing.json), so the mock and the band play identical patterns by construction.
+The last two are **lifecycle** patterns, added spec v3 after early-years
+deafblind practice (Sense UK, via Insight — see Sources) sharpened the
+interaction design: a device whose user receives little and distorted
+information must make every wait legible and every event endable. `processing`
+is two slow ticks — an ellipsis that spans capture → model → playback; latency
+may be slow, never silent. `end-of-message` is ramp-up's mirror (four ticks
+descending 200→140→90→50) — until it plays, the silence after a last cell was
+indistinguishable from the gap before a next one.
+
+Every pattern's exact beats live in [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md): the phone feel-tool, the `haptic_out` firmware, and the Python consumer (`tools/haptic_timing_gen.py` — what tests, the relay, and tools import) are generated from the same [haptic-timing.json](./haptic-timing.json), so the mock, the band, and every Python-side derivation play identical patterns by construction.
 
 **Device identity — the name mark.** The pin identifies itself haptically: at boot, and as the first element of any message that arrives *unprompted*, it plays its name — **Z-I-V spelled in vibro-braille** on the 6 motors (Z = dots 1-3-5-6 → four motors pulse as one heavy beat; I = dots 2-4 → two motors, a light beat; V = dots 1-2-3-6 → four motors, heavy again: a *heavy-light-heavy* arc that ends decisive — the identical arc "Raz" would have played). This mirrors how DeafBlind communities identify people by tactile name signs rather than descriptive labels — the wearer learns the device's name as a felt pattern, and the same learning reinforces the braille alphabet. A second device (caregiver bridge, v2 form factor) gets its own mark, so multi-device haptic "caller ID" falls out for free.
 
@@ -214,6 +223,38 @@ has exactly two modes (read / compose) plus attention patterns — no menus to
 get lost in. ⚠ All of this is a v0 design to be validated with braille
 readers; the learnability risk is real and is treated as a first-class risk
 in §9, not a footnote.
+
+### Interaction invariants (from early-years deafblind practice)
+
+What early-years deafblind education teaches — and what a device for adults
+with the same sensory reality must honor — stated as rules the firmware, relay,
+and every future pattern must keep. Sources: Sense UK's early-years guidance
+(Sources).
+
+1. **No content without a kind cue first.** Unprompted content always opens
+   with the name mark and its attention tail (§4 prefix). A buzz that means
+   "something" with no "what kind" is the inconsistent-information problem
+   the device exists to solve.
+2. **Cues mark the start *and* the end of an event.** The `end-of-message`
+   pattern plays after the last cell of any played content; a message is over
+   when the wearer feels it is over, not when the buzzing merely stops.
+3. **Waiting is legible.** A turn in flight repeats `processing` (~2 s)
+   until content or error plays; latency may be slow, never silent.
+4. **Queue, don't interrupt.** An incoming message during playback plays its
+   attention cue only and queues its content; nothing barges into what the
+   wearer is already reading. They release the queue — the wearer stays in
+   control (first relay behavior, `agent/ziv_relay.py`).
+5. **Structure is universal, parameters are personal.** The same event always
+   plays the same cue; per-wearer tuning (cell gap, vocabulary toggles) lives
+   inside the spec envelope and never changes a cue-to-event mapping.
+6. **Every state transition is feelable.** Boot, connect, reconnect, error —
+   no silent state changes (ramp-up, long-buzz, error tails).
+
+These rules are executable, not prose: `TurnTimeline` (`agent/ziv_relay.py`)
+walks one turn through cue → processing ticks → playing → end-of-message →
+gate release, wired to the queue gate, and the e2e suite proves the order —
+a relay bug that skips the wait or closes what never played crashes in the
+seam instead of reaching the wrist (invariant 5, enforced structurally).
 
 ### The four flows (demo-shaped)
 
@@ -257,11 +298,33 @@ in §9, not a footnote.
 | `memory` | SOUL.md / MEMORY.md / session JSONL on SPIFFS (the MimiClaw pattern, kept) |
 | `config` | NVS: device key, relay URL, playback speed, pattern toggles |
 
+**Simulation:** the firmware is built to run without hardware —
+[QEMU_SIMULATION_LADDER.md](./QEMU_SIMULATION_LADDER.md) specs the ladder: the
+real binary boots in Espressif's QEMU fork (rung 1) with the bench mock bus as
+the haptic backend and the sequencer's own event stream printed as `HAP`
+timeline lines, bench-vs-QEMU equivalence is diffed (rung 2), and WiFi/mic
+return later behind transport/audio vtables (rungs 3–4). Hardware appears only
+at bring-up.
+
 **Relay** (FastAPI, mirroring SkillForge backend patterns): SSE/WS streaming,
 bounded auto-retry with backoff on every model round-trip, `compose_stats`-style
 telemetry, hermetic tests with a faked model client, mock mode for the device
 when the relay is unreachable. It is thin on purpose: auth, frame routing,
 model calls, memory, cron.
+
+**Shared-layer seam (what exists today vs what does not):** the SkillForge
+backend already owns the hard parts a Ziv relay would want — SSE event
+machinery, bounded retry with backoff, a thread-safe capped telemetry ring,
+and a fake-model harness used by the hermetic tests. Those reusable pieces were
+extracted into a small shared core at `agent/ports.py` (no robot-track imports),
+and a placeholder relay module was created at `agent/ziv_relay.py` as the
+*seam* a future Ziv relay would implement — it documents the adapter contract
+(``is_ready`` + ``run_turn``) and imports the shared layer, but is **not**
+implemented yet. What does **not** exist yet is the relay itself: no mic/audio-in
+path, no braille-chord input, no WebSocket/SSE relay, no ESP-IDF FreeRTOS task,
+no Token Factory Omni audio payload wired up. When the relay is built, it fills
+in `ziv_relay.py`'s adapter; the shared layer stays ignorant of braille chords,
+FreeRTOS tasks, and haptic cells.
 
 **Model routing (cost-aware autonomy, carried from SkillForge):** voice turns
 → Omni (only when audio arrived); plain text turns → Nano-30B-A3B; a
@@ -321,9 +384,9 @@ screen, no sound, no phone in the loop.
 
 | Week | Milestone | Gate |
 |---|---|---|
-| 1 | **Spike:** board mic clip → Token Factory Omni → reply text → DRV2605L pattern. Buy boards + motors + driver now (long-lead risk). | end-to-end works or fallback decision |
+| 1 | **Spike:** board mic clip → Token Factory Omni → reply text → DRV2605L pattern. Buy boards + motors + driver now (long-lead risk). The phone-mic half is already real: the PWA records via MediaRecorder and the relay transcribes with Nemotron-3-Nano-Omni on Token Factory (`/inject/audio`, `NEBIUS_API_KEY`-guarded) — only the board half waits on hardware. | end-to-end works or fallback decision |
 | 2 | vibro-braille sequencer (alphabet + pacing + controls) on bench hardware; chord-key input decode | read a 5-word sentence by touch |
-| 3 | WS relay v1 (auth, text frames, memory files) + firmware `ws_client`; text round-trip device ↔ relay ↔ Token Factory | two-way text convo from the device |
+| 3 | WS relay v1 (auth, text frames, memory files) + firmware `ws_client`; text round-trip device ↔ relay ↔ Token Factory; compose mode has **no server-side timeout** (§4 invariants: chord composition is slow by design). The dev-band relay already carries the durable half (memory files + persistent inbox, `agent/ziv_store.py`) — messages survive restarts and the wearer's pace is a stored, spec-clamped preference | two-way text convo from the device |
 | 4 | voice path live: push-to-talk capture → Omni → vibro-braille reply | the §4 conversation demo works |
 | 5 | scheduled jobs + heartbeat + attention vocabulary; battery + deep-sleep polish | unprompted buzz demo; overnight runtime measured |
 | 6 | usability pass with braille readers (sighted-proxy protocol, see §9); speed + pattern tuning; naming-validation session ([NAMING_VALIDATION_PROTOCOL.md](./NAMING_VALIDATION_PROTOCOL.md)) | reading-speed target met or scoped; mark + word validated, or rename queued |
@@ -371,6 +434,8 @@ interface; only the relay changes.
 | Board availability / N16R8 variant confusion | low | order week 1; the research note's board table lists 6 candidates |
 | Battery life with WiFi bursts | low–medium | deep sleep between events; no continuous streaming; measure in week 5 |
 | I²C address conflicts / wiring on small boards | low | all six DRV2605L share fixed 0x5A behind a TCA9548A mux at 0x70 (see [HARDWARE_BRINGUP.md](./HARDWARE_BRINGUP.md)); devkit bench first |
+| Vocabulary crowding — every added non-letter pattern (now 7) shrinks the felt distance between signals and enlarges the week-6 confusion screen | medium | each new pattern declares its discriminating feature in the timing spec (e.g. `processing`'s 350 ms middle gap vs double-tap's 160); M1/M3 screens all of them; retire a pattern that confuses rather than tune it |
+| Motor ability varies as much as sensory ability — chord input assumes dexterity many wearers lack (generalized from the early-years personal-care guidance) | medium | the 3-button fallback (read / stop / repeat) is load-bearing, not a footnote; chords are the upgrade path, never the floor |
 
 **Challenge → exercise → fallback (ladders wired in advance):**
 
@@ -380,6 +445,17 @@ interface; only the relay changes.
 4. **Omni payload format** — *exercise:* the week-1 spike. *Fallback:* relay-side Whisper-class STT behind the same interface (§7 ladder); only the relay changes.
 5. **Cost creep** — *exercise:* BOM re-checked at order time (week 1). *Fallback:* demo on a devkit + hand-wired motors; the enclosure is cosmetic, not functional.
 6. **Caregiver-bridge scope creep** — *exercise:* none (it is a scope risk). *Fallback:* parked to v2 by default (§11); the push-to-friend's-phone flow demos the caregiver value without BLE.
+
+**v2 ideas parked from early-years practice (Sense UK, via Insight — Sources):**
+
+- **Per-contact people-marks** — objects of reference, generalized: an
+  incoming message from a known contact plays that contact's short tactile
+  mark before its content — caller ID generalized to touch. Needs the
+  caregiver-bridge/phone integration; parked with it.
+- **An on-device practice mode** — the §1 alphabet-span idea, repurposed:
+  the device plays a letter, the wearer answers on the chord keys; sensory
+  play with no instructions, and the gentlest way to learn the vocabulary
+  itself.
 
 ---
 
@@ -442,7 +518,7 @@ Serverless Job (fits the credit envelope), and the fine-tuned weights are
 
 ## 12. Founder pitch (the short version)
 
-Two million Americans live with combined hearing and vision loss; for the ~45–70k at the deaf-blind core, there is no product that tells them what is happening and lets them answer. Braille displays cost $1,500–$12,000 and have no microphone and no agent; braille keyboards are input-only; the research world has played braille through phone vibration for 15 years and shipped nothing — the missing piece was a brain that could hear. That piece now costs fractions of a cent per turn: **Nemotron-3-Nano-Omni on Nebius Token Factory** takes audio in natively, and a **$5 haptic driver** speaks braille. **Ziv** (working title) is a ~$40 wrist pin — six motors in a braille layout, six chord keys, one mic — whose output channel is *private by physics*: nothing to overhear, nothing to glance at. It hears for people who can't hear and speaks braille on their skin, and it stays on when they're away — reminders arrive as rhythm, not as notifications they would never see. We have already shipped one agent on this exact NVIDIA/Nebius stack (SkillForge: natural language → costed robot skill pipelines, 86 hermetic tests, live end-to-end); Ziv is the second, pointed at the population nobody else is building for.
+Two million Americans live with combined hearing and vision loss; for the ~45–70k at the deaf-blind core, there is no product that tells them what is happening and lets them answer. Braille displays cost $1,500–$12,000 and have no microphone and no agent; braille keyboards are input-only; the research world has played braille through phone vibration for 15 years and shipped nothing — the missing piece was a brain that could hear. That piece now costs fractions of a cent per turn: **Nemotron-3-Nano-Omni on Nebius Token Factory** takes audio in natively, and a **$5 haptic driver** speaks braille. **Ziv** (working title) is a ~$40 wrist pin — six motors in a braille layout, six chord keys, one mic — whose output channel is *private by physics*: nothing to overhear, nothing to glance at. It hears for people who can't hear and speaks braille on their skin, and it stays on when they're away — reminders arrive as rhythm, not as notifications they would never see. Its interaction rules are borrowed from the best practice that serves this population from birth (Sense UK's early-years guidance): every event is announced before it happens, ends with a felt close, and never makes the wearer wait in silence. We have already shipped one agent on this exact NVIDIA/Nebius stack (SkillForge: natural language → costed robot skill pipelines, 86 hermetic tests, live end-to-end); Ziv is the second, pointed at the population nobody else is building for.
 
 *This section feeds the Devpost draft ([DEVPOST_HAPTIC.md](../DEVPOST_HAPTIC.md)) and the video's opening and closing lines. It is a pitch, not a claim set: every number traces to §2 or the research note, and §9's no-clinical-claims rule applies.*
 
@@ -458,6 +534,7 @@ Two million Americans live with combined hearing and vision loss; for the ~45–
 - Population: [HKNC](https://www.helenkeller.org/hknc/) · [HKNC ACS 2022 analysis](https://www.helenkeller.org/american-community-survey-acs-2022-data-on-people-who-are-deafblind-2024/) · [2026 DeafBlind Awareness Week — 2.4M with combined loss](https://www.helenkeller.org/2026-deafblind-awareness-week-proclamations/) · [Wikipedia — ~70,000](https://en.wikipedia.org/wiki/Helen_Keller_National_Center_for_Deaf-Blind_Youths_and_Adults)
 - Fine-tuning catalog: [Token Factory post-training models](https://docs.tokenfactory.nebius.com/post-training/models) (captured Sep 7, 2026)
 - Naming / DeafBlind name signs: [Protactile Language, Modality, and Community — Annual Review of Linguistics](https://www.annualreviews.org/content/journals/10.1146/annurev-linguistics-011724-121536) · [MN DOE — tactile name cues vs name signs](https://education.mn.gov/mdeprod/idcplg?IdcService=GET_FILE&dDocName=PROD034266&RevisionSelectionMethod=latestReleased&Rendition=primary) · [interpretereducation.org — ProTactile module](http://www.interpretereducation.org/teaching/classroom-modules/deafblind/instructor-guide/)
+- Early-years practice (invariants + v2 ideas, plan §4/§9): [How to support a child with deafblindness in their early years — Sense UK via Insight](https://insightdeafblind.org/resource/how-to-support-a-child-with-deafblindness-in-their-early-years) (Jan 2025) — consistency and anticipation, cues marking start and end, taking time, wearer control; consulted Sep 12, 2026
 - Naming collisions: [RAZ Mobility](https://www.razmobility.com/) — assistive tech for blind/low-vision users ([Verizon distribution of the RAZ Memory Cell Phone, Jul 2025](https://www.razmobility.com/news/verizon-starts-selling-the-raz-memory-cell-phone-to-help-seniors-and-caregivers/)) · [National Press Club — Robert Felgar speaker bio (RAZ founder; ex-Odin Mobile founder)](https://nationalpress.org/speaker/robert-felgar/) · [Trademarkia — TOV Furniture marks](https://www.trademarkia.com/owners/tov-furniture) · [Neosensory — Buzz/Duo haptic wristband for deaf users](https://neosensory.com/) · [Viz.ai — AI care coordination](https://www.viz.ai/) — ten names screened Sep 7, 2026; screening only, not legal clearance
 - Carried over: [MIMICLAW_PIPIN_RESEARCH.md](./MIMICLAW_PIPIN_RESEARCH.md) (boards, Nebius API surface, route anchors) · [CAPABILITIES.md](./CAPABILITIES.md) (track text, criteria, stack)
 

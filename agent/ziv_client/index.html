@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<!--
+  Ziv dev band — the phone stands in for the wrist (plan §5, relay v0).
+
+  Connects to the relay's /ws, renders every haptic frame through the
+  Vibration API, and bootstraps ALL of its timing from /api/ziv/timing —
+  the serialized generated module. No pattern numbers live in this file:
+  the phone, the firmware header, and the tests share one derivation
+  (docs/haptic-timing.json), held together by the drift guard.
+
+  Open http://<lan-ip>:8787/ziv_client/index.html on Android Chrome.
+  Buttons are for the demo bench; the wearer-visible loop (cue → ticks →
+  cells → close → queue release) runs on its own, driven by the server.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ziv dev band</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161c24; --line: #263041;
+    --fg: #e8edf4; --dim: #8b98ab; --accent: #6ee7b7; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0 0 2px; }
+  #state { font-size: 13px; color: var(--dim); }
+  #state.ok { color: var(--accent); }
+  #state.bad { color: var(--warn); }
+  main { padding: 12px 16px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 auto; background: #1d2530; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font-size: 14px; min-height: 44px;
+  }
+  button:active { background: #243041; }
+  button.primary { background: #14342b; border-color: #1f5c49; }
+  button:disabled { opacity: 0.45; }
+  input[type=text] {
+    width: 100%; background: #0f141b; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; font-size: 15px; margin-bottom: 8px;
+  }
+  .cap { font-size: 12px; color: var(--dim); margin: 6px 0 0; }
+  #cells { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .cell {
+    width: 34px; height: 40px; border-radius: 6px;
+    background: #10161e; border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: var(--dim);
+  }
+  .cell.on { color: var(--fg); border-color: var(--accent); background: #12291f; }
+  #log { font-size: 12px; line-height: 1.5; max-height: 220px; overflow-y: auto; }
+  #log div { padding: 1px 0; border-bottom: 1px dotted #1c2431; }
+  #log .t { color: var(--dim); }
+  #log .haptic { color: var(--accent); }
+  #log .sys { color: var(--warn); }
+  .vibrate-note { font-size: 11px; color: var(--dim); }
+  button.rec { background: #3a1d1d; border-color: #7a2e2e; }
+  #micStatus { display: inline-block; flex: 1 1 auto; margin: 0; align-self: center; }
+  #micStatus.bad { color: var(--warn); }
+  #micStatus.ok { color: var(--accent); }
+  #micStatus.rec { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ziv dev band</h1>
+  <div id="state">connecting…</div>
+</header>
+<main>
+  <div class="panel">
+    <div class="row">
+      <button id="btnUnlock" class="primary">Unlock vibration</button>
+      <button id="btnTest">Test buzz</button>
+    </div>
+    <p class="cap" id="vibrateNote"></p>
+  </div>
+
+  <div class="panel">
+    <input type="text" id="msg" value="Taxi arrived" autocomplete="off">
+    <div class="row">
+      <button id="btnSend" class="primary">Send as message</button>
+      <button id="btnOmniStub">Stub demo</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnMic">Talk to Omni</button>
+      <p id="micStatus" class="cap"></p>
+    </div>
+    <p class="cap">Mic records → POST /inject/audio → Nemotron-3-Nano-Omni (Token Factory)
+    transcribes → the reply plays as braille. “Stub demo” sends the text field directly
+    (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
+    release come back over /ws.</p>
+    <div id="cells"></div>
+  </div>
+
+  <div class="panel">
+    <div class="cap" style="margin:0 0 6px">Wire log (server frames)</div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+// Everything timing-related arrives from the relay (GET /api/ziv/timing —
+// the serialized generated module). This client contains zero duration
+// literals; pattern ids only.
+const S = {
+  ws: null,
+  timing: null,
+  unlocked: false,
+  cellsEl: document.getElementById("cells"),
+  logEl: document.getElementById("log"),
+  stateEl: document.getElementById("state"),
+  msgEl: document.getElementById("msg"),
+};
+
+function log(kind, text) {
+  const d = document.createElement("div");
+  if (kind === "haptic") d.className = "haptic";
+  if (kind === "sys") d.className = "sys";
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
+  S.logEl.prepend(d);
+  while (S.logEl.children.length > 60) S.logEl.removeChild(S.logEl.lastChild);
+}
+
+function setState(text, cls) {
+  S.stateEl.textContent = text;
+  S.stateEl.className = cls || "";
+}
+
+// --- vibration -------------------------------------------------------------
+
+function unlock() {
+  if (!("vibrate" in navigator)) {
+    setState("Vibration API not available in this browser", "bad");
+    document.getElementById("vibrateNote").textContent =
+      "Open this page on Android Chrome to feel the patterns (iOS Safari has no vibrate()).";
+    return;
+  }
+  // The unlock gesture: a 30 ms buzz registers the user activation Chrome
+  // requires before any later vibrate() call is honored.
+  navigator.vibrate(30);
+  S.unlocked = true;
+  setState("vibration unlocked");
+  document.getElementById("btnUnlock").disabled = true;
+}
+
+function vibrateNow(msArray) {
+  if (!S.unlocked) {
+    log("sys", "vibration not unlocked yet — tap Unlock, then replay");
+    return false;
+  }
+  const ok = navigator.vibrate(msArray);
+  if (!ok) log("sys", "vibrate() returned false (browser refused)");
+  return ok;
+}
+
+// --- the wire protocol -----------------------------------------------------
+
+function onHaptic(frame) {
+  // frame: {type:"haptic", pattern, ms:[buzz,gap,...], why}
+  log("haptic", "▶ " + frame.pattern + " (" + (frame.why || "") + ") — " + frame.ms.join(",") + " ms");
+  vibrateNow(frame.ms);
+  if (frame.pattern === "processing") {
+    // The ellipsis: show the middle gap is the signal, not a hang.
+    setState("working… (" + frame.why + ")", "");
+  } else {
+    setState("haptic: " + frame.pattern, "ok");
+  }
+}
+
+function onText(frame) {
+  log("sys", frame.text);
+  if (frame.chars && frame.chars.length) {
+    S.cellsEl.innerHTML = "";
+    for (const c of frame.chars) {
+      const el = document.createElement("div");
+      el.className = "cell";
+      el.textContent = c.ch;
+      S.cellsEl.appendChild(el);
+    }
+  }
+}
+
+function onCell(frame) {
+  // One braille cell at a time, synced to the server's playback dwell —
+  // the highlight is the wrist's playback loop made visible.
+  const kids = S.cellsEl.children;
+  for (const el of kids) {
+    if (el.textContent === frame.ch && !el.classList.contains("done")) {
+      el.classList.add("on");
+      vibrateNow([frame.ms, 0]);
+      setTimeout(() => {
+        el.classList.remove("on");
+        el.classList.add("done");
+      }, frame.ms + 120);
+      return;
+    }
+  }
+}
+
+async function send(url, body) {
+  if (!S.ws || S.ws.readyState !== 1) {
+    setState("not connected", "bad");
+    return;
+  }
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      log("sys", "HTTP " + res.status + ": " + (data.detail || "?"));
+      return;
+    }
+    log("sys", "POST ok — " + JSON.stringify(data));
+  } catch (e) {
+    log("sys", "POST failed: " + e);
+  }
+}
+
+// --- connection ------------------------------------------------------------
+
+function connect() {
+  const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = wsProto + "//" + location.host + "/ws";
+  S.ws = new WebSocket(url);
+
+  S.ws.onopen = () => setState("connected", "ok");
+  S.ws.onclose = () => {
+    setState("disconnected — retrying…", "bad");
+    setTimeout(connect, 1500);
+  };
+  S.ws.onerror = () => setState("ws error", "bad");
+  S.ws.onmessage = (ev) => {
+    let frame;
+    try { frame = JSON.parse(ev.data); } catch { return; }
+    if (frame.type === "hello") {
+      const inbox = typeof frame.inbox_pending === "number" && frame.inbox_pending > 0
+        ? ", " + frame.inbox_pending + " message(s) waiting"
+        : "";
+      log("sys", "relay hello — spec v" + frame.spec_version +
+        ", " + frame.patterns.length + " patterns, mark: " + frame.mark + inbox);
+    } else if (frame.type === "haptic") {
+      onHaptic(frame);
+    } else if (frame.type === "text") {
+      onText(frame);
+    } else if (frame.type === "cell") {
+      onCell(frame);
+    }
+  };
+}
+
+async function loadTiming() {
+  // Bootstrap from the generated module — one derivation everywhere.
+  try {
+    const res = await fetch("/api/ziv/timing");
+    S.timing = await res.json();
+    log("sys", "timing bootstrapped: spec v" + S.timing.spec_version +
+      ", " + Object.keys(S.timing.patterns).length + " patterns" +
+      ", cell gap " + S.timing.cell_gap_ms + " ms");
+  } catch (e) {
+    log("sys", "timing bootstrap failed: " + e);
+  }
+}
+
+// --- buttons ----------------------------------------------------------------
+
+document.getElementById("btnUnlock").addEventListener("click", unlock);
+document.getElementById("btnTest").addEventListener("click", () => {
+  if (!S.timing) return;
+  // Replay double-tap straight from the bootstrapped table (no server turn).
+  const beats = S.timing.patterns["double-tap"];
+  const ms = [];
+  for (const [b, g] of beats) { ms.push(b); ms.push(g); }
+  log("haptic", "local test: double-tap — " + ms.join(",") + " ms");
+  vibrateNow(ms);
+});
+document.getElementById("btnSend").addEventListener("click", () => {
+  send("/api/ziv/message", { text: S.msgEl.value || "Taxi arrived" });
+});
+// --- the Omni spike: mic → /inject/audio → Token Factory -------------------
+// MediaRecorder captures the mic; the clip goes base64 to the relay, which
+// transcribes it with Nemotron-3-Nano-Omni and runs the same turn a typed
+// message takes. No timing lives here — only the wire shape.
+const OMNI = {
+  rec: null,
+  chunks: [],
+  stream: null,
+  mime: "",
+  busy: false,
+  maxTimer: 0,
+  btn: document.getElementById("btnMic"),
+  status: document.getElementById("micStatus"),
+};
+
+function omniStatus(text, cls) {
+  OMNI.status.textContent = text;
+  OMNI.status.className = cls ? "cap " + cls : "cap";
+}
+
+function pickMime() {
+  if (!window.MediaRecorder) return "";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  for (const c of candidates) {
+    if (MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return "";
+}
+
+function mimeToFormat(m) {
+  if (m.indexOf("ogg") >= 0) return "ogg";
+  if (m.indexOf("mp4") >= 0) return "mp4";
+  return "webm";
+}
+
+async function omniStart() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia
+      || !window.MediaRecorder) {
+    omniStatus("MediaRecorder/mic not available in this browser", "bad");
+    return;
+  }
+  try {
+    OMNI.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    omniStatus("mic blocked: " + e.name, "bad");
+    return;
+  }
+  OMNI.mime = pickMime();
+  if (!OMNI.mime) {
+    omniStatus("no supported recording mime in this browser", "bad");
+    OMNI.stream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  OMNI.chunks = [];
+  try {
+    OMNI.rec = new MediaRecorder(OMNI.stream, { mimeType: OMNI.mime });
+  } catch (e) {
+    omniStatus("recorder error: " + e, "bad");
+    OMNI.stream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  OMNI.rec.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size) OMNI.chunks.push(ev.data);
+  };
+  OMNI.rec.onstop = omniSend;
+  OMNI.rec.start();
+  OMNI.busy = true;
+  OMNI.btn.textContent = "Stop & send";
+  OMNI.btn.classList.add("rec");
+  omniStatus("recording — speak, then tap again (10 s max)", "rec");
+  OMNI.maxTimer = setTimeout(() => {
+    if (OMNI.busy && OMNI.rec && OMNI.rec.state === "recording") omniStop();
+  }, 10000);
+}
+
+function omniStop() {
+  if (!OMNI.busy || !OMNI.rec) return;
+  clearTimeout(OMNI.maxTimer);
+  if (OMNI.rec.state !== "inactive") OMNI.rec.stop(); // onstop fires omniSend
+}
+
+async function omniSend() {
+  OMNI.stream.getTracks().forEach((t) => t.stop());
+  OMNI.btn.textContent = "Talk to Omni";
+  OMNI.btn.classList.remove("rec");
+  OMNI.busy = false;
+  const blob = new Blob(OMNI.chunks, { type: OMNI.mime || "audio/webm" });
+  if (!blob.size) {
+    omniStatus("nothing recorded", "bad");
+    return;
+  }
+  omniStatus("transcribing via Token Factory…", "");
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  log("sys", "mic clip: " + Math.round(blob.size / 1024) + " kB ("
+    + (blob.type || "?") + ") → /inject/audio");
+  try {
+    const res = await fetch("/inject/audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audio_b64: btoa(bin),
+        mime: mimeToFormat(OMNI.mime),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const d = typeof data.detail === "string" ? data.detail : "?";
+      omniStatus("HTTP " + res.status + ": " + d, "bad");
+      log("sys", "Omni POST failed: " + d);
+      return;
+    }
+    log("sys", "Omni heard — turn " + (data.event || "?") + ", source " + data.source);
+    omniStatus("sent — the reply plays as braille", "ok");
+  } catch (e) {
+    omniStatus("POST failed: " + e, "bad");
+  }
+}
+
+OMNI.btn.addEventListener("click", () => {
+  if (OMNI.busy) omniStop();
+  else omniStart();
+});
+
+// Keyless stub demo (hermetic): same turn, transcript handed in directly.
+document.getElementById("btnOmniStub").addEventListener("click", () => {
+  send("/inject/audio", { simulate: S.msgEl.value || "Taxi arrived" });
+});
+S.msgEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") send("/api/ziv/message", { text: S.msgEl.value });
+});
+
+// Boot: connect first (so the server knows the band exists), then bootstrap.
+if (!("vibrate" in navigator)) {
+  document.getElementById("vibrateNote").textContent =
+    "This browser has no Vibration API — open on Android Chrome to feel it.";
+}
+connect();
+loadTiming();
+</script>
+</body>
+</html>

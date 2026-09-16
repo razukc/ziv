@@ -6,11 +6,24 @@ from openai import OpenAI
 import registry_tools
 from skill_registry import SKILL_CATALOG, list_all_skills
 
+from ports import RetryConfig, sleep_with_backoff
 
 # The live model occasionally returns an empty payload or truncated JSON.
 # Each compose retries the (stateless) prompt this many times with backoff.
+# The retry policy itself now lives in agent/ports.py; this module only owns
+# the prompt, tool loop, and parsing shapes that are robot-track-specific.
 _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE = 0.8  # seconds; attempt n sleeps base * n
+
+# A retry config the agent uses internally. Kept here (rather than
+# constructed inline at each call) so this module is the single place that
+# owns the compose-path defaults; the primitive itself is the shared layer's
+# (ports.RetryConfig + sleep_with_backoff), which the Ziv track also uses
+# with its own values but through its own seam.
+_DEFAULT_RETRY_CONFIG = RetryConfig(
+    max_attempts=_MAX_ATTEMPTS,
+    backoff_base_seconds=_RETRY_BACKOFF_BASE,
+)
 
 
 class ReasoningAgent:
@@ -198,6 +211,11 @@ Rules:
         usually lands; after ``_MAX_ATTEMPTS`` failures the last error is
         raised so callers can surface a clean failure.
 
+        The backoff policy itself now lives in ``agent/ports`` (``RetryConfig``
+        + ``sleep_with_backoff``); this method owns the retry loop and the
+        *one attempt* body: the tool loop, the tool-result feedback, and the
+        parsing that are robot-track-specific.
+
         ``on_retry`` (optional) is invoked as ``on_retry(attempt, error)``
         after each failed attempt that gets retried (attempt is 1-based:
         1 = the first call failed, a second call is being made).
@@ -260,7 +278,7 @@ Rules:
                 if attempt < _MAX_ATTEMPTS - 1:
                     if on_retry is not None:
                         on_retry(attempt + 1, e)
-                    time.sleep(_RETRY_BACKOFF_BASE * (attempt + 1))
+                    sleep_with_backoff(attempt + 1, _DEFAULT_RETRY_CONFIG)
         raise last_error
 
     @staticmethod

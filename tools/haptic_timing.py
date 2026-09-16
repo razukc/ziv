@@ -8,7 +8,14 @@ band play identical patterns by construction:
 
   - docs/haptic-name-marks.html        generated JS timing block + gap slider
   - firmware/haptic_out/haptic_timing.h  generated C constants + pattern tables
+  - tools/haptic_timing_gen.py         generated Python timing module (relay, tests, tools)
   - docs/HAPTIC_TIMING_SPEC.md         generated readable tables section
+  - firmware/app/ziv_qemu/main/ziv_demo_sequence.{h,c}
+                                       generated scripted boot demo (the stage
+                                       table single source + its derived HAP fixture)
+  - docs/QEMU_SIMULATION_LADDER.md     generated demo-chain block (the ladder
+                                       doc's rung-1/rung-2 story reads the same
+                                       DEMO_STAGES single source)
 
 Usage:
   python tools/haptic_timing.py            # verify all consumers match the spec
@@ -28,6 +35,13 @@ SPEC_PATH = ROOT / "docs" / "haptic-timing.json"
 HTML_PATH = ROOT / "docs" / "haptic-name-marks.html"
 HEADER_PATH = ROOT / "firmware" / "haptic_out" / "haptic_timing.h"
 DOC_PATH = ROOT / "docs" / "HAPTIC_TIMING_SPEC.md"
+PY_PATH = ROOT / "tools" / "haptic_timing_gen.py"
+DEMO_DIR = ROOT / "firmware" / "app" / "ziv_qemu" / "main"
+DEMO_H_PATH = DEMO_DIR / "ziv_demo_sequence.h"
+DEMO_C_PATH = DEMO_DIR / "ziv_demo_sequence.c"
+LADDER_DOC_PATH = ROOT / "docs" / "QEMU_SIMULATION_LADDER.md"
+FIRMWARE_MAX_WORD_LEN_H = ROOT / "firmware" / "haptic_out" / "haptic_out.h"
+RE_MAX_WORD_LEN = re.compile(r"^\s*#define\s+HAPTIC_OUT_MAX_WORD_LEN\s+(\d+)\s*$", re.MULTILINE)
 
 JS_BEGIN = "/* haptic-timing:begin (generated — edit docs/haptic-timing.json, then run: python tools/haptic_timing.py --write) */"
 JS_END = "/* haptic-timing:end */"
@@ -174,7 +188,7 @@ def validate(spec, problems):
                         f"{pid} beat {i}: {value_field}={b[value_field]} contradicts "
                         f"{ref_field}={ref!r} ({REF_KEY[ref]}={c[REF_KEY[ref]]})"
                     )
-            if b.get("kind") not in (None, "ramp", "heart"):
+            if b.get("kind") not in (None, "ramp", "heart", "fall"):
                 problems.append(f"{pid} beat {i}: unknown kind {b.get('kind')!r}")
         if beats and beats[-1].get("gap_ref") != "tail":
             problems.append(f"{pid}: last beat must end with gap_ref 'tail'")
@@ -238,6 +252,10 @@ def js_block(spec):
     L.append("];")
     L.append("window.ATTENTION=ATTENTION;")
     L.append(f"var SPELL_MAX={spec['ui']['spell_max_letters']};")
+    note = spec.get("note", "")
+    if note:
+        L.append("/* spell_max_letters cap on the spell box; the firmware's runtime word ceiling (HAPTIC_OUT_MAX_WORD_LEN=16) is a separate, deliberate asymmetry. See docs/haptic-timing.json note. */")
+        L.append("var SPELL_LIMIT_NOTE=" + js_str(note) + ";")
     L.append("function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }")
     rex = spec.get("rename_examples", {})
     mark = rex.get("same_arc_as", "")
@@ -432,6 +450,18 @@ def doc_tables(spec):
     for key, feeds in const_rows:
         L.append(f"| `{key}` | {c[key]} | {feeds} |")
     L.append("")
+    ui = spec["ui"]
+    L.append("### UI vs. runtime limits — do not unify")
+    L.append("")
+    L.append(
+        f"- `spell_max_letters` = {ui['spell_max_letters']}: the feel-tool page's spell-box affordance — "
+        f"it caps how long a word the page headlines for the wearer. "
+        f"- The band firmware's runtime ceiling is `HAPTIC_OUT_MAX_WORD_LEN` = 16: "
+        f"the longest word the motors will actually play. "
+        f"These are intentionally different settings for different layers (page vs. device), "
+        f"not two views of one number — do not unify them."
+    )
+    L.append("")
     L.append("### Attention patterns (plan §4)")
     L.append("")
     L.append("| Pattern | Meaning | Beats — buzz/gap in ms |")
@@ -491,6 +521,108 @@ def doc_tables(spec):
     L.append("")
     L.append(DOC_END)
     return "\n".join(L)
+
+
+# --- Python consumer (tools/haptic_timing_gen.py) ---------------------------
+
+def py_module(spec):
+    """The generated Python timing module: one derivation for tests, the
+    relay, and tools. Same shape as the C header — constants, per-letter
+    tables, pattern beats in spec order — so the drift guard holds all
+    consumers with one checker."""
+    c = spec["constants"]
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    patterns = spec["attention_patterns"]
+    marks = spec["marks"]
+    L = []
+    A = L.append
+    A("\"\"\"haptic_timing_gen.py — GENERATED Python consumer of the timing spec.")
+    A("")
+    A("Do not edit by hand; regenerate with:  python tools/haptic_timing.py --write")
+    A("Source of truth: docs/haptic-timing.json (spec v%s)." % spec["version"])
+    A("")
+    A("One derivation for every Python side that needs the haptic vocabulary")
+    A("(the Ziv relay, tests, tools): dot tables, cell durations, and pattern")
+    A("beats — the same numbers the phone feel-tool (JS block) and the band")
+    A("(firmware/haptic_out/haptic_timing.h) play. The drift guard holds all")
+    A("consumers together: the checker regenerates and diffs this file too.")
+    A("\"\"\"")
+    A("")
+    A("SPEC_VERSION = %d" % spec["version"])
+    A("")
+    A("# Cell rule: buzz_ms = CELL_BASE_MS + CELL_PER_DOT_MS * dots.")
+    A("CELL_BASE_MS = %d" % c["cell_base_ms"])
+    A("CELL_PER_DOT_MS = %d" % c["cell_per_dot_ms"])
+    A("")
+    A("# Attention/lifecycle constants (plan §4). One beat = buzz, then silence.")
+    for key in ("tick_ms", "tick_gap_ms", "long_buzz_ms", "tail_gap_ms", "prefix_breath_ms"):
+        A("%s = %d" % (key.upper(), c[key]))
+    A("")
+    A("# Playback-speed envelope + UI cap (spec: constants + ui blocks).")
+    A("CELL_GAP_DEFAULT_MS = %d" % c["cell_gap_default_ms"])
+    A("CELL_GAP_MIN_MS = %d" % c["cell_gap_min_ms"])
+    A("CELL_GAP_MAX_MS = %d" % c["cell_gap_max_ms"])
+    A("SPELL_MAX_LETTERS = %d" % spec["ui"]["spell_max_letters"])
+    A("")
+    A("# Grade-1 alphabet: dots, motor bitmask (bit n = dot n), cell ms (index 0 = 'a').")
+    A("LETTERS = '%s'" % letters)
+    A("LETTER_DOTS = {")
+    for ch in letters:
+        A("    '%s': %d," % (ch, spec["letters"][ch]))
+    A("}")
+    A("LETTER_MASKS = {")
+    for ch in letters:
+        A("    '%s': 0x%02X," % (ch, bitmask(spec["letter_patterns"][ch])))
+    A("}")
+    A("LETTER_MS = {")
+    for ch in letters:
+        A("    '%s': %d," % (ch, cell_ms(spec, ch)))
+    A("}")
+    A("")
+    A("# Attention patterns, in spec order (index == the C HAPTIC_PAT_* enum).")
+    A("PATTERN_IDS = (")
+    for p in patterns:
+        A("    '%s'," % p["id"])
+    A(")")
+    A("PATTERN_INDEX = {pid: i for i, pid in enumerate(PATTERN_IDS)}")
+    A("# id -> ((buzz_ms, gap_after_ms), ...) — the beats, in spec order.")
+    A("PATTERN_BEATS = {")
+    for p in patterns:
+        beats = ", ".join("(%d, %d)" % (b["buzz_ms"], b["gap_after_ms"]) for b in p["beats"])
+        # Trailing comma so a single-beat pattern stays a tuple of tuples.
+        A("    '%s': (%s,)," % (p["id"], beats))
+    A("}")
+    A("")
+    A("# Candidate marks: letters per position, in spec order (index == the C enum).")
+    A("MARK_IDS = (")
+    for mid in marks:
+        A("    '%s'," % mid)
+    A(")")
+    A("MARK_INDEX = {mid: i for i, mid in enumerate(MARK_IDS)}")
+    A("MARK_CELLS = {")
+    for mid, cells in marks.items():
+        A("    '%s': %r," % (mid, tuple(cells)))
+    A("}")
+    A("")
+    prefix = spec["prefix"]
+    A("# Name-mark prefix composition (plan §4): mark, breath, then the tail pattern.")
+    A("PREFIX_MARK = '%s'" % prefix["mark"])
+    A("PREFIX_TAILS = {")
+    for tail_name, pat_id in prefix["tails"].items():
+        A("    '%s': '%s'," % (tail_name, pat_id))
+    A("}")
+    A("")
+    A("")
+    A("def cell_ms(letter: str) -> int:")
+    A("    \"\"\"Cell buzz duration for a letter 'a'..'z'.\"\"\"")
+    A("    return CELL_BASE_MS + CELL_PER_DOT_MS * LETTER_DOTS[letter]")
+    A("")
+    A("")
+    A("def pattern_beats(pattern_id: str) -> tuple:")
+    A("    \"\"\"The (buzz_ms, gap_after_ms) beats of one attention pattern.\"\"\"")
+    A("    return PATTERN_BEATS[pattern_id]")
+    A("")
+    return "\n".join(L) + "\n"
 
 
 # --- patching / checking ----------------------------------------------------
@@ -564,6 +696,40 @@ def rel(path):
         return path
 
 
+_build_ziv_demo = None
+
+
+def demo_texts(spec):
+    """The generated demo pair (ziv_demo_sequence.h/.c) from tools/build_ziv_demo.
+
+    The scripted boot demo's stage table is the demo's single source; the
+    27-line HAP fixture is derived from it. Both are timing-spec consumers:
+    the fixture is a pure function of the stage table plus the generated
+    timing vocabulary, so the drift guard holds them like every other
+    consumer.
+    """
+    global _build_ziv_demo
+    if _build_ziv_demo is None:
+        tools_dir = str(ROOT / "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import build_ziv_demo
+        _build_ziv_demo = build_ziv_demo
+    return _build_ziv_demo.emit(spec)
+
+
+def ladder_text(spec):
+    """The generated demo-chain block for the QEMU ladder doc.
+
+    Shares build_ziv_demo's DEMO_STAGES single source with the app's stage
+    table and the bench fixture: the doc's rung-1/rung-2 description is a
+    pure function of that table plus the spec, so the drift guard holds it
+    like every other consumer.
+    """
+    demo_texts(spec)  # ensure the shared module is imported (and derivable)
+    return _build_ziv_demo.ladder_section(spec)
+
+
 def write_consumers(spec, problems):
     """Regenerate every consumer from the spec.  Used by --write and by
     tools/rename_check.py -a (a spec change invalidates nothing else: the
@@ -572,6 +738,8 @@ def write_consumers(spec, problems):
     hdr = header(spec)
     doc = doc_tables(spec)
 
+    py = py_module(spec)
+
     html = HTML_PATH.read_text(encoding="utf-8")
     patched = splice(html, JS_BEGIN, JS_END, js, problems, "html block")
     if patched is None:
@@ -579,11 +747,28 @@ def write_consumers(spec, problems):
     write_lf(HTML_PATH, rewrite_slider(patched, spec))
     HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_lf(HEADER_PATH, hdr)
-    doc_text = DOC_PATH.read_text(encoding="utf-8")
-    patched = splice(doc_text, DOC_BEGIN, DOC_END, doc, problems, "spec doc tables")
-    if patched is None:
+    PY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    write_lf(PY_PATH, py)
+    try:
+        demo_h, demo_c = demo_texts(spec)
+    except (KeyError, ValueError) as exc:
+        problems.append("demo stages: cannot derive the ziv_qemu demo pair "
+                        "from the spec: %s" % exc)
         return False
-    write_lf(DOC_PATH, patched)
+    write_lf(DEMO_H_PATH, demo_h)
+    write_lf(DEMO_C_PATH, demo_c)
+    ladder = ladder_text(spec)
+    ladder_now = LADDER_DOC_PATH.read_text(encoding="utf-8")
+    patched3 = splice(ladder_now, _build_ziv_demo.LADDER_BEGIN,
+                      _build_ziv_demo.LADDER_END, ladder, problems, "ladder doc demo-chain block")
+    if patched3 is None:
+        return False
+    write_lf(LADDER_DOC_PATH, patched3)
+    doc_text = DOC_PATH.read_text(encoding="utf-8")
+    patched2 = splice(doc_text, DOC_BEGIN, DOC_END, doc, problems, "spec doc tables")
+    if patched2 is None:
+        return False
+    write_lf(DOC_PATH, patched2)
     return True
 
 
@@ -603,6 +788,28 @@ def load_spec(problems):
     return spec
 
 
+def check_asymmetry(spec, firmware_hdr, problems):
+    """The feel-tool UI cap and the firmware runtime ceiling are intentionally
+    different.  If they accidentally unify, verification should fail."""
+    ui_spell = spec["ui"]["spell_max_letters"]
+    if ui_spell >= 16:
+        problems.append(
+            f"ui.spell_max_letters={ui_spell}: the page spell-box cap must stay below "
+            f"HAPTIC_OUT_MAX_WORD_LEN (16) — do not unify the UI and runtime limits"
+        )
+        return
+    m = RE_MAX_WORD_LEN.search(firmware_hdr)
+    if not m:
+        problems.append(f"{rel(FIRMWARE_MAX_WORD_LEN_H)}: HAPTIC_OUT_MAX_WORD_LEN not found")
+        return
+    firmware_len = int(m.group(1))
+    if firmware_len <= ui_spell:
+        problems.append(
+            f"ui.spell_max_letters={ui_spell} is not below HAPTIC_OUT_MAX_WORD_LEN={firmware_len}: "
+            f"the asymmetry between the page spell box and the firmware runtime ceiling must be preserved"
+        )
+
+
 def main():
     ap = argparse.ArgumentParser(description="Generate/verify the haptic timing consumers from docs/haptic-timing.json")
     ap.add_argument("--write", action="store_true", help="regenerate consumers from the spec (default: verify only)")
@@ -614,10 +821,6 @@ def main():
         for p in problems:
             print("spec error:", p)
         return 1
-
-    js = js_block(spec)
-    hdr = header(spec)
-    doc = doc_tables(spec)
 
     if args.write:
         if not write_consumers(spec, problems):
@@ -636,6 +839,8 @@ def main():
     hdr = header(spec)
     doc = doc_tables(spec)
 
+    py = py_module(spec)
+
     html = HTML_PATH.read_text(encoding="utf-8")
     if not block_matches(html, JS_BEGIN, JS_END, js):
         problems.append("html: generated timing block drifts from the spec (run tools/haptic_timing.py --write)")
@@ -643,9 +848,33 @@ def main():
     header_now = HEADER_PATH.read_text(encoding="utf-8") if HEADER_PATH.exists() else None
     if header_now != hdr:
         problems.append(f"{rel(HEADER_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
+    py_now = PY_PATH.read_text(encoding="utf-8") if PY_PATH.exists() else None
+    if py_now != py:
+        problems.append(f"{rel(PY_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
     doc_now = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.exists() else None
     if doc_now is None or not block_matches(doc_now, DOC_BEGIN, DOC_END, doc):
         problems.append(f"{rel(DOC_PATH)}: generated tables missing or drifting")
+    if FIRMWARE_MAX_WORD_LEN_H.exists():
+        check_asymmetry(spec, FIRMWARE_MAX_WORD_LEN_H.read_text(encoding="utf-8"), problems)
+    else:
+        problems.append(f"{rel(FIRMWARE_MAX_WORD_LEN_H)}: missing (cannot check asymmetry)")
+    try:
+        demo_h, demo_c = demo_texts(spec)
+        ladder = ladder_text(spec)
+    except (KeyError, ValueError) as exc:
+        problems.append("demo stages: cannot derive the ziv_qemu demo pair "
+                        "from the spec: %s" % exc)
+    else:
+        for path, text in ((DEMO_H_PATH, demo_h), (DEMO_C_PATH, demo_c)):
+            now = path.read_text(encoding="utf-8") if path.exists() else None
+            if now != text:
+                problems.append(f"{rel(path)}: drifts from the spec "
+                                "(run tools/haptic_timing.py --write)")
+        ladder_now = LADDER_DOC_PATH.read_text(encoding="utf-8") if LADDER_DOC_PATH.exists() else None
+        if ladder_now is None or not block_matches(ladder_now, _build_ziv_demo.LADDER_BEGIN,
+                                                   _build_ziv_demo.LADDER_END, ladder):
+            problems.append(f"{rel(LADDER_DOC_PATH)}: generated demo-chain block "
+                            "missing or drifting (run tools/haptic_timing.py --write)")
 
     if problems:
         for p in problems:
@@ -657,7 +886,11 @@ def main():
           f"{sum(len(p['beats']) for p in spec['attention_patterns'])} beats")
     print("  docs/haptic-name-marks.html        timing block + slider in sync")
     print("  firmware/haptic_out/haptic_timing.h  in sync")
+    print("  tools/haptic_timing_gen.py           in sync")
     print("  docs/HAPTIC_TIMING_SPEC.md           tables in sync")
+    print("  firmware/app/ziv_qemu/main/ziv_demo_sequence.h  demo table in sync")
+    print("  firmware/app/ziv_qemu/main/ziv_demo_sequence.c  demo fixture in sync")
+    print("  docs/QEMU_SIMULATION_LADDER.md       demo-chain block in sync")
     return 0
 
 

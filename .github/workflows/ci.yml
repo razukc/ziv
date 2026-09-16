@@ -1,10 +1,16 @@
-name: CI — hermetic suite + haptic timing guard
+name: CI — hermetic suite + haptic timing guard + firmware suites
 
 # Runs on every push to any branch. The haptic channel has one clock
 # (docs/haptic-timing.json); this workflow refuses to go green when the
-# generated consumers drift from it, and runs the full hermetic suite plus
-# the haptic_out bench tests (gcc is preinstalled on the runner, so the
-# bench suite runs for real here even when a local box has no C compiler).
+# generated consumers drift from it. One job, four surfaces — every suite
+# that exists in the repo, so drift cannot hide between them:
+#
+#   1. timing drift check   — spec vs generated consumers (html + C header + doc)
+#   2. agent hermetic suite - pytest, split per track so one side's failure is
+#      visible per-track: the SkillForge suite (tests) and the Ziv suite
+#      (tests_ziv, incl. the relay e2e + the dev-band relay server tests)
+#   3. haptic_out bench     — the real sequencer vs the mock bus (gcc on runner)
+#   4. ziv_qemu host suite  — the boot app's core vs the 27-line HAP fixture
 on:
   push:
   workflow_dispatch:   # allow a manual run from the Actions tab
@@ -28,9 +34,16 @@ jobs:
       - name: Haptic timing spec — consumers in sync
         run: python tools/haptic_timing.py
 
-      - name: Hermetic suite (e2e deselected)
+      - name: SkillForge hermetic suite (e2e deselected)
         working-directory: agent
-        run: python -m pytest -q
+        run: python -m pytest tests -q
+
+      - name: Ziv hermetic suite (relay e2e + server + store + timing guards)
+        working-directory: agent
+        run: python -m pytest tests_ziv -q
 
       - name: haptic_out bench suite (host C compiler)
         run: python firmware/haptic_out/run_tests.py
+
+      - name: ziv_qemu host suite (boot-app core vs HAP fixture)
+        run: python firmware/app/ziv_qemu/run_ziv_tests.py

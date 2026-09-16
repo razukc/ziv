@@ -9,7 +9,7 @@
 ## 0 · Facilitator prep
 
 - Communication access first: confirm each participant's preferred channel when scheduling (close vision, tactile sign, SSP support) and book an SSP/interpreter as needed. Participant-facing material exists in braille — embossed cards, braille consent form — not only in print.
-- Hardware: prototype band loaded with the five marks (Ziv; Boaz; Razu; Buz; retired-Raz reference) — or the phone fallback, *haptic-name-marks.html* on Android Chrome (beat duration = 50 + 60 × dots ms, gap 420 ms — full timing spec: [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md)).
+- Hardware: prototype band loaded with the five marks (Ziv; Boaz; Razu; Buz; retired-Raz reference) — or the phone fallback, *haptic-name-marks.html* on Android Chrome (beat duration = 50 + 60 × dots ms, gap 420 ms — full timing spec: [HAPTIC_TIMING_SPEC.md](./HAPTIC_TIMING_SPEC.md)). The fallback page also carries the two lifecycle patterns (`processing`, `end-of-message`, spec v3), which join the M1 distractor pool and the M3 confusion screen.
 - Embossed braille cards: Z-I-V plus distractors Boaz / Razu / Buz. One logging sheet per participant.
 - Quiet room, even lighting (many low-vision participants read close-vision).
 
@@ -34,7 +34,7 @@ The order is deliberate — braille first, rhythm second — so the mark anchors
 |---|---|---|---|
 | M1 | Immediate recognition | 8 rounds, random order: the mark or a distractor (Boaz / Razu / Buz arc / attention patterns). 'Name, or not name?' Log seconds-to-answer. | ≥ 80% correct |
 | M2 | Delayed recall | 4 options played once, after the §7 reading blocks: 'Which one is the device's name?' | ≥ 70% |
-| M3 | Distinct from content | Confusions between the mark and the attention vocabulary (double-tap = new message, triple-pulse = reminder fired, long buzz = error), from M1 errors plus one direct question | zero confusions |
+| M3 | Distinct from content | Confusions between the mark and everything that is not the mark — the attention vocabulary (double-tap = new message, triple-pulse = reminder fired, long buzz = error) and the lifecycle patterns (`processing` = working, `end-of-message` = message complete) — from M1 errors plus one direct question | zero confusions |
 | M4 | Identity read | 'Did that feel like someone calling you, or like a message?' and 'Two of these devices in a room — would you know who is calling?' | majority describe identity, not content |
 
 M3 + M4 answer the §11 question directly: if the mark reads as *content* or collides with the attention vocabulary, the fallback is a pure-rhythm signature that encodes no letters — the word then lives only on the box and the page.
@@ -59,7 +59,7 @@ python tools/m1_summary.py docs/sessions/P3/
 analyzer computes: accuracy, **mark-only accuracy** (the 4 name rounds — the
 measure the gate is about), median RT over correct rounds, late count,
 replays per round, and an M3 confusion check (any mark answered not-name, or
-any attention pattern answered name).
+any attention/lifecycle pattern answered name).
 
 **Tier 1 gate (mirrors M1–M4):** ≥ 80% mark-only accuracy in 4 of 5
 sessions, **no session below 3/4 mark rounds**, zero M3 confusions, and
@@ -119,7 +119,7 @@ Capture every preference and reason verbatim. **No vote in the room.** Across se
 
 ## Materials checklist
 
-- Band charged, five marks loaded; fallback phone with *haptic-name-marks.html* — the page now also carries the attention vocabulary, an M1 session mode (8 randomized mark-vs-distractor rounds, tap-to-answer, per-round reaction times with a 10 s answer deadline, downloadable CSV results analyzed by `tools/m1_summary.py` per §3a), a blind A/B mode for arc recognition, and a spell-any-word box (full 26-letter vibro-braille + rename-candidate fills) for the §5 rename conversation
+- Band charged, five marks loaded; fallback phone with *haptic-name-marks.html* — the page now also carries the attention and lifecycle vocabularies, an M1 session mode (8 randomized mark-vs-distractor rounds, tap-to-answer, per-round reaction times with a 10 s answer deadline, downloadable CSV results analyzed by `tools/m1_summary.py` per §3a), a blind A/B mode for arc recognition, and a spell-any-word box (full 26-letter vibro-braille + rename-candidate fills) for the §5 rename conversation
 - Embossed cards: Z-I-V + Boaz / Razu / Buz; braille consent form + large-print copy
 - Logging sheets (exposures, M1–M4, rename preference, verbatims); this script printed
 - SSP/interpreter confirmed; quiet room, even lighting; compensation per host org

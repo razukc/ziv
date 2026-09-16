@@ -3,7 +3,6 @@ import json
 import asyncio
 import time
 import threading
-from collections import deque
 from datetime import datetime, timezone
 from typing import Optional, Annotated
 from dotenv import load_dotenv
@@ -19,6 +18,12 @@ from robot_registry import get_robot, known_robots, validate_pipeline_robot
 from pipeline_store import PipelineStore, PIPELINE_STORE_MAX, PIPELINE_STORE_TTL_SECONDS
 from ros2_package import build_ros2_package
 from validation import validate_package
+from ports import (
+    RetryConfig,
+    TelemetryRing,
+    sse_event,
+    sse_ok_headers,
+)
 
 
 # Every LLM-composed pipeline (fresh or a seeded variation) is gated against
@@ -42,6 +47,12 @@ def _gate_compose(pipeline: dict, robot: str):
         raise HTTPException(status_code=422, detail=problem)
 
 
+# ``_run_with_retries`` is a robot-track local adapter: it wraps an LLM-facing
+# agent method so request/response endpoints can report how many healed
+# retries happened across *multiple* agent calls (decompose + explain + tools).
+# The underlying retry/backoff primitive lives in agent/ports.py; this wrapper
+# exists because the server wants a per-call retry count for its response/done
+# event, and that count is currently shaped by the compose flow (not generic).
 def _run_with_retries(fn, *args, **kwargs):
     """Invoke an LLM-facing agent method, counting healed retries.
 
@@ -62,41 +73,43 @@ def _run_with_retries(fn, *args, **kwargs):
 # In-process ring of recent composes so ops can see live-mode health from
 # /api/health without standing up external metrics. Thread-safe because the
 # compose endpoints run on the threadpool while /api/health can run anywhere.
+# The ring primitive itself now lives in agent/ports.py; this module owns the
+# one compose-specific instance and the compose-shaped stats view.
 _COMPOSE_TELEMETRY_MAX = 20
-_compose_telemetry: deque = deque(maxlen=_COMPOSE_TELEMETRY_MAX)
-_compose_telemetry_lock = threading.Lock()
+_compose_telemetry = TelemetryRing(maxlen=_COMPOSE_TELEMETRY_MAX, recent_tail=10)
 
 
 def _record_compose(endpoint: str, seconds: float, retries: int):
     """Append one finished compose to the rolling ring."""
-    entry = {
-        "endpoint": endpoint,
-        "seconds": round(seconds, 1),
-        "retries": retries,
-        "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
-    with _compose_telemetry_lock:
-        _compose_telemetry.append(entry)
+    _compose_telemetry.record(label=endpoint, seconds=seconds, retries=retries)
 
 
 def _compose_stats() -> dict:
-    """Summary + the tail of the ring for /api/health."""
-    with _compose_telemetry_lock:
-        entries = list(_compose_telemetry)
-    if not entries:
+    """Summary + the tail of the ring for /api/health.
+
+    Kept robot-track-shaped (compose-specific field names) because the frontend
+    and the health checks already speak this vocabulary. The underlying ring is
+    the shared ``TelemetryRing`` from agent/ports.py.
+    """
+    st = _compose_telemetry.stats()
+    if st["samples"] == 0:
         return {"samples": 0, "recent": []}
-    secs = [e["seconds"] for e in entries]
-    ordered = sorted(secs)
-    p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
     return {
-        "samples": len(entries),
-        "avg_seconds": round(sum(secs) / len(secs), 1),
-        "p95_seconds": round(p95, 1),
-        "avg_retries": round(sum(e["retries"] for e in entries) / len(entries), 2),
-        "retried_composes": sum(1 for e in entries if e["retries"] > 0),
-        "recent": entries[-10:],
+        "samples": st["samples"],
+        "avg_seconds": st["avg_seconds"],
+        "p95_seconds": st["p95_seconds"],
+        "avg_retries": st["avg_retries"],
+        "retried_composes": st["retried_events"],
+        "recent": [
+            {
+                "endpoint": e["label"],
+                "seconds": e["seconds"],
+                "retries": e["retries"],
+                "at": e["at"],
+            }
+            for e in st["recent"]
+        ],
     }
-    return pipeline
 
 load_dotenv()
 
@@ -372,7 +385,7 @@ async def compose_pipeline_stream(request: TaskRequest):
         try:
             # Reject unregistered robots before spending an LLM call.
             if get_robot(request.robot) is None:
-                yield f"data: {json.dumps({'type': 'error', 'content': _unknown_robot_message(request.robot)})}\n\n"
+                yield sse_event({'type': 'error', 'content': _unknown_robot_message(request.robot)})
                 return
             a = get_agent()
 
@@ -390,20 +403,20 @@ async def compose_pipeline_stream(request: TaskRequest):
                 tool_lines.append(registry_tools.tool_call_label(name, args))
 
             # Phase 1: Thinking process
-            yield f"data: {json.dumps({'type': 'thinking', 'content': '🧠 Analyzing task...', 'step': 1, 'total': 5})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': '🧠 Analyzing task...', 'step': 1, 'total': 5})
             await asyncio.sleep(0.3)
 
-            yield f"data: {json.dumps({'type': 'thinking', 'content': f'Detected task type: {request.task}', 'step': 2, 'total': 5})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': f'Detected task type: {request.task}', 'step': 2, 'total': 5})
             await asyncio.sleep(0.2)
 
-            yield f"data: {json.dumps({'type': 'thinking', 'content': f'Selecting skills for {request.robot}...', 'step': 3, 'total': 5})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': f'Selecting skills for {request.robot}...', 'step': 3, 'total': 5})
             await asyncio.sleep(0.3)
 
             # Phase 2: Generate pipeline. Each LLM round-trip and the log
             # stream are timed individually so the done event can break the
             # compose down into decompose / explain / logs phases — users see
             # which step dominates instead of one opaque total.
-            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': 'Generating pipeline with Nemotron...', 'step': 4, 'total': 5})
 
             t_decompose = time.monotonic()
             pipeline = a.decompose_task(request.task, request.robot,
@@ -414,44 +427,44 @@ async def compose_pipeline_stream(request: TaskRequest):
             # Surface the agent's registry lookups in the reasoning stream so
             # users can see the plan is grounded in registry data.
             for line in tool_lines:
-                yield f"data: {json.dumps({'type': 'thinking', 'content': line, 'step': 4, 'total': 5})}\n\n"
+                yield sse_event({'type': 'thinking', 'content': line, 'step': 4, 'total': 5})
             problem = validate_pipeline_robot(pipeline, request.robot)
             if problem:
                 # Capability gate: never store a plan the robot can't run, and
                 # surface why instead of a generic failure.
-                yield f"data: {json.dumps({'type': 'error', 'content': problem})}\n\n"
+                yield sse_event({'type': 'error', 'content': problem})
                 return
             pipeline_id = store_pipeline(pipeline)
 
-            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': 'Validating skill selections...', 'step': 5, 'total': 5})
             await asyncio.sleep(0.2)
 
             # Phase 3: Send pipeline
-            yield f"data: {json.dumps({'type': 'pipeline', 'pipeline_id': pipeline_id, 'content': pipeline})}\n\n"
+            yield sse_event({'type': 'pipeline', 'pipeline_id': pipeline_id, 'content': pipeline})
 
             # Phase 4: Generate explanation
-            yield f"data: {json.dumps({'type': 'thinking', 'content': 'Generating analysis...', 'step': 6, 'total': 6})}\n\n"
+            yield sse_event({'type': 'thinking', 'content': 'Generating analysis...', 'step': 6, 'total': 6})
 
             t_explain = time.monotonic()
             explanation = a.explain_pipeline(pipeline, on_retry=_count_retry)
             explain_seconds = round(time.monotonic() - t_explain, 1)
-            yield f"data: {json.dumps({'type': 'explanation', 'content': explanation})}\n\n"
+            yield sse_event({'type': 'explanation', 'content': explanation})
 
             # Phase 5: Execution logs (simulated)
             t_logs = time.monotonic()
             for i, subtask in enumerate(pipeline['subtasks']):
                 skill = SKILL_CATALOG.get(subtask['skill_id'], {})
 
-                yield f"data: {json.dumps({'type': 'log', 'content': f'Starting {subtask['name']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                yield sse_event({'type': 'log', 'content': f'Starting {subtask['name']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})
                 await asyncio.sleep(0.5)
 
-                yield f"data: {json.dumps({'type': 'log', 'content': f'Loading {skill.get('product', 'tool')}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                yield sse_event({'type': 'log', 'content': f'Loading {skill.get('product', 'tool')}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})
                 await asyncio.sleep(0.3)
 
-                yield f"data: {json.dumps({'type': 'log', 'content': f'Processing {subtask['description']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                yield sse_event({'type': 'log', 'content': f'Processing {subtask['description']}...', 'status': 'running', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})
                 await asyncio.sleep(0.4)
 
-                yield f"data: {json.dumps({'type': 'log', 'content': f'{subtask['name']} complete', 'status': 'completed', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})}\n\n"
+                yield sse_event({'type': 'log', 'content': f'{subtask['name']} complete', 'status': 'completed', 'step': i + 1, 'total': len(pipeline['subtasks']), 'skill_id': subtask['skill_id']})
                 await asyncio.sleep(0.2)
 
             # Phase 6: Done — the total wall time (LLM round-trips + retry
@@ -460,25 +473,21 @@ async def compose_pipeline_stream(request: TaskRequest):
             # per-phase breakdown (decompose / explain / logs).
             logs_seconds = round(time.monotonic() - t_logs, 1)
             if retries:
-                yield f"data: {json.dumps({'type': 'notice', 'retries': retries, 'content': 'auto-retried after a model blip'})}\n\n"
+                yield sse_event({'type': 'notice', 'retries': retries, 'content': 'auto-retried after a model blip'})
             seconds = round(time.monotonic() - t0, 1)
             phases = {"decompose": decompose_seconds, "explain": explain_seconds,
                       "logs": logs_seconds}
             _record_compose("stream", seconds, retries)
-            yield f"data: {json.dumps({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases, 'tool_calls': len(tool_lines)})}\n\n"
+            yield sse_event({'type': 'done', 'pipeline_id': pipeline_id, 'content': 'Pipeline ready!', 'total_cost': pipeline['total_estimated_cost_usd'], 'seconds': seconds, 'retries': retries, 'phases': phases, 'tool_calls': len(tool_lines)})
 
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        except Exception as e:                yield sse_event({'type': 'error', 'content': str(e)})
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
+        headers=sse_ok_headers(),
     )
+
 
 
 def rate_limit_share_links(request: Request) -> None:

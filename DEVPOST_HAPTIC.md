@@ -47,7 +47,31 @@ Ziv (working title) is a wrist-worn pin with six vibration motors in a braille-d
 - **Dignity, not just access:** for people who already depend on others for information, the device that tells you things *without telling the room* is a different kind of assistant.
 - **Always-on:** the relay heartbeat + scheduled jobs act while the wearer is away — the track's full sentence, not a chatbot.
 - **NVIDIA open models doing real work:** Omni hears; Nemotron Nano-30B-A3B takes the cheap text turns; routing is cost-aware with a per-device daily token budget.
-- **The channel doubles as the identity:** at boot and before every unsolicited message, the pin plays its name — R-A-Z spelled in vibro-braille — a haptic "name mark," the same way DeafBlind communities identify people by tactile signs rather than descriptions.
+- **The channel doubles as the identity:** at boot and before every unsolicited message, the pin plays its name — Z-I-V spelled in vibro-braille (heavy-light-heavy) — a haptic "name mark," the same way DeafBlind communities identify people by tactile signs rather than descriptions.
+
+### Grounded in Deafblind Practice, Not Just Built for Deafblind People
+
+The interaction rules are borrowed from the field's own guidance. Sense UK's early-years resource for parents of children with deafblindness (published via Insight, Jan 2025) opens with the problem this device exists to solve: a child with deafblindness receives little information from the world, and what arrives "may be inconsistent and distorted" — so events must be cued before they happen, routines must be consistent, waiting must be patient, and the child must stay in control. What serves that child serves Ziv's wearer: an adult with the same sensory reality deserves a device that holds itself to the same rules. They are written into the plan as six **interaction invariants**:
+
+| Invariant | What it forbids |
+|---|---|
+| 1. No content without a kind cue first | a buzz that says "something" but not "what kind" |
+| 2. Cues mark the start *and* the end of an event | a message that just stops |
+| 3. Waiting is legible | dead air during a model round-trip |
+| 4. Queue, don't interrupt | an announcement barging into playback |
+| 5. Structure is universal, parameters are personal | tuning that silently changes what a cue means |
+| 6. Every state transition is feelable | a silent reconnect |
+
+Invariants 2–3 demanded two haptic patterns that did not exist, so we built them into the timing spec (v3) — the single JSON the phone feel-tool and the wrist firmware are both generated from, so they play identical patterns by construction — and exercised them in the hermetic test suite:
+
+- **Processing** — two ticks whose *middle gap is the signal*: 350 ms of silence where the "new message" pattern has 160 ms. An ellipsis: your request is being handled, content follows. Latency may be slow, never silent.
+- **End of message** — four ticks descending (200→140→90→50 ms), the exact mirror of the booting pattern's ascent. Until it plays, the silence after a message's last letter was indistinguishable from the pause before the next one.
+
+Invariant 4 became the relay's first real behavior, proven in code: **queue, don't interrupt.** If a message arrives while the wearer is mid-playback, it may announce itself (the "new message" cue) but its content waits; when the event closes — the end-of-message close has played — the queue releases oldest-first, and every queued message still opens with its who→why prefix (invariant 1 holds for queued content too). The wearer, not the sender, decides when the next message begins.
+
+New vocabulary faces a screening protocol, not vibes: the week-6 sessions with braille readers measure whether every pattern is distinguishable from the name mark and from each other (recognition + confusion screens), and a pattern that confuses gets retired rather than tuned. Two more ideas parked for v2 come from the same guidance: per-contact **people-marks** (a known contact's own tactile cue before their message — caller ID generalized to touch) and an on-device **practice mode** (the device plays a letter, the wearer answers on the chord keys — sensory play, no instructions).
+
+*Design rules adopted from published practice, not clinical claims: the guidance informs interaction design; nothing here asserts therapeutic or developmental outcomes — the plan's no-clinical-claims rule applies to every line of this submission.*
 
 ### Competition
 
@@ -120,6 +144,7 @@ None of the five is the enemy — each validates one pillar (haptic wristbands s
 5. **Cost-aware autonomy.** Voice turns route to Omni only when audio arrived; text turns to Nano; a per-device daily token budget degrades gracefully to the cheaper model.
 6. **Security as code, not prompts.** Per-device keys, a device allow-list (the "agent only answers me" beat), and a relay egress allow-list that only ever speaks to Token Factory hosts.
 7. **Honest about the research risk.** Reading *temporal* braille on 6 motors is unproven at product level — treated as a research question with a bench protocol (blindfolded sighted proxies, then braille-reader sessions) and a pre-decided fallback ladder down to an attention vocabulary + 30-phrase fixed set.
+8. **Interaction invariants from early-years practice.** Six rules (plan §4) adopted from Sense UK's early-years deafblind guidance: cue before content, mark the end, legible waiting, queue-don't-interrupt, universal structure with personal parameters, every transition feelable. First artifacts already built: the two lifecycle patterns in timing spec v3 (generated into feel-tool and firmware header from one JSON) and the relay's message gate, both proven in the hermetic test suite.
 
 ---
 
@@ -134,6 +159,8 @@ None of the five is the enemy — each validates one pillar (haptic wristbands s
 3. **BLE caregiver bridge** — setup and a caregiver app without the phone in the critical path.
 4. **Braille-style reply distillation** — a LoRA-tuned Qwen3-0.6B/1.7B that compresses replies into short, dot-friendly phrasing (the one thing Token Factory's fine-tuning catalog adds; the weights are ours, which doubles as a data-control argument).
 5. **Scene description** — Omni takes image input; an optional capture lens could add "what is in front of me?" in a later revision.
+6. **Per-contact people-marks (v2)** — a known contact's own tactile cue before their message; caller ID generalized to touch, from the objects-of-reference practice in the early-years guidance.
+7. **On-device practice mode (v2)** — the device plays a letter, the wearer answers on the chords; sensory play with no instructions, the gentlest way to learn the vocabulary.
 
 ---
 
@@ -149,7 +176,7 @@ Ziv (working title) is an always-on AI companion for deaf-blind users. A sighted
 
 ### What makes your project unique?
 
-No existing product pairs a haptic braille output channel with an always-on agent. Braille displays ($1,500–$12,000) don't hear; braille keyboards ($239–$349) don't speak; research vibro-braille prototypes never shipped because nothing could hear. Ziv is built from the combination only this stack enables: an omni-modal NVIDIA model that takes audio natively (Nemotron-3-Nano-Omni on Token Factory) and a $5 haptic driver that speaks braille — at a ~$40 BOM.
+No existing product pairs a haptic braille output channel with an always-on agent. Braille displays ($1,500–$12,000) don't hear; braille keyboards ($239–$349) don't speak; research vibro-braille prototypes never shipped because nothing could hear. Ziv is built from the combination only this stack enables: an omni-modal NVIDIA model that takes audio natively (Nemotron-3-Nano-Omni on Token Factory) and a $5 haptic driver that speaks braille — at a ~$40 BOM. And the interaction design is grounded in the field's own guidance rather than intuition: six invariants adopted from early-years deafblind practice, with the lifecycle patterns and the queue-don't-interrupt rule already enforced in code and tests.
 
 ### What challenges did you face?
 
@@ -158,6 +185,7 @@ No existing product pairs a haptic braille output channel with an always-on agen
 3. Keeping the always-on economics honest: cost-aware model routing with a per-device daily budget.
 4. Avoiding voice-wearable hard problems entirely by removing the speaker (no AEC, no wake word, no TTS in the critical path).
 5. Verifying the Token Factory Omni audio payload format (week-1 spike, with a relay-side STT fallback pre-decided).
+6. Grounding the interaction design in practice rather than intuition: adopting Sense UK's early-years deafblind guidance (via Insight) as design law exposed two missing patterns — a "working" cue and an end-of-message close — and produced the queue-don't-interrupt rule. The haptic channel is serial, so courtesy has to be architectural.
 
 ### What technologies did you use?
 
@@ -169,7 +197,7 @@ NVIDIA Nemotron-3-Nano-Omni, NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factor
 
 1. **0:00–0:20** — the gap: price cards ($4,000 display / $349 keyboard / ~$40 Ziv).
 2. **0:20–1:10** — the conversation: a friend speaks, the wrist plays braille, the wearer chords a reply; relay log + Omni telemetry on screen.
-3. **1:10–1:50** — always-on: overnight cron log; an unprompted reminder buzzes live; MEMORY.md on flash.
+3. **1:10–1:50** — always-on: overnight cron log; an unprompted reminder buzzes live; MEMORY.md on flash; a second arrival during playback shows the queue rule — cue now, content after the close.
 4. **1:50–2:20** — secure: device allow-list rejecting a stranger; mic hardware switch off; the haptic channel shown leaking nothing.
 5. **2:20–2:50** — the stack: Omni hears, Nano reasons, Nebius runs; cost per turn.
 6. **2:50–3:00** — the ask: "Private by physics."
