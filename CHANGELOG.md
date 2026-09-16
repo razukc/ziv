@@ -6,6 +6,10 @@ tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
 
+## [Unreleased]
+
+- **A refused message rearms itself — the client queues its own redial** — when the dev band gets a 429 for a send that carries its payload (typed message, stub demo), it keeps the refused body and sends it itself the moment the end-of-message close lands on the wire: no tap, no watch-the-clock. The close frame is the release signal (the same frame the wearer feels), so the retry lands exactly when the gate is handing the queue out — and the client invented no timing: the wire owns the moment. A re-refusal re-arms and climbs a three-attempt budget before giving up loudly; a different message restarts the budget; a delivery frees it. Editing the input box or sending manually cancels the armed redial — the wearer's hands win, the automation never overrides them. The mic path stays a manual retry on purpose: its clip would need re-transcription to resend. Proven outside the browser: the state machine extracted and run in a Node harness across fifteen scenarios (arm → close fires once, re-refusal climb to give-up, both cancels, budget freed on delivery, one-shot against duplicate closes, idle no-op).
+
 ## [pre-v0.1.45] — 2026-09-17 — Personal AI: the wrist learns to say no — and shows it
 
 - **A live queue badge on the dev band** — the PWA header now shows how close the wrist is to refusing: ``queue 3/8 · 2/min refused`` as a small pill, amber at half capacity or after any recent refusal, red ``refusing — queue full`` at the cap. Health gained ``gate_queue_cap`` (the server owns the number; the client invents none — the same discipline as the timing bootstrap), the client polls it every 2 s while the page is visible (paused on hidden tabs) and refreshes immediately after a refusal. Node harness proves the rendering logic across five real shapes (empty, half, full, recent-refusals, idle-again).

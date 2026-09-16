@@ -41,6 +41,8 @@
   #queueBadge.warn { color: var(--warn); border-color: #5c4a1a; }
   #queueBadge.full { color: #f87171; border-color: #7a2e2e; }
   #queueBadge[hidden] { display: none; }
+  #redialNote { font-size: 12px; color: var(--warn); margin-top: 4px; }
+  #redialNote[hidden] { display: none; }
   main { padding: 12px 16px; }
   .panel {
     background: var(--panel); border: 1px solid var(--line);
@@ -87,6 +89,7 @@
   <h1>Ziv dev band</h1>
   <div id="state">connecting…</div>
   <div id="queueBadge" hidden></div>
+  <div id="redialNote" hidden></div>
 </header>
 <main>
   <div class="panel">
@@ -111,7 +114,10 @@
     transcribes → the reply plays as braille. “Stub demo” sends the text field directly
     (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
     release come back over /ws. If the wrist is mid-message and its queue is full,
-    a send is refused with a “wrist is busy” note — never a silent drop. The badge
+    a send is refused with a “wrist is busy” note — never a silent drop — and a
+    typed or stub message rearms itself: the client queues its own redial and
+    sends the moment the close lands on the wire (three chances; editing the box
+    or sending manually cancels it). The badge
     below the header shows the live queue depth and refusal rate, so you can see
     how close the wrist is to refusing before you send.</p>
     <div id="cells"></div>
@@ -195,6 +201,11 @@ function onHaptic(frame) {
   } else {
     setState("haptic: " + frame.pattern, "ok");
   }
+  if (frame.pattern === "end-of-message") {
+    // The close just landed: the current turn is over and the gate is
+    // releasing — exactly when an armed redial fires.
+    fireRedialIfFree();
+  }
 }
 
 function onText(frame) {
@@ -230,12 +241,68 @@ function onCell(frame) {
 // A 429 from the relay: the replay queue is full and the gate refused the
 // message. By contract the wrist stays silent for a refusal (no cue for a
 // no) — so the refusal is rendered *visually*: a plain-language note in the
-// header state and the wire log. The text stays in the input box, so the
-// fix is one tap away: send again after the current message ends.
-function renderWristBusy(detail) {
+// header state and the wire log. And the fix is no longer a manual tap: for
+// send paths that carry their payload (typed message, stub demo) the client
+// arms a *redial* — it keeps the refused body and sends it itself the moment
+// the end-of-message close lands on the wire, up to RD.max chances (a
+// re-refusal re-arms; editing the box or sending manually cancels). The mic
+// path stays a manual retry: its clip would need re-transcription.
+
+// --- redial: the client queues its own retry --------------------------------
+const RD = {
+  url: "",        // where the refused POST went
+  body: null,     // the refused payload, kept verbatim for the redial
+  label: "",      // what the user typed — shown in the note
+  lastLabel: "",  // survives disarms; keeps the attempt budget per message
+  attempts: 0,    // redials fired for the current message
+  max: 3,         // give up after this many closes-with-no-luck
+  el: document.getElementById("redialNote"),
+};
+
+function armRedial(url, body, label) {
+  if (RD.lastLabel !== label) RD.attempts = 0; // a different message: fresh budget
+  RD.lastLabel = label; // the budget stays pinned to this message
+  if (RD.attempts >= RD.max) {
+    log("sys", "↹ redial gave up after " + RD.max + " chances — send manually when ready");
+    return;
+  }
+  RD.url = url;
+  RD.body = body;
+  RD.el.hidden = false;
+  RD.el.textContent = "↻ redial armed — “" + label + "” sends when the current message ends ("
+    + (RD.max - RD.attempts) + " chances left)";
+  log("sys", "↻ redial armed — your message sends itself when the wrist frees (edit the box or send manually to cancel)");
+}
+
+function disarmRedial(why) {
+  if (!RD.body) return false;
+  RD.body = null;
+  RD.el.hidden = true;
+  if (why) log("sys", "↺ redial cancelled — " + why);
+  return true;
+}
+
+// The end-of-message close just landed on the wire: the current turn is over
+// and the gate is releasing its queue — exactly when an armed redial fires.
+async function fireRedialIfFree() {
+  if (!RD.body) return;
+  RD.attempts += 1;
+  const url = RD.url;
+  const body = RD.body;
+  RD.body = null; // one-shot per fire; a re-refusal re-arms in send()'s 429 branch
+  RD.el.hidden = true; // in flight — a re-refusal re-arms it, a delivery ends it
+  log("sys", "↻ redial — resending “" + RD.label + "” (the close just landed)");
+  await send(url, body);
+}
+
+function renderWristBusy(detail, url, body, label) {
   setState("wrist is busy — try after the current message", "bad");
-  log("sys", "✋ refused — the wrist is busy reading. Your text stays in the box; send again after the current message ends"
+  log("sys", "✋ refused — the wrist is busy reading. "
+    + (url && body
+      ? "It stays armed: the client redials it when the current message ends."
+      : "Your text stays in the box; send again after the current message ends.")
     + (detail ? " (" + detail + ")" : ""));
+  if (url && body && label) armRedial(url, body, label);
   // Refresh the badge immediately — the refusal just changed the numbers.
   pollQueueBadge();
 }
@@ -306,13 +373,27 @@ async function send(url, body) {
     const data = await res.json();
     if (!res.ok) {
       if (res.status === 429) {
-        renderWristBusy(typeof data.detail === "string" ? data.detail : "");
+        // Arm the redial for any path that carries its payload (typed
+        // message, stub demo). The mic path reports its own 429 — its clip
+        // would need re-transcription, so it stays a manual retry.
+        const label = typeof body.text === "string" ? body.text
+          : (typeof body.simulate === "string" ? body.simulate : "");
+        renderWristBusy(
+          typeof data.detail === "string" ? data.detail : "",
+          label ? url : "",
+          label ? body : null,
+          label,
+        );
       } else {
         log("sys", "HTTP " + res.status + ": " + (data.detail || "?"));
       }
       return;
     }
     log("sys", "POST ok — " + JSON.stringify(data));
+    // A delivered message frees the whole budget: the next refusal starts
+    // fresh, even if it is the same text sent again much later.
+    RD.attempts = 0;
+    RD.lastLabel = "";
   } catch (e) {
     log("sys", "POST failed: " + e);
   }
@@ -376,6 +457,7 @@ document.getElementById("btnTest").addEventListener("click", () => {
   vibrateNow(ms);
 });
 document.getElementById("btnSend").addEventListener("click", () => {
+  disarmRedial("you sent manually");
   send("/api/ziv/message", { text: S.msgEl.value || "Taxi arrived" });
 });
 // --- the Omni spike: mic → /inject/audio → Token Factory -------------------
@@ -518,11 +600,16 @@ OMNI.btn.addEventListener("click", () => {
 
 // Keyless stub demo (hermetic): same turn, transcript handed in directly.
 document.getElementById("btnOmniStub").addEventListener("click", () => {
+  disarmRedial("you sent manually");
   send("/inject/audio", { simulate: S.msgEl.value || "Taxi arrived" });
 });
 S.msgEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") send("/api/ziv/message", { text: S.msgEl.value });
+  if (e.key === "Enter") {
+    disarmRedial("you sent manually");
+    send("/api/ziv/message", { text: S.msgEl.value });
+  }
 });
+S.msgEl.addEventListener("input", () => disarmRedial("you edited the message"));
 
 // Boot: connect first (so the server knows the band exists), then bootstrap.
 if (!("vibrate" in navigator)) {
