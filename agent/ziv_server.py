@@ -46,7 +46,8 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
 * ``GET/POST /api/ziv/prefs`` — the wearer's cell-gap preference (clamped
   into the spec envelope: structure universal, parameters personal).
 * ``GET /api/ziv/health`` — liveness, attached devices, inbox/prefs state,
-  turn telemetry, and any corrupt-store reports.
+  queue-rejection telemetry (the 429s the relay has handed out: count +
+  last refusal reason), turn telemetry, and any corrupt-store reports.
 
 Auth: when ``ZIV_RELAY_TOKEN`` is set, WS connections must present it
 (``?token=``) and HTTP event endpoints must carry ``Authorization: Bearer``.
@@ -62,6 +63,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -239,6 +241,46 @@ gate = MessageGate()
 _turn_lock = asyncio.Lock()
 
 
+class _RejectionStats:
+    """Operator-visible telemetry for the refusals the relay hands out.
+
+    Every ``message:rejected`` the gate returns (surfaced as HTTP 429) is
+    counted here with its reason and a wall-clock timestamp, so health can
+    answer "how often is the relay saying no?". Cumulative on purpose: the
+    count is a rate signal over the server's life, not a consume-once report
+    (unlike the corrupt-store lists, which health drains).
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.count = 0
+        self.last_reason: str | None = None
+        self.last_at: str | None = None
+
+    def record(self, reason: str) -> None:
+        with self._lock:
+            self.count += 1
+            self.last_reason = reason
+            self.last_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "count": self.count,
+                "last_reason": self.last_reason,
+                "last_at": self.last_at,
+            }
+
+    def reset(self) -> None:
+        with self._lock:
+            self.count = 0
+            self.last_reason = None
+            self.last_at = None
+
+
+queue_rejections = _RejectionStats()
+
+
 def _effective_cell_gap_ms() -> int:
     """The wearer's pace preference, clamped into the spec's envelope.
 
@@ -384,6 +426,8 @@ async def run_message_turn(text: str, *, source: str = "message") -> dict[str, A
         # The gate said no: the replay queue is full (bounded memory, plan
         # §9). The sender gets a loud 429 with the cap — never a silent
         # drop, and the wrist feels nothing for a message that was refused.
+        # The refusal is operator-visible: health counts every 429 handed out.
+        queue_rejections.record(str(decision.payload.get("reason", "queue_full")))
         cap = int(decision.payload.get("cap", MessageGate.MAX_QUEUED))
         raise HTTPException(
             status_code=429,
@@ -649,6 +693,7 @@ def health() -> dict[str, Any]:
         "auth": bool(ZIV_RELAY_TOKEN),
         "omni": {"key_set": bool(NEBIUS_API_KEY), "model": ZIV_OMNI_MODEL},
         "gate_queue": len(gate),
+        "queue_rejections": queue_rejections.snapshot(),
         "inbox_pending": inbox.count(),
         "prefs": {"cell_gap_ms": _effective_cell_gap_ms()},
         "store_problems": memory.take_corrupt_files() + inbox.take_corrupt_files(),

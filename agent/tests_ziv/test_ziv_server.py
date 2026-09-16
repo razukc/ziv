@@ -58,6 +58,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(zs, "memory", zs.WearerMemory())
     zs.hub.devices.clear()
     zs.gate = zs.MessageGate()
+    zs.queue_rejections.reset()
     prev = zs.FAKE_MODEL_SECONDS
     zs.FAKE_MODEL_SECONDS = 0.3
     with TestClient(zs.app) as c:
@@ -65,6 +66,7 @@ def client(tmp_path, monkeypatch):
     zs.FAKE_MODEL_SECONDS = prev
     zs.hub.devices.clear()
     zs.gate = zs.MessageGate()
+    zs.queue_rejections.reset()
 
 
 @contextmanager
@@ -569,6 +571,27 @@ def test_message_is_rejected_429_when_replay_queue_is_full(client, monkeypatch):
         assert str(zs.MessageGate.MAX_QUEUED) in r.json()["detail"]
     # The refusal pushed no frame: the wearer feels nothing for a no.
     assert pushed == []
+
+
+def test_health_surfaces_queue_rejection_telemetry(client):
+    """Every 429 the relay hands out is operator-visible in health: the
+    cumulative count, the last refusal reason, and when it happened.
+    Health before any refusal shows a zeroed snapshot."""
+    h0 = client.get("/api/ziv/health").json()["queue_rejections"]
+    assert h0 == {"count": 0, "last_reason": None, "last_at": None}
+
+    with _attach(client):
+        zs.gate.begin_playback()
+        for i in range(zs.MessageGate.MAX_QUEUED):
+            zs.gate.admit("filler-%d" % i)
+        r1 = client.post("/api/ziv/message", json={"text": "overflow-1"})
+        r2 = client.post("/api/ziv/message", json={"text": "overflow-2"})
+        assert r1.status_code == 429 and r2.status_code == 429
+
+    h = client.get("/api/ziv/health").json()["queue_rejections"]
+    assert h["count"] == 2
+    assert h["last_reason"] == "queue_full"
+    assert h["last_at"]  # ISO timestamp of the last refusal
 
 
 def test_concurrent_inbox_deliveries_never_double_deliver(client, monkeypatch):
