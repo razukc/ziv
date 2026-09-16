@@ -18,7 +18,7 @@ gaps land exactly on seams we already own.
 |---|---|---|---|
 | 0 | Bench suite: real sequencer, mock bus, virtual clock (`firmware/haptic_out/run_tests.py`) | timing tables + state machine produce exact dot-mask timelines | **shipped** (274 checks) |
 | 1 | **QEMU boot app** (`firmware/app/ziv_qemu`): the real `haptic_out` + task loop inside an ESP-IDF app, haptic bus → the bench mock, keys/mic → injected/console events | the binary boots in QEMU, FreeRTOS runs it, and the scripted demo plays the correct timelines on the emulated chip | **core shipped** — `ziv_app` proven on the bench (49 checks, the full derived `HAP` fixture); QEMU boot pending an IDF install |
-| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | **differ shipped** — reads the *derived* fixture (generator cross-checked against the generated `k_demo_expected[]`); QEMU boot itself pending an IDF install |
+| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | **differ shipped** — reads the *derived* fixture (generator cross-checked against the generated `k_demo_expected[]`); QEMU boot itself pending an IDF install; CI job skeleton in place (`qemu-boot`, continue-on-error — its one marked gap is the IDF install) |
 | 3 | **Transport seam**: `ws_client` framing/reconnect/backoff behind a socket vtable; fake relay on host loopback; same vtable stubbed inside QEMU | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | speced |
 | 4 | **Audio seam**: capture reads frames from an injectable source (canned WAV in QEMU/host; real I²S on band) | capture → Omni payload framing testable without a mic | speced |
 | H | Hardware bring-up (HARDWARE_BRINGUP.md) | the one thing no simulator answers: does it *feel* right | gated on boards |
@@ -164,9 +164,13 @@ GitHub Actions job `qemu-boot`: install Espressif QEMU prebuilt (x86_64 Linux),
 `python tools/qemu_timeline.py bench_hap.log qemu.log` — the expected side
 (the derived `k_demo_expected` fixture) and the comparison logic already
 exist and are exercised on every CI run by the host suite's boot-check step,
-so the job's only new work is producing `qemu.log`. Start
-`continue-on-error` until the first green run, then make
-it blocking — same promote-a-check discipline as the drift guard.
+so the job's only new work is producing `qemu.log`. The job now exists as a
+skeleton (`qemu-boot`, `continue-on-error`): the bench side runs for real on
+every push, and the only unfilled step is the marked ESP-IDF + Espressif QEMU
+install — the boot-capture and differ steps are gated on its `available`
+output and light up when the install lands, with nothing else to change.
+After the first green run, make the job blocking — same promote-a-check
+discipline as the drift guard.
 
 ## What this ladder does not answer
 
