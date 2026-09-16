@@ -575,10 +575,11 @@ def test_message_is_rejected_429_when_replay_queue_is_full(client, monkeypatch):
 
 def test_health_surfaces_queue_rejection_telemetry(client):
     """Every 429 the relay hands out is operator-visible in health: the
-    cumulative count, the last refusal reason, and when it happened.
-    Health before any refusal shows a zeroed snapshot."""
+    cumulative count, the per-minute rate, the last refusal reason, and
+    when it happened. Health before any refusal shows a zeroed snapshot."""
     h0 = client.get("/api/ziv/health").json()["queue_rejections"]
-    assert h0 == {"count": 0, "last_reason": None, "last_at": None}
+    assert h0 == {"count": 0, "per_minute": 0, "window_s": 60,
+                  "last_reason": None, "last_at": None}
 
     with _attach(client):
         zs.gate.begin_playback()
@@ -590,8 +591,28 @@ def test_health_surfaces_queue_rejection_telemetry(client):
 
     h = client.get("/api/ziv/health").json()["queue_rejections"]
     assert h["count"] == 2
+    assert h["per_minute"] == 2  # both refusals landed within the window
     assert h["last_reason"] == "queue_full"
     assert h["last_at"]  # ISO timestamp of the last refusal
+
+
+def test_rejection_rate_reflects_only_the_recent_window():
+    """per_minute counts only rejections inside the 60 s window: a refusal
+    older than the window drops out of the rate (spike signal) while the
+    cumulative count keeps it (lifetime signal)."""
+    import time as _time
+
+    st = zs._RejectionStats()
+    st.record("queue_full")
+    snap = st.snapshot()
+    assert snap["per_minute"] == 1 and snap["count"] == 1
+
+    # Age the refusal past the window — no 60 s sleep; move the timestamp.
+    assert len(st._recent) == 1
+    st._recent[0] = _time.monotonic() - (st.WINDOW_S + 1)
+    snap2 = st.snapshot()
+    assert snap2["per_minute"] == 0, "aged refusal still counts in the rate"
+    assert snap2["count"] == 1, "cumulative count must keep the refusal"
 
 
 def test_concurrent_inbox_deliveries_never_double_deliver(client, monkeypatch):

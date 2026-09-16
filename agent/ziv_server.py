@@ -46,8 +46,9 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
 * ``GET/POST /api/ziv/prefs`` — the wearer's cell-gap preference (clamped
   into the spec envelope: structure universal, parameters personal).
 * ``GET /api/ziv/health`` — liveness, attached devices, inbox/prefs state,
-  queue-rejection telemetry (the 429s the relay has handed out: count +
-  last refusal reason), turn telemetry, and any corrupt-store reports.
+  queue-rejection telemetry (the 429s the relay has handed out: cumulative
+  count, last refusal reason, and a per-minute rate so a spike is visible
+  at a glance), turn telemetry, and any corrupt-store reports.
 
 Auth: when ``ZIV_RELAY_TOKEN`` is set, WS connections must present it
 (``?token=``) and HTTP event endpoints must carry ``Authorization: Bearer``.
@@ -65,6 +66,7 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -249,24 +251,45 @@ class _RejectionStats:
     answer "how often is the relay saying no?". Cumulative on purpose: the
     count is a rate signal over the server's life, not a consume-once report
     (unlike the corrupt-store lists, which health drains).
+
+    A growing total hides a spike in the middle digit, so the snapshot also
+    carries a per-minute rate: how many rejections landed in the last 60 s.
+    Recent timestamps live in a bounded deque (monotonic clock, lazily
+    pruned on read — no background task); the bound keeps a rejection flood
+    from growing memory without bound.
     """
+
+    #: Width of the rate window (seconds) and its hard cap on remembered
+    #: timestamps — a flood beyond the cap reads as "at least this many",
+    #: which is all a spike signal needs.
+    WINDOW_S = 60
+    WINDOW_MAX = 5000
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.count = 0
         self.last_reason: str | None = None
         self.last_at: str | None = None
+        self._recent: deque[float] = deque()
 
     def record(self, reason: str) -> None:
         with self._lock:
             self.count += 1
             self.last_reason = reason
             self.last_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            self._recent.append(time.monotonic())
+            if len(self._recent) > self.WINDOW_MAX:
+                self._recent.popleft()
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            cutoff = time.monotonic() - self.WINDOW_S
+            while self._recent and self._recent[0] <= cutoff:
+                self._recent.popleft()
             return {
                 "count": self.count,
+                "per_minute": len(self._recent),
+                "window_s": self.WINDOW_S,
                 "last_reason": self.last_reason,
                 "last_at": self.last_at,
             }
@@ -276,6 +299,7 @@ class _RejectionStats:
             self.count = 0
             self.last_reason = None
             self.last_at = None
+            self._recent.clear()
 
 
 queue_rejections = _RejectionStats()
