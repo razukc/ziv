@@ -1,7 +1,6 @@
 """End-to-end: a queue-full refusal auto-sends again when the free close lands.
 
-Unlike the SkillForge e2e tests (which intercept fetch and stub the backend
-seam), this one drives the REAL relay: an in-process uvicorn serving the
+Unlike a stubbed-fetch e2e, this one drives the REAL relay: an in-process uvicorn serving the
 actual dev band on an ephemeral port with a temp data dir, its real
 ``MessageGate`` filled to the cap by eight real POSTs while a starter turn
 holds the haptic channel. Nothing on the page is stubbed — the proof covers
@@ -31,7 +30,7 @@ shortened via ``ZIV_FAKE_MODEL_SECONDS`` so the scenario fits in seconds.
 
 Marked ``e2e``: excluded from the default hermetic suite via
 ``addopts = -m \"not e2e\"`` — run explicitly with ``pytest -m e2e``.
-(No SkillForge frontend/backend needed — the test starts its own relay.)
+(Self-contained — the test starts its own relay; no other service needed.)
 """
 
 import importlib

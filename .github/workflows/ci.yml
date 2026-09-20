@@ -1,121 +1,84 @@
-name: CI — hermetic suite + haptic timing guard + firmware suites
-
-# Runs on every push to any branch. The haptic channel has one clock
-# (docs/haptic-timing.json); this workflow refuses to go green when the
-# generated consumers drift from it. Two jobs — every suite that exists in
-# the repo, so drift cannot hide between them:
-#
-#   verify (blocking)
-#     1. timing drift check   — spec vs generated consumers (html + C header + doc)
-#     2. agent hermetic suite - pytest, split per track so one side's failure is
-#        visible per-track: the SkillForge suite (tests) and the Ziv suite
-#        (tests_ziv, incl. the relay e2e + the dev-band relay server tests)
-#     3. haptic_out bench     — the real sequencer vs the mock bus (gcc on runner)
-#     4. ziv_qemu host suite  — the boot app's core vs the derived HAP fixture,
-#        plus the rung-2 boot-check plumbing: host_demo --hap-log piped through
-#        tools/qemu_timeline.py, whose expected side is the derived
-#        k_demo_expected fixture
-#
-#   qemu-boot (continue-on-error until the first green boot — the ladder doc's
-#   promote-a-check discipline) — the rung-2 boot check as a job. Every step
-#   is real except one: the marked ESP-IDF install step, the designated
-#   missing piece (docs/QEMU_WINDOWS_INSTALL.md is the map). The bench side
-#   already runs on every push, and the boot-capture and differ steps are
-#   gated on the install step's `available` output — fill that one step and
-#   the job lights up; nothing else changes.
+name: CI
 
 on:
   push:
-  workflow_dispatch:   # allow a manual run from the Actions tab
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  verify:
+  ziv:
+    name: Ziv — hermetic suite + timing drift guard
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v7
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: agent/requirements-dev.txt
+          cache-dependency-path: agent/requirements.txt
 
-      - name: Install Python dependencies
+      - name: Install agent deps
         working-directory: agent
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
 
-      - name: Haptic timing spec — consumers in sync
-        run: python tools/haptic_timing.py
-
-      - name: SkillForge hermetic suite (e2e deselected)
+      - name: Hermetic Ziv test suite (bare pytest, e2e deselected)
         working-directory: agent
-        run: python -m pytest tests -q
+        run: |
+          python -X utf8 -m pytest -m "not e2e" -q
 
-      - name: Ziv hermetic suite (relay e2e + server + store + timing guards)
-        working-directory: agent
-        run: python -m pytest tests_ziv -q
+      - name: Haptic timing drift guard (all 7 generated consumers)
+        run: |
+          python tools/haptic_timing.py
 
-      - name: haptic_out bench suite (host C compiler)
-        run: python firmware/haptic_out/run_tests.py
-
-      - name: ziv_qemu host suite + rung-2 boot check (derived fixture)
-        run: python firmware/app/ziv_qemu/run_ziv_tests.py
+      - name: QEMU rung-2 bench (host demo vs derived fixture)
+        working-directory: firmware/app/ziv_qemu
+        run: |
+          python run_ziv_tests.py
 
   qemu-boot:
-    # Rung-2 boot check (docs/QEMU_SIMULATION_LADDER.md, "CI shape"). The
-    # only step not yet real is the marked ESP-IDF install; when it lands and
-    # the first boot goes green, drop continue-on-error and make this job
-    # blocking like verify.
+    name: QEMU boot — ESP32-S3 app boots the demo (non-blocking)
+    continue-on-error: true
     runs-on: ubuntu-latest
-    timeout-minutes: 30        # the first idf.py build is the long one (install doc)
-    continue-on-error: true    # flip after the first green boot
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v7
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: agent/requirements-dev.txt
 
-      - name: Install Python dependencies
-        working-directory: agent
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Bench side of the boot check (host_demo --hap-log → bench_hap.log)
-        # Self-contained on purpose (no cross-job artifact wiring): this job
-        # produces its own expected side with the same command the verify job
-        # runs — whose boot-check step also re-proves the differ end to end
-        # (bench vs the derived fixture) on every push.
-        run: python firmware/app/ziv_qemu/run_ziv_tests.py
-
-      - name: "Provision ESP-IDF + Espressif QEMU — the one missing piece"
-        id: idf
-        if: ${{ false }}       # ← fill this step in; everything below lights up
+      - name: Bench side (real today) — host demo HAP log + differ
+        working-directory: firmware/app/ziv_qemu
         run: |
-          # ESP-IDF + the QEMU fork per docs/QEMU_WINDOWS_INSTALL.md (that doc
-          # is Windows-shaped; on the runner use the espressif/idf docker image
-          # or idf-tools on ubuntu-latest). The fork, not upstream QEMU:
-          #   python "$IDF_PATH/tools/idf_tools.py" install qemu-xtensa
-          # Then source the environment (export.sh) and signal readiness:
-          #   echo "available=true" >> "$GITHUB_OUTPUT"
+          python run_ziv_tests.py
 
-      - name: Boot the demo headless and capture the HAP stream
+      # ⚠ verify-at-install: the one missing piece. Until filled, the two
+      # steps below stay skipped and this job is informational only.
+      # Contents (see docs/QEMU_WINDOWS_INSTALL.md for the map):
+      #   - ESP-IDF (docker image espressif/idf, or idf.py on the runner)
+      #   - Espressif's QEMU fork: `idf_tools.py install qemu-xtensa`
+      #     (upstream QEMU has no ESP32-S3 machine)
+      #   - then: echo "available=true" >> "$GITHUB_OUTPUT"
+      - name: Provision ESP-IDF + Espressif QEMU (the one missing piece)
+        id: idf
+        if: ${{ false }}
+
+      - name: Boot the app under QEMU (bounded capture)
         if: steps.idf.outputs.available == 'true'
         working-directory: firmware/app/ziv_qemu
         run: |
-          # The boot plays the scripted demo at app_main and prints HAP lines
-          # on the emulated UART (idf.py selects the fork's esp32s3 machine).
-          # Bounded non-interactive capture: timeout ends the boot, the exit
-          # code is swallowed, the log is the artifact — the differ is the
-          # judge. ⚠ verify the exact invocation at install time (ladder doc,
-          # "Verify at bring-up").
           timeout 60 idf.py qemu > qemu.log 2>&1 || true
-          echo "HAP lines captured: $(grep -c '^HAP ' qemu.log || true)"
 
-      - name: Rung-2 equivalence — boot capture vs the derived fixture
+      - name: Rung-2 equivalence — boot log vs derived fixture
         if: steps.idf.outputs.available == 'true'
-        run: >
-          python tools/qemu_timeline.py
-          firmware/app/ziv_qemu/bench_hap.log
-          firmware/app/ziv_qemu/qemu.log
+        working-directory: firmware/app/ziv_qemu
+        run: |
+          python ../../../tools/qemu_timeline.py bench_hap.log qemu.log

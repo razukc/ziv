@@ -1,8 +1,8 @@
 # Contributing
 
-Single-developer hackathon project, so this stays lightweight. The rules below
-exist for one reason: with everything committed locally on `main`, the commit
-history and the checkpoint tags are how we track each pre-v0.1.0 iteration.
+Single-developer project, so this stays lightweight. The rules below exist for
+one reason: with everything committed locally on `main`, the commit history
+and the checkpoint tags are how we track each pre-v0.1.0 iteration.
 
 ## Commit conventions
 
@@ -19,22 +19,22 @@ commit message looks like:
 
 **Types**
 
-| Type     | When to use                                                        |
-|----------|---------------------------------------------------------------------|
-| `feat`   | A user-visible capability (compose, edit, theme, share links…)      |
-| `fix`    | A bug fix — behavior changes to correct something                   |
-| `refactor` | Same behavior, cleaner structure (extract a module, rename…)      |
-| `docs`   | README, SECURITY, this file, CHANGELOG, roadmap                      |
-| `test`   | New or changed tests only                                            |
-| `chore`  | Tooling, deps, gitignore, scripts — nothing user-visible             |
+| Type       | When to use                                                   |
+|------------|----------------------------------------------------------------|
+| `feat`     | A user-visible capability (relay, client, firmware, feel…)     |
+| `fix`      | A bug fix — behavior changes to correct something              |
+| `refactor` | Same behavior, cleaner structure (extract a module, rename…)   |
+| `docs`     | README, this file, CHANGELOG, roadmap, specs                   |
+| `test`     | New or changed tests only                                      |
+| `chore`    | Tooling, deps, gitignore, scripts — nothing user-visible       |
 
-**Scopes** (optional, pick the closest): `frontend`, `backend`, `tests`,
-`docs`, `infra`. Examples:
+**Scopes** (optional, pick the closest): `server`, `client`, `firmware`,
+`tools`, `docs`, `infra`. Examples:
 
 ```
-feat(frontend): persist pipeline history across reloads
-fix(backend): resolve exported pipelines from inline payload when id is stale
-test(tests): cover history reopen -> edit -> re-export in a browser E2E
+feat: mark the freeing close on the wire and prove the redial end to end
+fix(server): peek the inbox under the turn lock so deliveries can't double
+test: prove the gate's threaded stampede queues without loss
 ```
 
 Rules that matter:
@@ -59,42 +59,47 @@ git tag pre-v0.1.1    # next verified milestone
 
 - Tag a **milestone** (a coherent, verified feature/iteration), not every
   commit. The history in between stays readable via plain commits.
-- A milestone is *verified* when: `tsc --noEmit` is clean, the hermetic suite
-  passes from `agent/` (`python -m pytest`), browser E2E passes when servers
-  are up (`python -m pytest -m e2e`), and README/CHANGELOG test counts and
-  feature text match reality.
+- A milestone is *verified* when: the hermetic suite passes from `agent/`
+  (`python -m pytest`), the browser e2e passes when run deliberately
+  (`python -m pytest -m e2e`), firmware checks pass
+  (`python firmware/app/ziv_qemu/run_ziv_tests.py` when firmware changed),
+  and README/CHANGELOG test counts and feature text match reality.
 - Each milestone gets a `## [pre-v0.1.x]` entry in `CHANGELOG.md`.
-- Naming is **not final**: SkillForge is a working title. Decide the public
-  name before cutting `0.1.0`; the docs/`README.md`/`DEVPOST.md` rename
-  happens as one `chore` or `feat` commit at that point.
+- The cut discipline: verify → commit the work → convert `[Unreleased]` →
+  tag the cut commit.
 
 ## Before you commit
 
 0. Install the pre-commit hook once per clone: `git config core.hooksPath hooks`
-   — it runs the haptic timing verify (`tools/haptic_timing.py`) and the
+   — it runs the haptic timing verify (`python tools/haptic_timing.py`) and the
    haptic_out bench suite, and blocks any commit that would ship spec drift
-1. `cd frontend && npx tsc --noEmit`
-2. `cd agent && python -m pytest -q` (both hermetic suites — SkillForge `tests` and Ziv `tests_ziv` — pass, e2e deselected; the Ziv suite includes the haptic timing drift guard, the M1 analyzer tests, and the rename-candidate validator tests, and each suite can also be run on its own with `pytest tests -q` / `pytest tests_ziv -q`)
-3. `cd agent && python -m pytest -m e2e` if the backend (:8000) and frontend
-   (:3000) are running (10 tests, ~3.5 min)
-4. Live checks against real services: `python live_check.py journey|edit`
-   (costs real LLM credits — run deliberately, not on every change)
+1. `cd agent && python -m pytest -q` — the hermetic suite (browser e2e
+   deselected); includes the timing drift guard, the seam/threading tests,
+   the server + store suites, and the demo-chain generation tests
+2. `cd agent && python -m pytest -m e2e` if you changed the client or the
+   server's turn path (Playwright, real Chrome, ~30 s)
+3. Firmware changed → `python firmware/app/ziv_qemu/run_ziv_tests.py`
+4. Timing spec changed → `python tools/haptic_timing.py --write` and commit
+   the regenerated consumers together with the JSON — the drift guard will
+   not let them desync
 5. Behavior changed → add a `CHANGELOG.md` entry under `[Unreleased]` or the
    current milestone
 6. Commit with a conventional message, then push nothing (no remote yet)
 
 The haptic timing guard is belt-and-suspenders: the pre-commit hook blocks
-at commit time, the hermetic suite (`agent/tests_ziv/test_haptic_timing.py`) fails in
-local runs even if a hook is never installed, and GitHub Actions
-(`.github/workflows/ci.yml`) runs the same verify + the full suite on every
-push — with gcc on the runner, the haptic_out bench tests also run for
-real in CI. Drift cannot be committed or pushed either way.
+at commit time, the hermetic suite (`agent/tests/test_haptic_timing.py`)
+fails in local runs even if a hook is never installed, and GitHub Actions
+(`.github/workflows/ci.yml`) runs the same verify + the full Ziv suite on
+every push. Drift cannot be committed or pushed either way.
 
 ## Docs map
 
-| File             | Purpose                                        |
-|------------------|------------------------------------------------|
-| `CHANGELOG.md`   | What shipped per milestone tag                  |
-| `docs/ROADMAP.md`| What's planned, with statuses                   |
-| `README.md`      | Project overview + quick start                  |
-| `SECURITY.md`    | Security model and reporting                    |
+| File | Purpose |
+|------|---------|
+| `CHANGELOG.md` | What shipped per milestone tag |
+| `docs/ROADMAP.md` | What's planned, with statuses |
+| `docs/HAPTIC_COMPANION_PLAN.md` | The product plan — invariants, phases, BOM |
+| `docs/HAPTIC_TIMING_SPEC.md` | The feel-timing spec and its generated consumers |
+| `docs/QEMU_SIMULATION_LADDER.md` | Bench → QEMU rungs, the promote-a-check discipline |
+| `docs/HARDWARE_BRINGUP.md` | Six-actuator on-wrist bring-up |
+| `README.md` | Project overview + quick start |

@@ -9,7 +9,7 @@
 - `docs/haptic-timing.json` — canonical constants, the 26-letter Grade-1 dot table (counts *and* dot positions — the Unicode glyphs and the firmware's per-letter motor bitmask are derived from the positions), the five candidate marks, pre-validated rename examples (protocol §5 option B), the seven attention/lifecycle patterns (each beat annotated with the constant it references), and the prefix composition. Edit here, and only here.
 - `python tools/haptic_timing.py --write` — regenerates: the feel-tool's timing block + gap slider, [firmware/haptic_out/haptic_timing.h](../firmware/haptic_out/haptic_timing.h), and the tables below.
 - `python tools/haptic_timing.py` — verifies every consumer against the JSON (generated block text, slider envelope, the HTML's LETTERS/MARKS tables, the M1 distractor pool ids) and exits non-zero on any drift. Run it after touching either side; the JSON itself self-validates (beat ranges, constant references, the tail rule, mark letters).
-- **Drift cannot be committed** — the same verify runs in the pre-commit hook ([hooks/pre-commit](../hooks/pre-commit), installed with `git config core.hooksPath hooks`) and in the agent's Ziv hermetic suite ([tests_ziv/test_haptic_timing.py](../agent/tests_ziv/test_haptic_timing.py), which also proves the checker detects drift).
+- **Drift cannot be committed** — the same verify runs in the pre-commit hook ([hooks/pre-commit](../hooks/pre-commit), installed with `git config core.hooksPath hooks`) and in the agent's Ziv hermetic suite ([tests/test_haptic_timing.py](../agent/tests/test_haptic_timing.py), which also proves the checker detects drift).
 
 <!-- haptic-timing:begin (generated — do not edit; regenerate with tools/haptic_timing.py --write) -->
 

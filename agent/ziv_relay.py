@@ -1,18 +1,11 @@
 """agent/ziv_relay.py — the Ziv relay seam: the real behavior a future relay builds on.
 
-
-
-This is the honest home of the Ziv relay seam, and it is self-standing: it
-
-imports only the shared primitives (agent/ports.py — retry config, the
-
-telemetry ring) and defines its own event vocabulary (TurnEvent, below). It
-
-imports no SkillForge compose scaffold, and the SkillForge backend does not
-
-import this file — the two tracks build, test, and run independently and
-
-meet only at the shared primitives. The Ziv seam is:
+This is the honest home of the Ziv relay seam, and it is self-standing:
+its only imports are the standard library (datetime for the telemetry
+ring's timestamps) and its own definitions — TurnEvent below, plus the
+TelemetryRing folded in when ports.py was removed at the SkillForge
+handover. It references no compose scaffold and no other backend imports
+it: the Ziv seam builds, tests, and runs independently. The Ziv seam is:
 
 * MessageGate — the queue-don't-interrupt policy (plan §4 invariant 4).
   The haptic channel is serial: when content is playing, an incoming message
@@ -34,7 +27,7 @@ meet only at the shared primitives. The Ziv seam is:
 
   replays. Wired through MessageGate; proven end-to-end in
 
-  agent/tests_ziv/test_ziv_e2e.py.
+  agent/tests/test_ziv_e2e.py.
 
 * The lifecycle event vocabulary (invariants 2—3): every relay turn moves
 
@@ -80,11 +73,15 @@ from collections import deque
 
 from typing import Any
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 
-from ports import TelemetryRing
+from datetime import datetime, timezone
+
+# (agent/ports.py folded into this module at the SkillForge handover —
+# TelemetryRing lives below; the compose scaffold it used to be shared with
+# moved to the SkillForge repo.)
 
 
 
@@ -97,6 +94,84 @@ from ports import TelemetryRing
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# TelemetryRing — the seam's turn-level telemetry (folded from agent/ports.py
+# at the SkillForge handover, 2026-09-17)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TelemetryEntry:
+    label: str
+    seconds: float
+    retries: int
+    at: str
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+class TelemetryRing:
+    """Thread-safe capped ring of recent labeled events.
+
+    One per logical workflow, reported from a health endpoint without
+    standing up external metrics. Shape unchanged from the old shared
+    ports.py version so /api/ziv/health payloads stay identical.
+    """
+
+    def __init__(self, maxlen: int = 20, recent_tail: int = 10) -> None:
+        self._maxlen = maxlen
+        self._recent_tail = recent_tail
+        self._ring: deque[TelemetryEntry] = deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+
+    def record(self, label: str, seconds: float, retries: int, **extra: Any) -> None:
+        entry = TelemetryEntry(
+            label=label,
+            seconds=round(seconds, 1),
+            retries=retries,
+            at=_utc_iso(),
+            extra=extra,
+        )
+        with self._lock:
+            self._ring.append(entry)
+
+    def stats(self) -> dict[str, Any]:
+        """Summary + the tail of the ring, suitable for a health payload."""
+        with self._lock:
+            entries = list(self._ring)
+        if not entries:
+            return {"samples": 0, "recent": []}
+        secs = [e.seconds for e in entries]
+        ordered = sorted(secs)
+        p95_idx = min(len(ordered) - 1, int(0.95 * len(ordered)))
+        return {
+            "samples": len(entries),
+            "avg_seconds": round(sum(secs) / len(secs), 1),
+            "p95_seconds": round(ordered[p95_idx], 1),
+            "avg_retries": round(
+                sum(e.retries for e in entries) / len(entries), 2
+            ),
+            "retried_events": sum(1 for e in entries if e.retries > 0),
+            "recent": [
+                {
+                    "label": e.label,
+                    "seconds": e.seconds,
+                    "retries": e.retries,
+                    "at": e.at,
+                    **e.extra,
+                }
+                for e in entries[-self._recent_tail:]
+            ],
+        }
+
+    @property
+    def maxlen(self) -> int:
+        return self._maxlen
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 
 # TurnEvent — the event vocabulary the Ziv seam emits
 

@@ -83,7 +83,7 @@ for _p in (str(_ROOT / "agent"), str(_ROOT / "tools")):
         sys.path.insert(0, _p)
 
 import haptic_timing_gen as timing  # noqa: E402  (generated consumer)
-from ports import TelemetryRing  # noqa: E402
+from ziv_relay import TelemetryRing  # noqa: E402
 from ziv_relay import (  # noqa: E402
     PATTERN_END_OF_MESSAGE,
     PATTERN_ERROR,
@@ -98,8 +98,8 @@ FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
 ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
 ZIV_PORT = int(os.environ.get("ZIV_PORT", "8787"))
 
-# The Omni spike (plan §7 week 1): the same credentials/base the repo's
-# SkillForge agent already uses (``agent/reasoning_agent.py``). The model is
+# The Omni spike (plan §7 week 1): Nebius Token Factory credentials
+# (NEBIUS_API_KEY), the standard OpenAI-compatible env pattern. The model is
 # audio-in/text-out — one model transcribes *and* understands (plan §2).
 NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
 NEBIUS_BASE_URL = os.environ.get(
@@ -362,8 +362,8 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     """One Token Factory Omni call: audio in, transcript text out.
 
     OpenAI-compatible chat completions with an ``input_audio`` content part
-    (base64 data URL), the same credentials/base the repo's SkillForge agent
-    uses. Raises ``HTTPException(502)`` with the provider's words on any
+    (base64 data URL), the standard Token Factory
+    credentials/base. Raises ``HTTPException(502)`` with the provider's words on any
     failure — the caller decides the wearer-visible path (the spike's
     ``long-buzz`` error pattern, not silence).
     """

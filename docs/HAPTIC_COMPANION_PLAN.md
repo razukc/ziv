@@ -408,9 +408,11 @@ interface; only the relay changes.
    $349, this device ~$40. One sentence of who it's for.
 2. **0:20–1:10 — the conversation.** A sighted helper speaks to the pin
    ("what's on my calendar today?"); cut to the wearer's wrist: vibro-braille
-   playing; the wearer chords a reply; the helper hears the answer. Nobody
-   touched a phone. Show the relay log + Omni call telemetry on screen
-   (Token Factory + NVIDIA open model visible).
+   playing; the wearer chords a reply; on the helper's phone, the reply arrives
+   as text pushed by the relay (the friend reads it, there is no speaker in the
+   room). Nobody touched a phone. Show the relay log + Omni call telemetry on
+   screen (Token Factory + NVIDIA open model visible), with the relay log's
+   friend-side text visible so the room can follow the reply.
 3. **1:10–1:50 — always-on.** Show the heartbeat/cron log from overnight; a
    scheduled reminder buzzes the wearer live on camera; memory file on flash
    shown (`MEMORY.md`).

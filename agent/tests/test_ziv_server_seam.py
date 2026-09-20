@@ -3,7 +3,7 @@
 MessageGate + TurnTimeline, used by agent/ziv_server.py's turn pump.
 
 This is the "the seam is proven" test. It does not re-prove the wire journey
-(agent/tests_ziv/test_ziv_server.py already asserts the frame order on the WS);
+(agent/tests/test_ziv_server.py already asserts the frame order on the WS);
 it proves the *internal* contract a future relay author builds on: the server's
 real turn path goes through MessageGate.admit then TurnTimeline in the documented
 order, and a queued message replays as a full event (cue -> content -> close),
@@ -203,14 +203,14 @@ def test_seam_is_proven_turn_lifecycle_states_are_the_documented_ones():
 
 
 def test_seam_is_proven_run_message_turn_uses_the_real_seam_not_the_adapter():
-    """run_message_turn goes through MessageGate + TurnTimeline, not through a
-    SkillForge compose wrapper -- and the seam itself imports no scaffold.
+    """run_message_turn goes through MessageGate + TurnTimeline, and the seam
+    itself imports no compose scaffold.
 
     The server imports MessageGate and TurnTimeline from ziv_relay and drives
-    them directly in run_message_turn. Since the tracks were separated, the
-    compose scaffold lives in relay_compose.py (SkillForge-owned); this test
-    proves the Ziv seam never references it: ziv_relay.py's imports are the
-    stdlib plus the shared primitives, nothing else.
+    them directly in run_message_turn. The compose scaffold that once lived
+    alongside the seam (ports.py / relay_compose.py) moved to the SkillForge
+    repo at the handover; this test proves the Ziv seam never references it:
+    ziv_relay.py's imports are the stdlib, nothing else.
     """
     import ast
 
@@ -235,8 +235,7 @@ def test_seam_is_proven_run_message_turn_uses_the_real_seam_not_the_adapter():
             imported.update(a.name for a in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
-    allowed = {"__future__", "asyncio", "collections", "dataclasses", "typing",
-               "threading", "ports"}
+    allowed = {"__future__", "asyncio", "collections", "dataclasses", "typing",                   "threading", "datetime"}
     assert imported <= allowed, f"ziv_relay.py imports outside the seam: {imported - allowed}"
 
 

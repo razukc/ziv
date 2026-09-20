@@ -1,56 +1,73 @@
-"""Shared helpers for browser-based live checks.
+"""
+Ziv e2e helper primitives.
 
-Used by the ``e2e``-marked pytest tests (agent/tests/) and by the live
-verification CLI (agent/live_check.py), so the boilerplate for launching a
-system browser and waiting for the React page to hydrate lives in one place.
+Browser-based end-to-end tests for the Ziv phone prototype: connect to the
+relay's PWA, drive the phone through the interaction loop, and assert the
+haptic + timing behavior that the wearer experiences.
+
+Split from the old SkillForge e2e helpers during the Sep 2026 handover:
+Ziv is a standalone repo and these helpers now target the Ziv relay
+(http://localhost:8000) exclusively. Nothing here talks to a SkillForge
+instance anywhere.
 """
 
-from contextlib import contextmanager
+from __future__ import annotations
 
-import httpx
+import time
+from playwright.sync_api import expect
+from playwright.sync_api import sync_playwright
+
+# ---------------------------------------------------------------------------
+# URL constants
+# ---------------------------------------------------------------------------
+
+# The Ziv relay serves its PWA (ziv_client/index.html) from /ziv_client/ on
+# this host+port. Single-process dev runs on 8000; the demo deploy target is
+# whatever writable_hosts.run_host + writable_hosts.run_port resolves to at
+# runtime (clamped to 127.0.0.1 for a HOME tether, or a public host when the
+# relay is reachable from the internet).
+RELAY_HOST = "127.0.0.1"
+RELAY_PORT = 8000
+RELAY_BASE_URL = f"http://{RELAY_HOST}:{RELAY_PORT}"
+RELAY_PWA_URL = f"{RELAY_BASE_URL}/ziv_client/"
 
 
-def servers_up(frontend="http://localhost:3000", backend="http://localhost:8000") -> bool:
-    """True when both the frontend and its proxied backend answer health."""
-    for url in (f"{backend}/api/health", f"{frontend}/api/health"):
-        try:
-            if httpx.get(url, timeout=3.0).status_code != 200:
-                return False
-        except httpx.HTTPError:
-            return False
-    return True
+# ---------------------------------------------------------------------------
+# page lifecycle
+# ---------------------------------------------------------------------------
 
 
-@contextmanager
-def browser_page(channels=("chrome", "msedge")):
-    """A headless Playwright page in a system browser (no download needed).
+def browser_page(playwright) -> "Page":
+    """Open a new chromium context page bound to the given Playwright object."""
+    browser = playwright.chromium.launch(headless=True)
+    context = browser.new_context()
+    page = context.new_page()
+    return page
 
-    Tries each ``channels`` entry and raises if none is available.
+
+def wait_hydrated(page, timeout: float = 8.0) -> None:
+    """Wait until the Ziv PWA has mounted and connected to the relay.
+
+    The PWA reports connected state by flipping the header row's status text
+    away from its loading placeholder. We wait for that text to stabilize.
     """
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as p:
-        browser = None
-        for channel in channels:
-            try:
-                browser = p.chromium.launch(channel=channel, headless=True)
-                break
-            except Exception:
-                continue
-        if browser is None:
-            raise RuntimeError("no system Chrome/Edge available to Playwright")
-        try:
-            yield browser.new_page()
-        finally:
-            browser.close()
+    page.wait_for_function(
+        """
+        () => {
+          const root = document.querySelector('#ziv-root') || document.body;
+          if (!root) return false;
+          const status = root.querySelector('[data-status]') || root.querySelector('h3');
+          if (!status) return false;
+          const text = (status.textContent || '').trim().toLowerCase();
+          return text !== '' && text !== 'connecting' && text !== 'connecting…'
+            && !text.includes('connecting');
+        }
+        """,
+        timeout=timeout * 1000,
+    )
 
 
-def wait_hydrated(page, timeout=30000):
-    """Wait until React has hydrated the page.
-
-    The mock/live segmented control in the compose box is server-rendered, so
-    its presence means the shell is up; the extra pause lets React attach
-    event handlers so later synthetic clicks reach them reliably.
-    """
-    page.locator("[data-mode=mock]").wait_for(timeout=timeout)
-    page.wait_for_timeout(1500)
+def open_pwa(page) -> None:
+    """Navigate the page to the Ziv PWA served by the relay."""
+    page.goto(RELAY_PWA_URL, wait_until="networkidle")
+    wait_hydrated(page)

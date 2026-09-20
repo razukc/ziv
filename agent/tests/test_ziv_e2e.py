@@ -1,4 +1,4 @@
-"""agent/tests_ziv/test_ziv_e2e.py -- one scripted integration vertical for the Ziv track.
+"""agent/tests/test_ziv_e2e.py -- one scripted integration vertical for the Ziv track.
 
 What it is
 ----------
@@ -26,7 +26,7 @@ It mocks the parts that do not exist yet:
 
 It deliberately does NOT mock the spec, the letter-to-timing derivation, or the
 mark/pattern vocabulary -- those are the parts we want to prove end-to-end once,
-and agent/tests_ziv/test_haptic_timing.py already locks the generator, spec, and
+and agent/tests/test_haptic_timing.py already locks the generator, spec, and
 header drift at the file level. This test is one layer up: it proves the *flow*
 from an input event to the expected buzz/gap sequence.
 
@@ -39,17 +39,17 @@ Fallback ladder (same shape as the plan's, localized to a test):
 
 Run
 ---
-  . .venv2/Scripts/activate
-  pytest tests_ziv/test_ziv_e2e.py -q
+  . venv/Scripts/activate
+  pytest tests/test_ziv_e2e.py -q
 
 It is hermetic and has no API key / network dependency.
 
 Import note
 -----------
 The repo does not install `tools/` or `agent/` on PYTHONPATH, so this test
-follows the same sys.path dance agent/tests_ziv/test_haptic_timing.py uses to
-reach `tools/`, and does the equivalent for `agent/` (ports + ziv_relay) so
-the shared layer is importable from the test without a package install.
+follows the same sys.path dance agent/tests/test_haptic_timing.py uses to
+reach `tools/`, and does the equivalent for `agent/` (ziv_relay) so
+the seam module is importable from the test without a package install.
 """
 
 from __future__ import annotations
@@ -78,12 +78,11 @@ if str(_ROOT / "agent") not in sys.path:
 import haptic_timing_gen as timing  # noqa: E402  (after the sys.path dance)
 
 
-# The shared layer's telemetry ring is the place a future relay would record
-# turn-level stats. Exercising it here is the smallest proof the shared layer
-# is actually importable by a Ziv-oriented test without dragging in robot-track
-# modules.
-from ports import TelemetryRing
+# The seam's telemetry ring is the place a future relay records turn-level
+# stats. Exercising it here is the smallest proof the seam module carries
+# everything a Ziv relay needs with no shared-layer import left.
 from ziv_relay import (
+    TelemetryRing,
     ACCEPTED,
     CLOSED,
     ERROR,
@@ -459,20 +458,11 @@ def test_ziv_relay_records_every_turn(
     assert relay.turns[1]["pattern_id"] == "triple-pulse"
 
 
-def test_ziv_telemetry_ring_is_shared_layer_importable_without_robot_imports() -> None:
-    """Smallest proof the shared layer is importable by a Ziv-oriented test
-    without dragging in robot-track modules (skill_registry, robot_registry,
-    pipeline_store, ros2_package).
-
-    This is the seam-check the historical summary suggested: if this import
-    works, a Ziv relay can depend on agent/ports.py without coupling to the
-    Physical AI track.
+def test_ziv_telemetry_ring_works_standalone() -> None:
+    """The seam's telemetry ring needs nothing but ziv_relay itself — after the
+    SkillForge handover there is no shared ports.py to import, and this is the
+    regression proof that the fold kept the ring whole.
     """
-    # These are exactly the robot-track modules the shared layer promises not
-    # to import. If any of them were imported by ports, this test would be the
-    # place that catches it (because we never import them here).
-    import ports  # noqa: F401
-
     ring = TelemetryRing(maxlen=4, recent_tail=2)
     ring.record("turn", 1.5, 0)
     ring.record("turn", 2.0, 1)
@@ -481,24 +471,19 @@ def test_ziv_telemetry_ring_is_shared_layer_importable_without_robot_imports() -
     assert stats["retried_events"] == 1
     assert stats["avg_retries"] == 0.5
 
-    # The shared SSE helper is also importable and produces the wire shape the
-    # frontend already knows how to read.
-    from ports import sse_event, sse_ok_headers
-
-    ev = sse_event({"type": "attention:double-tap", "payload": {"kind": "message_arrived"}})
+    # The wire shape below is the same data:{json}+blank-line SSE form the old
+    # shared SSE helper produced; kept as a literal so the shape stays pinned
+    # without resurrecting a shared helper module.
+    ev = 'data: {"type": "attention:double-tap", "payload": {"kind": "message_arrived"}}\n\n'
     assert ev.startswith("data: ")
     assert ev.endswith("\n\n")
     parsed = json.loads(ev[6:].rstrip("\n\n"))
     assert parsed["type"] == "attention:double-tap"
 
-    headers = sse_ok_headers()
-    assert headers["Cache-Control"] == "no-cache"
-    assert headers["Connection"] == "keep-alive"
-
 
 # ---------------------------------------------------------------------------
 # The queue-don't-interrupt vertical (plan §4 invariant 4) -- the first real
-# relay behavior, exercised through the same shared-layer primitives.
+# relay behavior, exercised through the seam module's own primitives.
 # ---------------------------------------------------------------------------
 
 def test_ziv_message_gate_plays_when_idle_and_queues_when_playing() -> None:

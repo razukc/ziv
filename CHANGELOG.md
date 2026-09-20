@@ -1,10 +1,37 @@
 # Changelog
 
-All notable changes to SkillForge are tracked here, one entry per milestone
+All notable changes to this repository are tracked here, one entry per milestone
 tag (see [CONTRIBUTING.md](CONTRIBUTING.md)). Format follows
 [Keep a Changelog](https://keepachangelog.com/); the project is in the
 pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 `0.1.0`.
+
+> **Scope note (2026-09-17):** milestones up to `pre-v0.1.46` cover the period
+> when this repository hosted **SkillForge** alongside the Ziv haptic work;
+> SkillForge now lives in its own repository —
+> [HANDOVER_SKILLFORGE.md](docs/HANDOVER_SKILLFORGE.md). The changelog stays
+> because it is this repository's history.
+
+## [Unreleased] — the repo becomes Ziv-only
+
+- **SkillForge handed over; this repository is Ziv-only from here on** — the
+  full SkillForge tree (agent server/registries/compose, its test suite,
+  the Next.js frontend, its docs, DEVPOST) moved to the sibling `../SkillForge`
+  repository for its next agent, initialized as a fresh git repo and tagged
+  `handover-2026-09-17` on the verified snapshot (suite green before the copy
+  left; its `frontend/` runs from the lockfile with `npm ci`). What changed
+  here: `agent/ports.py` folded away — `TelemetryRing`, the one piece Ziv
+  still used, moved into `agent/ziv_relay.py` (the seam module it belongs to),
+  and the seam-check helpers went with the track; `agent/tests_ziv/` became
+  `agent/tests/` with a single Ziv conftest; SkillForge's suite, `live_check`,
+  `e2e_helpers`, `frontend/`, `DEVPOST.md`, and SECURITY.md left the tree
+  (SECURITY.md moved with SkillForge; this repo's README carries the Ziv
+  disclosure policy). CI is a single `ziv` job — hermetic suite, timing
+  drift guard, demo-chain `--check`, QEMU bench — plus the `qemu-boot`
+  skeleton; `agent/requirements.txt` and `agent/.env.example` shed the
+  SkillForge-only entries (`upstash-redis`, pipeline env vars) and document
+  `websockets` for the real-socket tier. README and CONTRIBUTING rewritten
+  for the Ziv workflow; the ROADMAP carries Ziv items only.
 
 ## [pre-v0.1.46] — 2026-09-17 — Personal AI: the redial proven on the wire, the boot job one install away
 - **A Playwright e2e proves the redial against the real relay — and sharpened it** — the dev band's auto-retry now has a live end-to-end test: an in-process uvicorn serving the actual PWA on an ephemeral port (temp data dir, `ZIV_FAKE_MODEL_SECONDS` shortened, prefs clamped to the min gap), its real `MessageGate` filled to the cap by eight real POSTs behind a starter turn, the victim typed into the real page → 429 → redial armed → the close on `/ws` → the client re-posts by itself → `turn_complete`, with a raw-ASGI wire recorder (real statuses and bodies, not browser events) proving refused-once-redialed-once. A second test pins the trigger's precision on the raw wire with a Python-side WS device: exactly one close carries the new `free` marker — the last of the turn-plus-drain sequence, never the main close when replays follow. The work exposed and fixed a genuine design flaw the Node harness could not see: firing on any close would queue the redial behind the remaining replays, so the server now marks the truly-freeing close (evaluated lazily at the close push — an eager flag computed before the cell dwells wrongly claims "free" while fills are still landing) and the client fires on `free === true` only. The e2e also found the dev venv missing the already-declared `websockets` dependency — the real-socket tier cannot run without it — now installed. Both e2e tests are `e2e`-marked (deselected from the hermetic suite; run with `pytest -m e2e`), keep the hermetic suite browser-free, and stay self-contained: no SkillForge frontend/backend required.

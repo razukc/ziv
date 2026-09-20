@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ziv — system architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#fbfcfe; --ink:#16181d; --muted:#5b6470; --line:#cdd4dd;
+    --card:#ffffff; --shadow:0 1px 2px rgba(16,20,26,.06), 0 4px 16px rgba(16,20,26,.05);
+    --note-bg:#f3f6fa; --note-bd:#d9e3ef; --good:#1c7a4d; --warn:#b54708;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  header{
+    padding:14px 22px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#ffffff,#f6f8fb);
+    display:flex; justify-content:space-between; align-items:baseline; gap:16px;
+  }
+  h1{font-size:16px; font-weight:600; margin:0}
+  .sub{color:var(--muted); font-size:13px; max-width:62ch}
+  main{padding:18px 22px; flex:1; display:flex; flex-direction:column; gap:14px}
+  .chart{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    box-shadow:var(--shadow); overflow:hidden;
+  }
+  .chart h2{margin:0; padding:12px 16px; border-bottom:1px solid var(--line);
+    font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.02em;
+    text-transform:uppercase}
+  .chart figure{margin:0; padding:14px; background:#ffffff}
+  .chart svg{display:block; width:100%; height:auto; max-width:1200px; margin:0 auto}
+  .frames{
+    background:var(--note-bg); border:1px solid var(--note-bd); border-left:3px solid var(--good);
+    border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.55;
+  }
+  .frames h3{margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--muted); font-weight:600}
+  .frames ul{margin:0; padding-left:18px}
+  .frames li{margin:2px 0}
+  footer{padding:10px 22px; border-top:1px solid var(--line); color:var(--muted); font-size:12px}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:6px}
+  .legend span b{color:var(--ink); font-weight:600}
+  .fallback pre{margin:0; white-space:pre-wrap; font-size:12px; color:#5b6470;
+    background:#f3f6fa; border:1px solid #d9e3ef; border-radius:6px; padding:10px 12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Ziv — system architecture (Haptic Wrist Companion)</h1>
+    <div class="sub">Relay + timing + output channel are built; the phone renders turns as the dev band; the wrist build is scoped / de-risked, not on hardware yet.</div>
+  </div>
+  <div class="legend">
+    <span><b>blue columns</b> = system layers</span>
+    <span><b>green notes</b> = honest frames, not a layer</span>
+  </div>
+</header>
+
+<main>
+  <section class="chart">
+    <h2>Architecture</h2>
+    <figure><div id="mermaid-figure"></div></figure>
+  </section>
+
+  <section class="frames">
+    <h3>Honest frames baked into the diagram as notes</h3>
+    <ul>
+      <li><b>Always-on is the relay, not the device</b> — the relay is the 24/7 presence (heartbeat + scheduled jobs); the wristband sleeps between events and wakes on button / chord / mic / WiFi activity.</li>
+      <li><b>Phone = dev band</b> — the PWA is the visible output channel today; the wrist build is scoped / de-risked, not a flashed device yet.</li>
+      <li><b>Friend's side is text, not spoken</b> — the friend reads the reply as text on their phone / relay log; there is no speaker in the room; spoken replies are v2 (TTS on the relay).</li>
+      <li><b>Refusals are loud and sender-visible</b> — a full queue returns <code>message:rejected (reason: queue_full)</code>; the server maps it to HTTP 429; the client shows "wrist is busy" and re-arms its own redial on the <code>free: true</code> close.</li>
+      <li><b>Wrist scope, not a claim</b> — ESP32-S3 N16R8 + 6× DRV2605L + 6 LRAs + 6 chord keys + I2S mic + LiPo; QEMU ladder + bring-up stages A–F de-risk it, but it is not on hardware yet.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  Diagram source: <code>docs/Mermaid-Architecture-Diagram.md</code> · render: mermaid.js (architecture-beta) · fallback: paste the raw block into the Mermaid live editor to view offline.
+</footer>
+
+<script>
+(async ()=>{
+  mermaid.initialize({
+    startOnLoad:false,
+    theme:'neutral',
+    securityLevel:'loose',
+    themeVariables:{
+      primaryColor:'#1d4ed8',
+      secondaryColor:'#e8eef7',
+      tertiaryColor:'#f0f4f9',
+      cardBorder:'#cbd5e1',
+      primaryBorderColor:'#1d4ed8',
+      lineColor:'#5b6470',
+      titleColor:'#16181d',
+      edgeLabelBackground:'#ffffff'
+    }
+  });
+
+  const figure = document.getElementById('mermaid-figure');
+
+  // Inline the diagram from the source-of-truth markdown so the viewer never
+  // depends on the companion .md being served in the preview (avoids the 404
+  // that the live editor's docs/ root can produce).
+  const mdSource = `architecture-beta
+    %% Styles so the honest frames are visually readable
+    group gCore[" Built & proven in the relay/timing/output channel "]
+    group gDevBand[" Phone dev band (visible output channel today) "]
+    group gScope[" Device scope: designed / de-risked, not on hardware yet "]
+    group gOut[" Honest frames (not a layer in the system) "]
+
+    service kernel[" 🖥  Relay process (Python, FastAPI + WS)"] in gCore
+    service seam[" ziv_relay.py  —  MessageGate + TurnTimeline + TurnEvent vocabulary "] in gCore
+    service store[" ziv_store.py  —  wearer memory (atomic JSON) + capped inbox "] in gCore
+    service server[" ziv_server.py  —  WS transport /api/ziv/message /api/ziv/timing /inject/audio health "] in gCore
+    service timing[" Generated timing module  (docs/haptic-timing.json → spec envelope, no hand-copied numbers) "] in gCore
+    service qemu[" QEMU ladder  —  bench binary + boot app + derived-fixture differ (firmware de-risking) "] in gCore
+
+    service phone[" 📱 Phone PWA  (Vibration API, zero hand-copied timing) "] in gDevBand
+    service oppo[" 👤 Friend's phone  (text-side of the conversation) "] in gDevBand
+
+    service wrist[" Wristband (ESP32-S3 N16R8 + 6× DRV2605L + 6 LRAs + 6 chord keys + I2S mic + LiPo)  —  scoped / de-risked, not flashed yet "] in gScope
+    service inputDev[" Chord input  (6-key debounce + chord decode + text buffer)  —  not built yet "] in gScope
+    service micDev[" Device mic  (I2S → WAV/Opus frames → WS binary)  —  not built yet "] in gScope
+
+    service omniaws[" Nebius Token Factory  (Nemotron-3-Nano-Omni, audio-in / text-out) "] in gCore
+    service cron[" Scheduled jobs / heartbeat  (the always-on relay presence) "] in gCore
+
+    %% -- Data / control flows --
+    lane flows over gCore
+
+    phone:RIGHT_WITH_TOP>server:"WS connect + optional ZIV_RELAY_TOKEN"
+    server:RIGHT_SW>seam:"admit(text) → TurnTimeline lifecycle"
+    seam:RIGHT>store:"deliver queued message on next attach (mark-after-play)"
+    server:LEFT_WITH_TOP>timing:"reads feel spec (timing bootstrap)"
+    server:DOWN_WITH_TOP>omniaws:"/inject/audio → Omni transcript → same turn"
+    server:DOWN_WITH_TOP>cron:"scheduled job → message → inbox delivery"
+    seam:LEFT_WITH_TOP>server:"TurnEvents (kind cue → processing → cells → close)"
+    server:LEFT_SW>phone:"frame stream (text / cue / cells / close, free: true)"
+    phone:RIGHT_SW>phone:"Vibrate pattern matching TurnTimeline"
+
+    %% -- The honest frames (as notes, not system layers) --
+    note oAlways[" always-on is the relay (24/7 presence); the wristband sleeps between events and wakes on button / chord / mic / WiFi activity "] in gOut
+    note oDevBand[" phone is the visible output channel today (dev band), not a flashed wrist "] in gOut
+    note oFriend[" friend reads the reply as text on their phone / relay log — no speaker in the room; spoken replies are v2 (TTS on the relay) "] in gOut
+    note oRefuse[" full queue refusals: gate returns message:rejected (reason: queue_full); server maps to HTTP 429; client shows \\"wrist is busy\\" + re-arms its own redial on free: true close "] in gOut
+    note oScope[" wrist build is scoped + de-risked (QEMU ladder, bring-up stages A-F) but not on hardware yet "] in gOut
+
+    %% connect notes to the relevant nodes as visual anchors
+    oAlways:BELOW(node kernel)
+    oDevBand:BELOW(node phone)
+    oFriend:BELOW(node oppo)
+    oRefuse:BELOW(node seam)
+    oScope:BELOW(node wrist)`;
+
+  async function renderMarkdownInline(mdBlock){
+    try {
+      await mermaid.run({ suppressErrors:true, query:'#mermaid-figure', code:mdBlock });
+      const painted = document.querySelector(
+        '#mermaid-figure svg, #mermaid-figure g, #mermaid-figure use, ' +
+        '#mermaid-figure svg path, #mermaid-figure .messageText, ' +
+        '#mermaid-figure foreignObject'
+      );
+      if (!painted){
+        figure.innerHTML = '<div class="fallback"><pre>' + mdBlock + '</pre></div>';
+      }
+    } catch(e){
+      figure.innerHTML = '<div class="fallback"><pre>' + mdBlock + '</pre></div>';
+    }
+  }
+
+  renderMarkdownInline(mdSource);
+})();
+</script>
+</body>
+</html>
