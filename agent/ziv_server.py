@@ -72,8 +72,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
+
+# Load .env (gitignored) before reading env vars below — the relay reads
+# NEBIUS_API_KEY at import time, so the file must be loaded first.
+load_dotenv()
 
 # The shared layer + the seam (same sys.path dance as the tests: this module
 # may be run as a script from the repo root or imported as agent.ziv_server).

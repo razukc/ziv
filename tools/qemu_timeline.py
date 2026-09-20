@@ -178,15 +178,15 @@ def main(argv: List[str] = None) -> int:
     if opts.bench and opts.qemu:
         left = Path(opts.bench).read_text(encoding="utf-8")
         right = Path(opts.qemu).read_text(encoding="utf-8")
-        ok, msgs = diff_logs(left, right)
-        if ok:
+        problems, notes = diff_logs(left, right)
+        if not problems:
             n = len(_parse_hap(left))
             print("PASS — %d HAP events matched within tolerance" % n)
-            for m in msgs:
+            for m in notes:
                 print("  %s" % m)
             return 0
-        print("differs — %d problem(s):" % len(msgs))
-        for m in msgs:
+        print("differs — %d problem(s):" % len(problems))
+        for m in problems:
             print("  %s" % m)
         return 1
 

@@ -286,7 +286,7 @@ def test_qemu_timeline_refuses_a_stale_generated_fixture(tmp_path, monkeypatch):
 
     stale = tmp_path / "ziv_demo_sequence.c"
     stale.write_text(
-        'const char *const k_demo_expected[1] = {\n    "HAP 0 END",\n};\n',
+        'const char *const k_demo_expected[5] = {\n    "HAP 0 END",\n};\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(qt, "DEMO_C_PATH", stale)
