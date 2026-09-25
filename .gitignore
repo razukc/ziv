@@ -44,7 +44,9 @@ Thumbs.db
 .freebuff/
 .codebuff/
 
-# The wearer's own data (relay v1: memory files + persistent inbox) —
-# user data, never repo state.
-agent/ziv_data/agent/demo_beat.webm
+# The wearer's own data (relay v1: memory files + persistent inbox) and
+# local demo recordings (regenerate with agent/record_beat.py) — never
+# repo state.
+agent/ziv_data/
+agent/demo_beat.webm
 agent/demo_beat_trace.zip
