@@ -100,7 +100,22 @@ carry the identical list (links re-verified live this submission):
 - Sense International's Nepal programme (the practice's reach)
 - Protactile name signs — Annual Review of Linguistics (name-mark grounding)
 
-## 5. Pre-flight (final)
+## 5. GitHub social preview (manual step — no API exists)
+
+GitHub offers no REST/GraphQL API for the social preview image (verified:
+`POST /repos/{owner}/{repo}/social-preview` → 404; the Settings UI is the
+only mechanism). The image is generated and committed so it can never be
+lost:
+
+- **File:** `docs/social_preview.png` — 1280×640, rendered from
+  `tools/social_preview.py` (real Z-I-V braille dot patterns, tagline,
+  judges pointer). Regenerate: `python tools/social_preview.py`.
+- **One manual step:** GitHub → repo **Settings → General → Social
+  preview → Edit** → upload `docs/social_preview.png` → Save. GitHub
+  caches the card; if a shared link still shows the old preview, re-fetch
+  with a cache-buster (`?v=2`) or wait a few minutes.
+
+## 6. Pre-flight (final)
 
 - [ ] `pytest -m "not e2e"` → 126 passed, 2 skipped; `-m e2e` → 3 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable
@@ -110,5 +125,7 @@ carry the identical list (links re-verified live this submission):
       step; wrist hardware = next revision)
 - [ ] Repo link opens on the "For judges" README; `submission-v1` tag
       visible under Releases/Tags
+- [ ] Social preview uploaded via Settings (step 5) — a shared repo link
+      shows the card, not the auto-generated file grid
 - [ ] Sources block pasted and links clickable
 - [ ] No claim in the submission lacks a row in JUDGE_REPRO's index
