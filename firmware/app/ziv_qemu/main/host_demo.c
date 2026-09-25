@@ -176,6 +176,12 @@ int main(int argc, char **argv)
     test_scripted_demo_full_timeline();
     test_manual_play_and_stop();
 
-    printf("%d checks, %d failures\n", checks, failures);
+    if (g_hap_log) {
+        /* stderr keeps the captured --hap-log stream pure HAP for the
+         * rung-2 differ; the console still shows the summary. */
+        fprintf(stderr, "%d checks, %d failures\n", checks, failures);
+    } else {
+        printf("%d checks, %d failures\n", checks, failures);
+    }
     return failures == 0 ? 0 : 1;
 }

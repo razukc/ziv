@@ -108,9 +108,13 @@ def main():
     if emit.returncode != 0:
         print("ziv boot check: FAIL (--hap-log run exited %d)" % emit.returncode)
         return 1
+    # Same invocation shape as CI (ci.yml) and the ladder doc: the differ's
+    # wall-clock tolerance is its own internal policy, surfaced as notes —
+    # an older API took --tol-ms; passing it today just dies in argparse.
+    # (Bench-vs-bench has zero timestamp delta anyway.)
     differ = subprocess.run(
         [sys.executable, str(REPO / "tools" / "qemu_timeline.py"),
-         str(bench_log), str(bench_log), "--tol-ms", "0"],
+         str(bench_log), str(bench_log)],
     )
     try:
         bench_log.unlink()
