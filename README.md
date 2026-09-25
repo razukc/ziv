@@ -51,6 +51,17 @@ line, because that line is the honest claim for this submission.
 
 ---
 
+## See it (recorded)
+
+**[demo_beat.webm](https://github.com/razukc/ziv/releases/download/submission-v1/demo_beat.webm)** —
+the 0:20–1:10 beat, recorded from the real dev-band page: a starter turn,
+the queue filled to `8/8`, a refused message with the redial armed
+(`3 chances left`), the auto-resend when the freeing close lands, and the
+badge draining back to `queue 0/8`. Re-record it yourself:
+`python agent/record_beat.py` (walkthrough in [DEMO_SCRIPT.md](DEMO_SCRIPT.md)).
+
+---
+
 ## What is built / what is scoped
 
 The honest claim for this submission is the line between what is built and proven
