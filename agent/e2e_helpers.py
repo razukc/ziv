@@ -14,6 +14,8 @@ instance anywhere.
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
+
 from playwright.sync_api import expect
 from playwright.sync_api import sync_playwright
 
@@ -37,12 +39,17 @@ RELAY_PWA_URL = f"{RELAY_BASE_URL}/ziv_client/"
 # ---------------------------------------------------------------------------
 
 
-def browser_page(playwright) -> "Page":
-    """Open a new chromium context page bound to the given Playwright object."""
-    browser = playwright.chromium.launch(headless=True)
-    context = browser.new_context()
-    page = context.new_page()
-    return page
+@contextmanager
+def browser_page():
+    """A headless chromium page as a context manager — the shape both e2e
+    suites use (``with browser_page() as page:``). Owns the playwright
+    driver and browser lifecycle: entering starts them, exiting closes them."""
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            yield browser.new_context().new_page()
+        finally:
+            browser.close()
 
 
 def wait_hydrated(page, timeout: float = 8.0) -> None:

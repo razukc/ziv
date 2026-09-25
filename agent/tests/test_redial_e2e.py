@@ -44,9 +44,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import e2e_helpers
+pytest.importorskip("playwright")  # before e2e_helpers: skip, never error
 
-pytest.importorskip("playwright")
+import e2e_helpers  # noqa: E402
 
 pytestmark = pytest.mark.e2e
 

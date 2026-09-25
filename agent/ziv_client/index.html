@@ -42,6 +42,7 @@
   #queueBadge.full { color: #f87171; border-color: #7a2e2e; }
   #queueBadge[hidden] { display: none; }
   #redialNote { font-size: 12px; color: var(--warn); margin-top: 4px; }
+  #redialNote.dead { color: #f87171; }
   #redialNote[hidden] { display: none; }
   main { padding: 12px 16px; }
   .panel {
@@ -117,9 +118,12 @@
     a send is refused with a “wrist is busy” note — never a silent drop — and a
     typed or stub message rearms itself: the client queues its own redial and
     sends the moment the close lands on the wire (three chances; editing the box
-    or sending manually cancels it). The badge
-    below the header shows the live queue depth and refusal rate, so you can see
-    how close the wrist is to refusing before you send.</p>
+    or sending manually cancels it — and if all three chances are used up, the
+    note says so instead of going quiet). The badge
+    below the header shows the live queue depth and refusal rate, plus the
+    pending reminder count — or a corrupt-schedule warning — so you can see
+    how close the wrist is to refusing, and what it will still fire, before
+    you send.</p>
     <div id="cells"></div>
   </div>
 
@@ -259,6 +263,7 @@ const RD = {
   lastLabel: "",  // survives disarms; keeps the attempt budget per message
   attempts: 0,    // redials fired for the current message
   max: 3,         // give up after this many closes-with-no-luck
+  dead: false,    // the budget is spent: the note stays until the wearer acts
   el: document.getElementById("redialNote"),
 };
 
@@ -266,29 +271,43 @@ function armRedial(url, body, label) {
   if (RD.lastLabel !== label) RD.attempts = 0; // a different message: fresh budget
   RD.lastLabel = label; // the budget stays pinned to this message
   if (RD.attempts >= RD.max) {
-    log("sys", "↹ redial gave up after " + RD.max + " chances — send manually when ready");
+    // The budget is spent. Loud, like every other no in this channel: the
+    // note STAYS on screen naming the dead end — a quiet disappearance here
+    // would read as “sent” and drop the message on the floor.
+    RD.dead = true;
+    RD.body = null;
+    RD.el.hidden = false;
+    RD.el.classList.add("dead");
+    RD.el.textContent = "✋ “" + label + "” gave up after " + RD.max
+      + " tries — the wrist never freed. Send manually when ready.";
+    log("sys", "↹ redial gave up after " + RD.max
+      + " chances — send manually when ready");
     return;
   }
+  RD.dead = false;
   RD.url = url;
   RD.body = body;
   RD.el.hidden = false;
+  RD.el.classList.remove("dead");
   RD.el.textContent = "↻ redial armed — “" + label + "” sends when the current message ends ("
     + (RD.max - RD.attempts) + " chances left)";
   log("sys", "↻ redial armed — your message sends itself when the wrist frees (edit the box or send manually to cancel)");
 }
 
 function disarmRedial(why) {
-  if (!RD.body) return false;
+  const had = RD.body !== null || RD.dead; // a dead-end note is an armed state too
   RD.body = null;
+  RD.dead = false;
   RD.el.hidden = true;
-  if (why) log("sys", "↺ redial cancelled — " + why);
-  return true;
+  RD.el.classList.remove("dead");
+  if (had && why) log("sys", "↺ redial cancelled — " + why);
+  return had;
 }
 
 // The end-of-message close just landed on the wire: the current turn is over
 // and the gate is releasing its queue — exactly when an armed redial fires.
 async function fireRedialIfFree() {
-  if (!RD.body) return;
+  if (!RD.body || RD.dead) return;
   RD.attempts += 1;
   const url = RD.url;
   const body = RD.body;
@@ -324,12 +343,29 @@ function renderQueueBadge(h) {
   const cap = h.gate_queue_cap;
   if (typeof depth !== "number" || typeof cap !== "number") return;
   const rate = h.queue_rejections ? h.queue_rejections.per_minute : 0;
+  // The schedule beside the queue: pending reminders + the drop-oldest
+  // cap. A corrupt schedule is the one state the wearer's future depends
+  // on, so it turns the badge red even at zero depth — never swallowed.
+  const pending = h.schedule_pending;
+  const schedCap = h.schedule_cap;
+  const schedCorrupt = h.schedule_corrupt;
+  let sched = "";
+  if (schedCorrupt === true) {
+    sched = " · schedule corrupt";
+  } else if (typeof pending === "number" && typeof schedCap === "number") {
+    sched = pending >= schedCap
+      ? " · reminders full (" + pending + "/" + schedCap + ")"
+      : " · reminders " + pending + "/" + schedCap;
+  }
   let cls = "";
   let text = "queue " + depth + "/" + cap;
   if (rate > 0) text += " · " + rate + "/min refused";
-  if (depth >= cap) {
+  text += sched;
+  if (schedCorrupt === true) {
     cls = "full";
-    text = "refusing — queue full (" + depth + "/" + cap + ")";
+  } else if (depth >= cap) {
+    cls = "full";
+    text = "refusing — queue full (" + depth + "/" + cap + ")" + sched;
   } else if (depth >= Math.ceil(cap / 2) || rate > 0) {
     cls = "warn";
   }
@@ -394,9 +430,13 @@ async function send(url, body) {
     }
     log("sys", "POST ok — " + JSON.stringify(data));
     // A delivered message frees the whole budget: the next refusal starts
-    // fresh, even if it is the same text sent again much later.
+    // fresh, even if it is the same text sent again much later. It also
+    // proves the wearer acted — a stale dead-end note would be noise now.
     RD.attempts = 0;
     RD.lastLabel = "";
+    RD.dead = false;
+    RD.el.hidden = true;
+    RD.el.classList.remove("dead");
   } catch (e) {
     log("sys", "POST failed: " + e);
   }

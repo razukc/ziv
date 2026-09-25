@@ -19,27 +19,37 @@ rather than asserted.
 
 ## TL;DR
 
-- **The product:** **Ziv** (working title) — a ~$35 wearable pin (ESP32-S3 + microphone +
-  6 vibration motors + 6 braille keys) that lets a deaf-blind person *hear*
-  the world
-  (speech → braille on the skin) and *converse* through it (braille chords
-  in, haptic braille out), powered by **Nemotron-3-Nano-Omni on Nebius Token
-  Factory**. One model hears; the user's skin is the display.
+- **The product:** **Ziv** (working title) — a haptic AI companion for deaf-blind
+  users (people with combined hearing and vision loss) that lets them *hear* the
+  world (speech → braille on the skin) and *converse* through it, powered by
+  **Nemotron-3-Nano-Omni on Nebius Token Factory**. One model hears; the user's
+  skin is the display.
+- **This repository is the submission artifact:** the built core of Ziv, demoed
+  as a **phone-based prototype for the hackathon**. The built things are proven;
+  the wrist hardware is designed, de-risked, and deliberately deferred — not
+  claimed for this submission. See [What is built / what is scoped](#what-is-built--what-is-scoped)
+  in the README for the exact line — that table is the honest claim for this
+  submission.
+- **Why the phone is the right submission shape:** it renders the relay's turns
+  through the Android Vibration API with the *same* timing derivation as the
+  firmware (zero hand-copied numbers), so the demo feels the real channel. The
+  wrist device (ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-
+  gated mic + LiPo, ~$40 BOM) is the next revision.
 - **Why this wins the track:** it satisfies the full two-part sentence —
   always-on (relay + heartbeat + scheduled jobs), private (haptic output is
-  private by physics; memory on flash; self-hosted relay), persistent memory,
-  reusable skills, daily tasks — with **≥1 NVIDIA open model** (Omni + Nano)
-  doing real work. Impact and Idea criteria are the strongest we can reach:
-  no existing product pairs haptic braille with an always-on agent.
-- **Why it's buildable in 8 weeks:** the pivot *removes* the hardest problems
-  of the general voice pin. No speaker → no echo cancellation, no wake word,
-  no TTS path. The output channel is 6 vibe motors on a ~$5 I²C haptic driver
-  chip. The relay is thin, and Token Factory now serves an omni model that
-  takes audio input directly — no separate STT service.
-- **Week-1 spike gate:** one voice clip from the board → Token Factory Omni →
-  reply text → vibro-braille pattern on the motors, end to end. If that works,
-  build the MVP; if not, the fallback (text-agent floor, Route A from the
-  research note) still ships and clears the bar.
+  private by physics; memory on flash; wearer-hosted relay next revision),
+  persistent memory, reusable skills, daily tasks — with **≥1 NVIDIA open model**
+  (Omni + Nano) doing real work. Impact and Idea criteria are the strongest we
+  can reach: no existing product pairs haptic braille with an always-on agent.
+- **Why it's buildable for the hackathon:** the phone carries the output channel
+  and the Omni audio-in path already works end to end from the phone mic
+  (`/inject/audio`, the Omni spike); the wrist hardware removes the hardest
+  problems of the general voice pin. No speaker → no echo cancellation, no
+  wake word, no TTS path.
+- **Week-1 spike gate:** one voice clip from the phone → Token Factory Omni →
+  reply text → vibro-braille pattern on the phone's vibration motor, end to
+  end. If that works, the submission is solid; if not, the keyless stub is the
+  demo path and the relay code is still the real thing.
 
 ---
 
@@ -258,10 +268,10 @@ seam instead of reaching the wrist (invariant 5, enforced structurally).
 
 ### The four flows (demo-shaped)
 
-1. **The morning brief.** Overnight, a scheduled relay job checked the calendar and email. At 8:00 the wearer feels the name mark, then a double-tap: new message. They press read: the wrist plays *"9 AM — nurse visit. 2 PM — pharmacy refill."* They chord back *"ok"*. Thirty seconds, nothing seen or heard by anyone else.
-2. **The conversation.** A sighted friend leans in: *"The taxi's here — should we go?"* The wearer presses talk; the friend's speech goes to Omni; the reply vibrates onto the wrist: *"Taxi arrived. Leave now?"* The wearer chords *"yes, 2 min"*. Honest scope note: in the MVP the reply reaches the friend as text on their phone (relay push); spoken replies are v2 — Token Factory serves no TTS. One party hears, the other feels, and the room perceives nothing.
-3. **Ambient check on demand.** Long-press → the mic opens for 5 seconds *only because the wearer chose it* → *"Someone knocked twice. Your timer is ringing."* Privacy-consistent: no always-on listening, ever — the mic is hardware-gated.
-4. **The agent task.** The wearer chords *"remind pills 9pm"*. At 9pm a triple pulse arrives unprompted, then *"Pills."* The track's "acts while you're away" beat, proven by the overnight cron log.
+1. **The morning brief.** Overnight, a scheduled relay job checked the calendar and email. At 8:00 the wearer feels the name mark, then a double-tap: new message. They press read: the phone plays *"9 AM — nurse visit. 2 PM — pharmacy refill."* They reply by text. Thirty seconds, nothing seen or heard by anyone else.
+2. **The conversation.** A sighted friend leans in: *"The taxi's here — should we go?"* The friend speaks into the phone's mic; the speech goes to Omni; the reply vibrates onto the phone: *"Taxi arrived. Leave now?"* The wearer replies by text. **Honest scope note:** in this submission the friend reads the reply as text on their own phone — the relay pushes it to them — because there is no speaker in the room. Spoken replies are v2 (TTS), not this submission. One party hears, the other feels, and the room perceives nothing. The demo must *show* the friend's side rather than leave it to the room to guess.
+3. **Ambient check on demand.** Long-press → the phone mic opens for 5 seconds *only because the wearer chose it* → *"Someone knocked twice. Your timer is ringing."* Privacy-consistent: no always-on listening, ever — this prototype is push-to-talk through the phone mic; hardware gating is a wrist-device property (next revision).
+4. **The agent task.** The wearer asks by text *"remind pills 9pm"*. At 9pm a triple pulse arrives unprompted, then *"Pills."* The track's "acts while you're away" beat, proven by the overnight cron log.
 
 ---
 
@@ -406,22 +416,29 @@ interface; only the relay changes.
 
 1. **0:00–0:20 — the gap.** Price cards: braille display $4,000, Hable One
    $349, this device ~$40. One sentence of who it's for.
-2. **0:20–1:10 — the conversation.** A sighted helper speaks to the pin
-   ("what's on my calendar today?"); cut to the wearer's wrist: vibro-braille
-   playing; the wearer chords a reply; on the helper's phone, the reply arrives
-   as text pushed by the relay (the friend reads it, there is no speaker in the
-   room). Nobody touched a phone. Show the relay log + Omni call telemetry on
-   screen (Token Factory + NVIDIA open model visible), with the relay log's
-   friend-side text visible so the room can follow the reply.
+2. **0:20–1:10 — the conversation.** A sighted helper speaks to the phone mic
+   ("what's on my calendar today?"); cut to the wearer's phone: vibro-braille
+   playing; the wearer replies by text. **The friend's side is shown honestly:**
+   the reply arrives as text pushed by the relay onto the helper's phone — the
+   friend reads it, there is no speaker in the room. Nobody touched a phone.
+   Show the relay log + Omni call telemetry on screen (Token Factory + NVIDIA
+   open model visible), with the relay log's friend-side text visible so the
+   room can follow the reply.
 3. **1:10–1:50 — always-on.** Show the heartbeat/cron log from overnight; a
-   scheduled reminder buzzes the wearer live on camera; memory file on flash
-   shown (`MEMORY.md`).
+   scheduled reminder buzzes the wearer live on camera; memory file on the relay
+   shown.
 4. **1:50–2:20 — secure.** The device allow-list rejecting an unknown device
    (the "agent only answers me" beat); relay egress allow-list shown; mic
-   hardware switch shown off.
+   push-to-talk shown — the mic is software-gated on the phone; hardware gating
+   is a wrist-device property (next revision).
 5. **2:20–2:50 — the stack.** Diagram: Omni hears, Nano reasons, Nebius runs;
    cost-per-turn readout from telemetry.
 6. **2:50–3:00 — the ask.** "Private by physics" closing line.
+
+The one thing this demo must not imply: the helper does **not** hear the wearer's
+reply. The reply reaches the helper as text on their phone (relay push) — the
+spoken-reply path is v2 (TTS), not this submission. The demo shows the friend's side
+rather than leaving it to the room to guess.
 
 ---
 

@@ -3,8 +3,9 @@
 Relay v0 proved the loop; v1 gives the wearer durable state (see
 ``agent/ziv_store.py``): a persistent message inbox (messages that arrive
 with no band attached are stored and offered on the next attach — never
-silently dropped) and per-wearer memory (the playback-pace preference,
-clamped into the spec's envelope).
+silently dropped), a durable reminder schedule (a reminder promised for
+tomorrow survives a restart tonight), and per-wearer memory (the
+playback-pace preference, clamped into the spec's envelope).
 
 The wrist pin does not exist yet; boards ship later. Until then the phone is
 the dev band: a small PWA (agent/ziv_client/index.html) connects to this
@@ -49,7 +50,9 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
   live queue depth vs. its cap (how close the wrist is to refusing),
   queue-rejection telemetry (the 429s the relay has handed out: cumulative
   count, last refusal reason, and a per-minute rate so a spike is visible
-  at a glance), turn telemetry, and any corrupt-store reports.
+  at a glance), the reminder schedule's depth vs. cap plus its corrupt
+  flag (consumed from the same drain as the corrupt-store list), turn
+  telemetry, and any corrupt-store reports.
 
 Auth: when ``ZIV_RELAY_TOKEN`` is set, WS connections must present it
 (``?token=``) and HTTP event endpoints must carry ``Authorization: Bearer``.
@@ -63,11 +66,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -97,7 +102,136 @@ from ziv_relay import (  # noqa: E402
     MessageGate,
     TurnTimeline,
 )
-from ziv_store import INBOX_CAP, MessageInbox, WearerMemory  # noqa: E402
+from ziv_store import (
+    INBOX_CAP,
+    MessageInbox,
+    SCHEDULE_CAP,
+    ScheduledReminders,
+    WearerMemory,
+)  # noqa: E402
+
+#: One logger for the relay: misfires and odd states go here, not into
+#: ad-hoc debug files — the telemetry ring and health stay the operator UI.
+LOGGER = logging.getLogger("ziv.relay")
+
+# ---------------------------------------------------------------------------
+# Always-on (Week 3, now durable): scheduled reminders that fire unprompted.
+#
+# The relay's "always-on" beat is a background task that polls the schedule
+# every second and fires any due reminder as its own full haptic turn on the
+# phone — name-mark prefix (invariant 1: no content without a kind cue),
+# then the cue, then the content cells, then the close. The wearer receives
+# it without asking.
+#
+# The schedule itself is DURABLE (``ziv_store.ScheduledReminders`` — the
+# same atomic-JSON, corrupt-tolerant, capped discipline as the inbox): a
+# reminder promised for tomorrow survives a relay restart tonight. This
+# module owns only the async half — claiming due reminders and playing
+# them as turns.
+#
+# The demo beat (Week 3, day 3): schedule a reminder 20 s in the future,
+# watch the phone receive it unprompted — the "acts while you're away"
+# moment the track's always-on sentence needs.
+# ---------------------------------------------------------------------------
+
+
+async def fire_due() -> list[dict[str, Any]]:
+    """Claim every due reminder and fire it as a full turn; return results.
+
+    Claiming happens FIRST (``take_due`` removes them from the durable
+    store), so a crash mid-fire means a reminder fires again on the next
+    start — redelivery is the failure mode, never a silent loss (the
+    inbox's rule, and now the schedule's too). No phone attached: the
+    reminder is offered to the inbox (never lost, same contract as an
+    inbound message) and reported as a misfire reason, not an error.
+    """
+    fired: list[dict[str, Any]] = []
+    for r in scheduled.take_due():
+        try:
+            await run_message_turn(
+                r["text"], source=r["source"], prefix_mark="reminder"
+            )
+            fired.append({**r, "fired": True, "fired_at": time.time()})
+        except _NoDevices:
+            # No phone attached: store as inbox entry so it's delivered on
+            # the next attach (never lost, same contract as inbound msg).
+            inbox.offer(r["text"], source=r["source"])
+            fired.append(
+                {**r, "fired": False,
+                 "reason": "no_device_attached_stored_in_inbox"}
+            )
+        except Exception as exc:
+            fired.append({**r, "fired": False, "error": str(exc)})
+    return fired
+
+
+async def schedule_loop(*, poll_s: float = 1.0) -> None:
+    """Background task: poll and fire due reminders forever."""
+    while True:
+        await asyncio.sleep(poll_s)
+        try:
+            fired = await fire_due()
+            now = time.time()
+            for r in fired:
+                _telemetry.record(
+                    label="scheduled_reminder_fired" if r.get("fired")
+                    else "scheduled_reminder_misfired",
+                    seconds=now - (r.get("fire_at", now)),
+                    source=r.get("source", "scheduled"),
+                )
+                if not r.get("fired"):
+                    LOGGER.warning(
+                        "scheduled_reminder_misfired id=%s reason=%s",
+                        r.get("id"),
+                        r.get("reason") or r.get("error") or "unknown",
+                    )
+        except Exception:
+            pass  # the loop stays up; one bad reminder must not kill it
+
+
+#: The durable schedule (ziv_store) + its fire loop (started in the app's
+#: lifespan so it shares the app's event loop).
+scheduled = ScheduledReminders()
+_schedule_task: asyncio.Task[None] | None = None
+
+
+async def run_scheduled_reminder(text: str) -> dict[str, Any]:
+    """One unprompted reminder — kept as the prefix-marked path's name.
+
+    The mark + kind tail + breath now live in ``_play_prefix_mark`` and run
+    inside ``run_message_turn``'s turn lock (so no message can interleave
+    between the name and what it announces); the scheduler's fire loop
+    passes ``prefix_mark="reminder"`` and lands here for the same shape.
+    """
+    return await run_message_turn(text, source="scheduled", prefix_mark="reminder")
+
+
+async def _play_prefix_mark(kind: str, text: str) -> None:
+    """The name-mark prefix before an unsolicited event (plan §4 invariant 1):
+    the wearer learns who is calling before the content arrives.
+
+    Shape: Z-I-V spelled as cells at the wearer's pace, the kind's tail
+    pattern (``PREFIX_TAILS`` — the reminder's triple-pulse), then a breath
+    before the turn's own kind cue. Driven INSIDE the caller's turn lock,
+    so nothing can interleave between the name and what it announces.
+    """
+    mark = list(timing.MARK_CELLS[timing.PREFIX_MARK])
+    tail_id = timing.PREFIX_TAILS.get(kind, "triple-pulse")
+    cells = [{"ch": ch, "ms": timing.cell_ms(ch)} for ch in mark]
+    # Narration first: the wire log gets the words, the cells box gets the
+    # mark's letters to light up as each cell frame lands.
+    await _push({"type": "text", "text": f"{kind}: {text}", "chars": cells})
+    cell_gap = _effective_cell_gap_ms() / 1000.0
+    for cell in cells:
+        await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
+        await asyncio.sleep(cell["ms"] / 1000.0 + cell_gap)
+    await _push(haptic_frame(tail_id, why=f"{kind} mark"))
+    await asyncio.sleep(
+        sum(buzz + gap for buzz, gap in timing.pattern_beats(tail_id)) / 1000.0
+    )
+    # The breath: a beat of silence between the mark and what it announces.
+    await asyncio.sleep(timing.PREFIX_BREATH_MS / 1000.0)
+
 
 FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
 ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
@@ -116,7 +250,83 @@ _OMNI_PROMPT = (
     "spoken, nothing else."
 )
 
-app = FastAPI(title="Ziv relay v1 (dev band + memory)", version="0.2.0")
+# Lifespan: start the always-on schedule loop when the app starts and stop
+# it when the app shuts down — the loop shares the app's running event loop,
+# so ``asyncio.create_task`` is safe here (unlike calling it at import time).
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _schedule_task
+    _schedule_task = asyncio.create_task(schedule_loop(poll_s=1.0))
+    try:
+        yield
+    finally:
+        if _schedule_task is not None and not _schedule_task.done():
+            _schedule_task.cancel()
+            try:
+                await _schedule_task
+            except (asyncio.CancelledError, RuntimeError):
+                pass
+
+
+app = FastAPI(
+    title="Ziv relay v1 (dev band + memory + schedule)",
+    version="0.3.0",
+    lifespan=lifespan,
+)
+
+
+@app.post("/api/ziv/schedule")
+async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
+    """Schedule a reminder to fire at a specific epoch time (seconds)."""
+    fire_at = float(body.get("fire_at", 0))
+    text = str(body.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text is required")
+    if fire_at <= time.time():
+        raise HTTPException(status_code=422, detail="fire_at must be in the future")
+    rem = scheduled.add(fire_at, text)
+    return JSONResponse(
+        {
+            "scheduled": True,
+            **rem,
+            "fire_at_iso": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(rem["fire_at"])
+            ),
+        }
+    )
+
+
+@app.get("/api/ziv/schedule")
+async def list_schedule() -> JSONResponse:
+    """List scheduled reminders (id, fire_at, text, source)."""
+    return JSONResponse({"reminders": scheduled.list_all()})
+
+
+@app.delete("/api/ziv/schedule")
+async def clear_schedule() -> JSONResponse:
+    """Cancel all scheduled reminders."""
+    n = scheduled.clear()
+    return JSONResponse({"cleared": n})
+
+
+@app.get("/api/ziv/ready")
+async def ready() -> dict[str, Any]:
+    """Health-plus: liveness + the schedule + the always-on loop state.
+
+    The always-on demo beat reads this to show the scheduled reminder
+    pending before it fires — proof the relay planned to act while nobody
+    was chatting.
+    """
+    return {
+        "status": "ok",
+        "service": "Ziv relay v1 (dev band + memory + schedule)",
+        "schedule": {
+            "pending": scheduled.list_all(),
+            "loop_running": _schedule_task is not None and not _schedule_task.done(),
+        },
+    }
+
+
 
 # Turns recorded ring — the relay's own telemetry, surfaced in health.
 _telemetry = TelemetryRing(maxlen=20, recent_tail=10)
@@ -152,6 +362,21 @@ def haptic_frame(pattern_id: str, why: str = "") -> dict[str, Any]:
         "ms": vibrate_pattern(pattern_id),
         "why": why,
     }
+
+
+async def _announce_error(why: str) -> None:
+    """The error long-buzz for a turn that dies before it starts.
+
+    The spike's loud-not-silent rule: a failed transcription is not dead
+    air — the wrist feels the long-buzz (an attention beat, the same class
+    as the queue cue) and the wire log gets the words. No band attached:
+    nothing to play on; the HTTP error still answers the sender.
+    """
+    try:
+        await _push(haptic_frame(PATTERN_ERROR, why=why))
+        await _push({"type": "text", "text": f"error: {why}"})
+    except _NoDevices:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -432,18 +657,31 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
     Serialized behind the turn lock: the *peek* happens inside the lock too,
     so two transports attaching at once cannot both pick up the same entry
     and play it twice — the second waits, then peeks the next one.
+
+    Every replay is a self-naming turn: the entry's source picks the mark
+    kind (a stored reminder replays with the reminder's triple-pulse tail,
+    any other stored message with the message's double-tap), so the wrist
+    feels who is calling — and what kind of event it was — before the
+    stored content arrives.
     """
     async with _turn_lock:
         entry = inbox.peek_one()
         if entry is None:
             return None
-        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="from your inbox"))
+        source = str(entry.get("source", "message"))
+        # Inbox sources are storage origins, not mark kinds: map them —
+        # a reminder stored while away replays as a reminder; everything
+        # else (typed, transcribed) replays as a message.
+        kind = "reminder" if source == "scheduled" else "message"
+        await _play_prefix_mark(kind, str(entry.get("text", "")))
         await _play_cells_and_close(str(entry.get("text", "")), note=True)
         inbox.mark_delivered(entry)
     return entry
 
 
-async def run_message_turn(text: str, *, source: str = "message") -> dict[str, Any]:
+async def run_message_turn(
+    text: str, *, source: str = "message", prefix_mark: str | None = None
+) -> dict[str, Any]:
     """One inbound message through the real seam, out over the WS.
 
     The ordering is TurnTimeline's, not this function's: the opening kind
@@ -452,6 +690,11 @@ async def run_message_turn(text: str, *, source: str = "message") -> dict[str, A
     ``end-of-message`` close, then any queued replays. Every event's pattern
     id is resolved through the generated timing module — the phone and the
     firmware play the same numbers.
+
+    ``prefix_mark``: an UNSOLICITED turn opens with the name-mark prefix
+    (``_play_prefix_mark``) inside the same turn lock — the scheduler's
+    reminders pass ``"reminder"`` so the wrist feels who is calling before
+    the reminder's content arrives.
     """
     # No band attached: the message is stored, not dropped — the inbox is
     # what the gate is for a turn, for days. It is offered on the next
@@ -491,6 +734,12 @@ async def run_message_turn(text: str, *, source: str = "message") -> dict[str, A
         }
 
     async with _turn_lock:
+        # An unsolicited turn names itself first (plan §4 invariant 1):
+        # the mark plays inside this lock, so no message can interleave
+        # between the name and the content it announces.
+        if prefix_mark is not None:
+            await _play_prefix_mark(prefix_mark, text)
+
         turn = TurnTimeline(gate, text=text)
 
         def frame_for(ev: Any) -> dict[str, Any]:
@@ -669,7 +918,14 @@ async def inject_audio(
                 status_code=422,
                 detail=f"unsupported mime {mime!r} — one of {sorted(allowed)}",
             )
-        text = await _transcribe_omni(audio_b64, mime)
+        try:
+            text = await _transcribe_omni(audio_b64, mime)
+        except HTTPException as exc:
+            # The error long-buzz, not silence (the spike's loud-not-silent
+            # rule): the transcription died before a turn could start, so
+            # the wrist feels the attention beat now.
+            await _announce_error(f"transcription failed ({exc.status_code})")
+            raise
         source = "audio_omni"
     try:
         result = await run_message_turn(text, source=source)
@@ -741,6 +997,19 @@ def get_timing() -> dict[str, Any]:
 
 @app.get("/api/ziv/health")
 def health() -> dict[str, Any]:
+    # Every load that can DISCOVER corruption runs BEFORE the single drain:
+    # a corrupt file is found (and reported) by the depth/count/prefs reads,
+    # so the drain below captures all of it — one snapshot, the flag and
+    # the store_problems list can never disagree, and the consume-once
+    # report is consumed exactly once.
+    schedule_pending = scheduled.count()
+    inbox_pending = inbox.count()
+    prefs = {"cell_gap_ms": _effective_cell_gap_ms()}
+    corrupt = (
+        memory.take_corrupt_files()
+        + inbox.take_corrupt_files()
+        + scheduled.take_corrupt_files()
+    )
     return {
         "status": "ok",
         "service": "Ziv relay v1 (dev band + memory)",
@@ -752,9 +1021,15 @@ def health() -> dict[str, Any]:
         "gate_queue": len(gate),
         "gate_queue_cap": MessageGate.MAX_QUEUED,
         "queue_rejections": queue_rejections.snapshot(),
-        "inbox_pending": inbox.count(),
-        "prefs": {"cell_gap_ms": _effective_cell_gap_ms()},
-        "store_problems": memory.take_corrupt_files() + inbox.take_corrupt_files(),
+        "inbox_pending": inbox_pending,
+        # The schedule gets the badge treatment too: depth vs. cap (how
+        # close it is to dropping the oldest reminder), and the corrupt
+        # flag read from the one shared drain above.
+        "schedule_pending": schedule_pending,
+        "schedule_cap": SCHEDULE_CAP,
+        "schedule_corrupt": "schedule" in corrupt,
+        "prefs": prefs,
+        "store_problems": corrupt,
         "turns": _telemetry.stats(),
     }
 

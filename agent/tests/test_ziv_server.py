@@ -56,6 +56,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(zstore, "DATA_DIR", d)
     monkeypatch.setattr(zs, "inbox", zs.MessageInbox())
     monkeypatch.setattr(zs, "memory", zs.WearerMemory())
+    # The durable schedule is store-backed now: swap in a fresh one over the
+    # same temp DATA_DIR, so tests never touch the real wearer files.
+    monkeypatch.setattr(zs, "scheduled", zs.ScheduledReminders())
     zs.hub.devices.clear()
     zs.gate = zs.MessageGate()
     zs.queue_rejections.reset()
@@ -330,35 +333,61 @@ def test_message_with_no_band_is_stored_not_dropped(client, fresh_store):
 def test_inbox_is_delivered_on_next_attach(client, fresh_store):
     """Stored messages are offered on attach as full events, then marked.
 
-    Delivery happens after hello; each message plays cue → cells → close
-    and is only then marked delivered — a vanished band means redelivery,
-    never loss.
+    Delivery happens after hello; each replay is a self-naming turn — the
+    mark (Z-I-V cells + the entry's source tail) opens it, then the stored
+    content plays and only then is the entry marked delivered — a vanished
+    band means redelivery, never loss.
     """
     client.post("/api/ziv/message", json={"text": "first stored"})
     client.post("/inject/audio", json={"simulate": "second stored"})
     assert client.get("/api/ziv/inbox").json()["count"] == 2
 
     with _attach(client) as ws:
-        # hello carries the pending count...
-        # (already consumed by _attach; delivered frames follow)
-        # first message: cue, text, cells, close
-        f1 = ws.receive_json()
-        assert f1 == {"type": "haptic", "pattern": "double-tap",
-                      "ms": _vibrate_ms("double-tap"), "why": "from your inbox"}
-        f2 = ws.receive_json()
-        assert f2["type"] == "text" and f2["text"].startswith("queued: ")
-        saw_first_close = False
-        while not saw_first_close:
+        # hello is consumed by _attach; both replays follow on the wire.
+        frames: list[dict] = []
+        closes = 0
+        while closes < 2:
             f = ws.receive_json()
+            frames.append(f)
             if f["type"] == "haptic" and f["pattern"] == "end-of-message":
-                saw_first_close = True
-        # second message: same shape
-        f3 = ws.receive_json()
-        assert f3["type"] == "haptic" and f3["pattern"] == "double-tap"
-        while True:
-            f = ws.receive_json()
-            if f["type"] == "haptic" and f["pattern"] == "end-of-message":
-                break
+                closes += 1
+
+        def section(start: int) -> tuple[list[dict], int]:
+            """One replay's frames: its narration through its close."""
+            end = next(
+                i for i in range(start, len(frames))
+                if frames[i]["type"] == "haptic"
+                and frames[i]["pattern"] == "end-of-message"
+            )
+            return frames[start:end + 1], end + 1
+
+        mark_cells = list(timing.MARK_CELLS[timing.PREFIX_MARK])
+
+        # Replay 1 — a plain message: mark cells, the double-tap tail, then
+        # the stored content as a queued delivery.
+        s1, nxt = section(0)
+        assert s1[0]["type"] == "text"
+        assert s1[0]["text"] == "message: first stored"
+        assert s1[0]["chars"] == [{"ch": ch, "ms": timing.cell_ms(ch)}
+                                  for ch in mark_cells]
+        assert [f["ch"] for f in s1 if f["type"] == "cell"][:3] == mark_cells
+        tails = [(f["pattern"], f.get("why")) for f in s1
+                 if f["type"] == "haptic"]
+        assert tails[0] == ("double-tap", "message mark")
+        assert tails[-1][0] == "end-of-message"
+        assert any(t["type"] == "text" and t["text"].startswith("queued: first stored")
+                   for t in s1)
+
+        # Replay 2 — an audio-stub entry: same mark and double-tap tail
+        # (transcribed speech replays as a message, whatever its origin).
+        s2, _ = section(nxt)
+        assert s2[0]["type"] == "text"
+        assert s2[0]["text"] == "message: second stored"
+        tails2 = [(f["pattern"], f.get("why")) for f in s2
+                  if f["type"] == "haptic"]
+        assert tails2[0] == ("double-tap", "message mark")
+        assert tails2[-1][0] == "end-of-message"
+
         assert client.get("/api/ziv/inbox").json()["count"] == 0
 
 
@@ -618,6 +647,101 @@ def test_rejection_rate_reflects_only_the_recent_window():
     assert snap2["count"] == 1, "cumulative count must keep the refusal"
 
 
+def test_health_payload_serves_the_pwa_badge_contract(client):
+    """The dev-band PWA's live queue badge renders straight from health:
+    ``gate_queue`` + ``gate_queue_cap`` for the depth line,
+    ``queue_rejections.per_minute`` for the refusal rate. The client
+    renders NOTHING (silently blank) when depth or cap is missing or not
+    a number — so these keys are a wire contract, not an internal detail.
+    This test pins them hermetically: a server-side rename fails HERE,
+    not on a phone with a blank badge (the browser-level proof is the
+    Playwright e2e, which does not run everywhere the suite does).
+
+    Types are part of the contract: the client guards with JS
+    ``typeof x === "number"``, and a bool/string would blank the badge
+    just like a missing key — hence the strict numeric check.
+    """
+    def numeric(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    # Fresh boot — the badge renders on page load, before anything happens.
+    h0 = client.get("/api/ziv/health").json()
+    assert numeric(h0["gate_queue"]) and h0["gate_queue"] == 0
+    assert numeric(h0["gate_queue_cap"])
+    assert h0["gate_queue_cap"] == zs.MessageGate.MAX_QUEUED
+    assert numeric(h0["queue_rejections"]["per_minute"])
+
+    # Real depth, at a non-cap value first: the key must reflect the live
+    # queue, not echo the cap.
+    with _attach(client):
+        zs.gate.begin_playback()
+        for i in range(3):
+            zs.gate.admit("filler-%d" % i)
+        h3 = client.get("/api/ziv/health").json()
+        assert h3["gate_queue"] == 3
+
+        # Filled to the cap + one real refusal: the badge's "full" and
+        # "N/min refused" states rest on these exact numbers.
+        for i in range(3, zs.MessageGate.MAX_QUEUED):
+            zs.gate.admit("filler-%d" % i)
+        r = client.post("/api/ziv/message", json={"text": "overflow"})
+        assert r.status_code == 429
+    h = client.get("/api/ziv/health").json()
+    assert h["gate_queue"] == zs.MessageGate.MAX_QUEUED
+    assert h["gate_queue_cap"] == zs.MessageGate.MAX_QUEUED
+    assert h["queue_rejections"]["per_minute"] == 1
+
+
+def test_health_payload_surfaces_the_schedule(client):
+    """The durable schedule gets the gate queue's treatment in health:
+    ``schedule_pending`` (live depth), ``schedule_cap`` (the drop-oldest
+    limit), and ``schedule_corrupt`` (a corrupt store file is a fact, not
+    a silence — same rule as the inbox's corrupt reports). The flag is
+    consumed from the SAME drain as ``store_problems``, so the flag and
+    the list can never disagree within one response.
+    """
+    import ziv_store as zstore
+
+    # Fresh boot: empty schedule, the store's cap, nothing corrupt.
+    h0 = client.get("/api/ziv/health").json()
+    assert h0["schedule_pending"] == 0
+    assert h0["schedule_cap"] == zstore.SCHEDULE_CAP
+    assert h0["schedule_corrupt"] is False
+
+    # Depth is live: pending reminders move the number.
+    zs.scheduled.add(time.time() + 10_000, "pills")
+    zs.scheduled.add(time.time() + 10_100, "call back")
+    h2 = client.get("/api/ziv/health").json()
+    assert h2["schedule_pending"] == 2
+    assert h2["schedule_corrupt"] is False
+
+    # Corruption surfaces on BOTH channels of one response. The corrupt
+    # file is DISCOVERED by the depth load inside health() (count before
+    # drain — that ordering is part of the contract), so the very next
+    # response carries both the flag and the store_problems entry.
+    (zstore.DATA_DIR / "wearer.schedule.json").write_text("[{broken",
+                                                          encoding="utf-8")
+    h3 = client.get("/api/ziv/health").json()
+    assert h3["schedule_corrupt"] is True
+    assert h3["schedule_pending"] == 0  # a corrupt load discards
+    assert "schedule" in h3["store_problems"]
+    # Consume-once, like every corrupt report here: heal the file (a valid
+    # write rebuilds it — the store's own recovery discipline) and the next
+    # response is clean. (A real add() would itself re-discover the corrupt
+    # file in its load and re-report before healing — the store's
+    # re-report-until-rebuilt semantics, covered in the store tests.) The
+    # fire loop only ever APPENDS reports (its loads never drain), so clear
+    # any report appended between h3's drain and the heal — after the heal
+    # no new reports can be appended by anyone, making h4 race-free.
+    (zstore.DATA_DIR / "wearer.schedule.json").write_text("[]",
+                                                          encoding="utf-8")
+    zs.scheduled.take_corrupt_files()
+    h4 = client.get("/api/ziv/health").json()
+    assert h4["schedule_pending"] == 0
+    assert h4["schedule_corrupt"] is False
+    assert h4["store_problems"] == []
+
+
 def test_concurrent_inbox_deliveries_never_double_deliver(client, monkeypatch):
     """Two deliveries racing pick up two different entries — never the same
     one twice (the inbox peek happens under the turn lock).
@@ -646,5 +770,239 @@ def test_concurrent_inbox_deliveries_never_double_deliver(client, monkeypatch):
 
     asyncio.run(deliver_both())
 
-    assert sorted(labels) == ["queued: alpha", "queued: beta"]
+    assert sorted(labels) == sorted([
+        "message: alpha", "queued: alpha",
+        "message: beta", "queued: beta",
+    ])
     assert client.get("/api/ziv/inbox").json()["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Spec-defined patterns, felt: the error long-buzz + the name-mark prefix
+# ---------------------------------------------------------------------------
+
+def test_omni_provider_failure_feels_the_error_long_buzz(client, monkeypatch):
+    """502 from Token Factory: the sender gets the loud HTTP error AND the
+    wrist feels the error long-buzz — a transcription failure is never
+    silent on either side of the wire."""
+
+    class _Resp:
+        status_code = 503
+        text = "model overloaded"
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    with _attach(client) as ws:
+        r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "ogg"})
+        assert r.status_code == 502
+        assert "model overloaded" in r.json()["detail"]
+
+        # The wrist learned it first, in pattern: the long-buzz, then the words.
+        f1 = ws.receive_json()
+        assert f1["type"] == "haptic"
+        assert f1["pattern"] == "long-buzz"
+        assert f1["ms"] == _vibrate_ms("long-buzz")
+        assert "transcription failed" in f1["why"]
+        f2 = ws.receive_json()
+        assert f2["type"] == "text"
+        assert "transcription failed" in f2["text"]
+
+
+class _RecordingDevice:
+    """A hub device that records every frame the real broadcast delivers —
+    the wire path without a socket (the pump serializes; this captures)."""
+
+    def __init__(self) -> None:
+        import json as _json
+
+        self._json = _json
+        self.frames: list[dict] = []
+
+    async def send_text(self, s: str) -> None:
+        self.frames.append(self._json.loads(s))
+
+
+def test_prefix_mark_order_is_mark_tail_then_turn(client, monkeypatch):
+    """The unsolicited turn's felt order: Z-I-V mark cells → triple-pulse
+    tail → breath → the turn's own cue → processing → content → close —
+    with the wire log narrating both the mark and the content."""
+    import asyncio
+
+    zs.FAKE_MODEL_SECONDS = 0.05
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)  # attach() is async; the list is its state
+    try:
+        result = asyncio.run(zs.run_scheduled_reminder("pills"))
+    finally:
+        zs.hub.devices.remove(rec)
+    assert result["event"] == "turn_complete"
+
+    pushed = rec.frames
+    # The mark is narrated FIRST, with its letters for the cells box.
+    assert pushed[0]["type"] == "text"
+    assert pushed[0]["text"].startswith("reminder: pills")
+
+    # The first three cells are the mark: z, i, v (the generated table).
+    cells = [f["ch"] for f in pushed if f["type"] == "cell"]
+    assert cells[:3] == list(timing.MARK_CELLS[timing.PREFIX_MARK])
+
+    haptics = [(f["pattern"], f.get("why")) for f in pushed if f["type"] == "haptic"]
+    assert haptics[0] == ("triple-pulse", "reminder mark")  # the kind tail
+    assert haptics[1][0] == "double-tap"                    # the turn's kind cue
+    assert any(p == "processing" for p, _ in haptics)       # the legible wait
+    assert haptics[-1][0] == "end-of-message"               # the close
+
+    # The content is narrated after the mark ("message: pills").
+    texts = [f.get("text", "") for f in pushed if f["type"] == "text"]
+    assert any(t.startswith("message: pills") for t in texts)
+
+
+def test_scheduled_reminder_fires_with_name_mark_over_the_wire(client):
+    """End to end through the LIVE fire loop (the lifespan task): a due
+    reminder fires unprompted as its own turn, opening with the Z-I-V mark
+    and the triple-pulse tail, and is removed from the schedule so it never
+    fires twice. The mark + content take ~9 s of real dwell on the wire."""
+    zs.FAKE_MODEL_SECONDS = 0.05
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)  # attach() is async; the list is its state
+    try:
+        zs.scheduled.add(time.time() - 0.01, "pills")  # due immediately
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if any(f["type"] == "haptic" and f["pattern"] == "end-of-message"
+                   for f in rec.frames):
+                break
+            time.sleep(0.1)
+        assert any(f["type"] == "haptic" and f["pattern"] == "end-of-message"
+                   for f in rec.frames), "the live loop never fired the reminder"
+    finally:
+        zs.hub.devices.remove(rec)
+
+    haptics = []
+    texts = []
+    for f in rec.frames:
+        if f["type"] == "haptic":
+            haptics.append((f["pattern"], f.get("why")))
+        elif f["type"] == "text":
+            texts.append(f.get("text", ""))
+
+    assert haptics[0] == ("triple-pulse", "reminder mark")
+    assert haptics[1][0] == "double-tap"          # the turn's kind cue
+    assert haptics[-1][1] == "close"              # the event ends
+    assert any(p == "processing" for p, _ in haptics)
+    assert any(t.startswith("reminder: pills") for t in texts)
+    assert any(t.startswith("message: pills") for t in texts)
+
+    # Fired reminders never fire twice.
+    assert zs.scheduled.list_all() == []
+
+
+def test_schedule_accepts_reminders_after_a_drain(client):
+    """The schedule must accept reminders after any drain — the historical
+    trap was fire_due rebuilding its queue with
+    ``deque(remaining, maxlen=len(remaining))``: an empty remaining list
+    produced a maxlen-0 deque, and every later ``add`` silently vanished.
+    The durable rewrite (ziv_store) makes the invariant structural — the
+    file is rewritten from a plain list, never a capped deque — and the
+    round-trip below proves a fresh instance (a restart) still sees it.
+    """
+    import asyncio
+
+    sched = zs.scheduled  # the fixture's fresh durable schedule
+    # A drain with nothing due — the poll that poisoned the old deque.
+    asyncio.run(zs.fire_due())
+    # The schedule must still accept a reminder and hand it back out.
+    sched.add(time.time() + 60, "water the plants")
+    pending = sched.list_all()
+    assert len(pending) == 1
+    assert pending[0]["text"] == "water the plants"
+    # And the round-trip: a new instance over the same store (a restart)
+    # reads the same reminder — nothing lives only in process memory.
+    reborn = zs.ScheduledReminders()
+    assert [r["text"] for r in reborn.list_all()] == ["water the plants"]
+
+
+def test_schedule_survives_concurrent_adds(client):
+    """Ten threads adding at once: every reminder present, ids unique.
+
+    Pins the lock discipline the add() debugging episode chased —
+    contention was never the bug (the maxlen-0 deque was), but the
+    guarantee is worth holding. With the durable store, every add is an
+    atomic file rewrite behind the RLock.
+    """
+    import threading
+
+    sched = zs.scheduled
+    n = 10
+    barrier = threading.Barrier(n)
+
+    def adder(i: int) -> None:
+        barrier.wait()
+        sched.add(time.time() + i, f"thread-{i}")
+
+    threads = [threading.Thread(target=adder, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    pending = sched.list_all()
+    assert sorted(p["text"] for p in pending) == sorted(
+        f"thread-{i}" for i in range(n)
+    )
+    assert len({p["id"] for p in pending}) == n
+
+
+def test_reminder_stored_offline_replays_with_name_mark(client):
+    """A reminder that fired with no band attached is stored in the inbox —
+    on the next delivery it replays as the same self-naming turn a live
+    reminder is: mark cells, the triple-pulse tail, then the content.
+    Redelivery must not lose the identity.
+    """
+    import asyncio
+
+    rec = _RecordingDevice()
+    # Store a "scheduled" entry directly — the no-band fire path is covered
+    # by the misfire tests; here the replay is what is under test.
+    zs.inbox.offer("pills", source="scheduled")
+    zs.hub.devices.append(rec)
+    try:
+        asyncio.run(zs.deliver_inbox_one())
+    finally:
+        zs.hub.devices.remove(rec)
+
+    haptics = [(f["pattern"], f.get("why")) for f in rec.frames
+               if f["type"] == "haptic"]
+    texts = [f.get("text", "") for f in rec.frames if f["type"] == "text"]
+    cells = [f["ch"] for f in rec.frames if f["type"] == "cell"]
+
+    assert texts[0] == "reminder: pills"
+    assert cells[:3] == list(timing.MARK_CELLS[timing.PREFIX_MARK])
+    assert haptics[0] == ("triple-pulse", "reminder mark")
+    assert any(t.startswith("queued: pills") for t in texts)
+    assert haptics[-1][0] == "end-of-message"
+    # Marked delivered only after the close — the entry is gone.
+    assert zs.inbox.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# The felt sequence: spec-defined patterns over the wire

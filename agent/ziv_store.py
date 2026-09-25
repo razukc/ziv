@@ -2,7 +2,7 @@
 
 Relay v0 kept everything in process memory: a message that arrived while no
 phone was attached vanished, and the wearer's playback-pace preference reset
-on every restart. Relay v1 gives the wearer two durable things:
+on every restart. Relay v1 gives the wearer three durable things:
 
 * ``WearerMemory`` — per-wearer key/value memory (profile facts, preferences),
   atomic JSON, never crashes on a corrupt file: a corrupt file is discarded
@@ -11,6 +11,8 @@ on every restart. Relay v1 gives the wearer two durable things:
   is for a turn, the inbox is for days. An inbound message with no band
   attached is *stored*, not dropped — and offered on the next attach, under
   the wearer's control, like the queue.
+* ``ScheduledReminders`` — the reminder schedule, durable like the inbox:
+  a reminder promised for tomorrow survives a relay restart tonight.
 
 One JSON file per key under ``agent/ziv_data/`` (gitignored — it is the
 wearer's data, not repo state).
@@ -203,3 +205,148 @@ class MessageInbox:
             if n:
                 self._save([{**e, "delivered": True} for e in entries])
             return n
+
+
+# Schedule discipline (plan §9: bounded memory everywhere — same rule the
+# inbox obeys; the cap drops the OLDEST pending reminder when full).
+SCHEDULE_CAP = 64
+
+
+class ScheduledReminders:
+    """The reminder schedule, durable like the inbox.
+
+    Storage: one JSON list under ``<wearer>.schedule.json`` — dicts of
+    ``{"id", "fire_at", "text", "source"}``, soonest first, capped at
+    ``SCHEDULE_CAP`` (oldest dropped when full). Every mutation (add,
+    clear, take_due) is an atomic rewrite, so a relay restart keeps its
+    pending reminders: the "acts while you're away" beat survives the
+    process that promised it.
+
+    A corrupt file is discarded and reported through ``take_corrupt_files()``
+    (health surfaces it), never silently swallowed — and the next write
+    rebuilds a working file.
+    """
+
+    def __init__(self, wearer_id: str = "wearer") -> None:
+        self.wearer_id = wearer_id
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # RLock: public methods hold it while calling _load/_save, which
+        # re-acquire — reentrant makes the nesting harmless.
+        self._lock = threading.RLock()
+        self._corrupt_keys: list[str] = []
+        self._path = DATA_DIR / f"{self.wearer_id}.schedule.json"
+        # Ids never repeat across restarts: they continue from the file.
+        # (_next_id exists before the first load — the load itself bumps it.)
+        self._next_id = 0
+        self._next_id = self._load_next_id()
+
+    # -- storage ------------------------------------------------------------
+
+    @staticmethod
+    def _is_row(e: Any) -> bool:
+        """One stored reminder, shape-checked — malformed rows are dropped
+        at load (a hand-edited or truncated file cannot crash the loop)."""
+        return (
+            isinstance(e, dict)
+            and isinstance(e.get("id"), int)
+            and isinstance(e.get("fire_at"), (int, float))
+            and isinstance(e.get("text"), str)
+        )
+
+    def _load(self) -> list[dict[str, Any]]:
+        payload, corrupt = _load_json(self._path)
+        if corrupt or (payload is not None and not isinstance(payload, list)):
+            with self._lock:
+                if "schedule" not in self._corrupt_keys:
+                    self._corrupt_keys.append("schedule")
+            return []
+        rows = [e for e in (payload or []) if self._is_row(e)]
+        # Ids never repeat under ANY interleaving: every load — including
+        # one whose rows take_due is about to remove — advances the high-
+        # water mark past the largest id seen (another instance may have
+        # written the file since construction; the restart simulation in
+        # the tests does exactly that).
+        if rows:
+            with self._lock:
+                self._next_id = max(
+                    self._next_id, max(r["id"] for r in rows) + 1
+                )
+        return rows
+
+    def _save(self, rows: list[dict[str, Any]]) -> None:
+        _atomic_write_json(self._path, rows)
+
+    def _load_next_id(self) -> int:
+        return max((e["id"] for e in self._load()), default=0) + 1
+
+    def take_corrupt_files(self) -> list[str]:
+        """Report (and forget) corrupt-file keys, for health."""
+        with self._lock:
+            out, self._corrupt_keys = self._corrupt_keys, []
+        return out
+
+    # -- the schedule API ---------------------------------------------------
+
+    def add(self, fire_at: float, text: str,
+            *, source: str = "scheduled") -> dict[str, Any]:
+        """Add one reminder (soonest-first, capped — oldest dropped)."""
+        with self._lock:
+            rows = self._load()
+            rem = {
+                "id": self._next_id,
+                "fire_at": float(fire_at),
+                "text": text,
+                "source": source,
+            }
+            self._next_id += 1
+            rows.append(rem)
+            rows.sort(key=lambda r: r["fire_at"])
+            if len(rows) > SCHEDULE_CAP:
+                rows = rows[-SCHEDULE_CAP:]
+            self._save(rows)
+            return rem
+
+    def count(self) -> int:
+        """Pending reminder count (what health shows as depth)."""
+        with self._lock:
+            return len(self._load())
+
+    def list_all(self) -> list[dict[str, Any]]:
+        """Pending reminders, soonest first (the wire/health shape)."""
+        with self._lock:
+            return [
+                {
+                    **r,
+                    "fire_at_iso": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(r["fire_at"])
+                    ),
+                    "fired": False,
+                }
+                for r in self._load()
+            ]
+
+    def clear(self) -> int:
+        """The wearer cancels everything pending; returns how many."""
+        with self._lock:
+            n = len(self._load())
+            if n:
+                self._save([])
+            return n
+
+    def take_due(self) -> list[dict[str, Any]]:
+        """Reminders whose fire_at has passed — removed, then handed out.
+
+        Removal happens BEFORE any turn plays (the inbox's take discipline):
+        a crash between take and playback means a reminder fires again on
+        the next start — redelivery is the failure mode, never a double
+        file state, never a silent loss.
+        """
+        with self._lock:
+            rows = self._load()
+            # ONE now: two clock reads could move a reminder into both
+            # lists (fired AND kept) at the moment its fire_at passes.
+            now = time.time()
+            due = [r for r in rows if r["fire_at"] <= now]
+            if due:
+                self._save([r for r in rows if r["fire_at"] > now])
+            return due
