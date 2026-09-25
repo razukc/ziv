@@ -8,7 +8,7 @@ open at `http://127.0.0.1:8787/ziv_client/index.html`.
 **Pre-roll (before REC):**
 
 - [ ] Terminal A: `python -m pytest -m "not e2e"` → `126 passed, 2 skipped` (keep the tail on screen)
-- [ ] Terminal B: `python ziv_server.py` → `Uvicorn running on http://0.0.0.0:8787`
+- [ ] Terminal B: `ZIV_FAKE_MODEL_SECONDS=8 python ziv_server.py` → `Uvicorn running on http://0.0.0.0:8787` (8 s fake-model = room to work; every turn ~10 s)
 - [ ] Browser: open the dev-band page → `relay hello — spec v3, … patterns, mark: ziv`
 - [ ] Click **Unlock vibration** → `vibration unlocked`; badge reads `queue 0/8 · reminders 0/64`
 - [ ] Message box cleared; mic unmuted; REC ●
@@ -20,8 +20,11 @@ open at `http://127.0.0.1:8787/ziv_client/index.html`.
 Phone face-down on the desk. Terminal B:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/api/ziv/message -H "Content-Type: application/json" -d "{\"text\": \"taxi is here\"}"
+curl -s --max-time 90 -X POST http://127.0.0.1:8787/api/ziv/message -H "Content-Type: application/json" -d "{\"text\": \"taxi is here\"}"
 ```
+
+*(Without `--max-time`, curl on Windows hangs until the whole turn completes —
+always pass it; the POST returns only when the turn is done.)*
 
 **Say (over the buzz):** "A message only one person receives."
 **Expect on page:** `▶ double-tap (kind cue) — 70,160,70,420 ms` →
@@ -39,16 +42,30 @@ timing the wrist firmware plays; no screen, no sound."
 
 ### 0:40–1:10 — queue, refuse, redial
 
-Send `hold that thought` (longer text = longer turn = more fill time).
-The moment its `message: hold that thought` frame appears, rapid-fire
-**Send** on `one` `two` `three` `four` `five` `six` `seven` `eight` — each
-gets a cue and queues; the badge climbs to `queue 8/8`. Send `nine`:
+**0:40 —** set the starter turn going: send `hold that thought` →
+**Send as message**. Keep the browser focused.
+
+**0:45 —** the moment its `message: hold that thought` frame appears, paste
+this ONE command in terminal B (fills all 8 slots in ~1 s; each curl
+returns within 8 s, well after the queue accepted the message):
+
+```bash
+for w in alpha bravo charlie delta echo foxtrot golf hotel; do curl -s --max-time 90 -X POST http://127.0.0.1:8787/api/ziv/message -H "Content-Type: application/json" -d "{\"text\": \"$w\"}" -o /dev/null & done; echo "filled"
+```
+
+*(Background the curls (`&`, no `wait`): the command returns instantly, the
+queue fills within a second, and each POST completes on its own as the
+replays drain. Or skip the typing entirely: `python record_beat.py` records
+this whole beat — clicks, refusal, redial — to `demo_beat.webm`, which is
+the file attached to the `submission-v1` release.)*
+
+**0:47 —** type `nine` in the box → **Send as message** — it's refused:
 
 **Expect:** state `wrist is busy — try after the current message`, log
 `✋ refused — the wrist is busy reading. It stays armed: the client redials it when the current message ends.`,
 note `↻ redial armed — "nine" sends when the current message ends (3 chances left)`.
-When the starter's close lands: `↻ redial — resending "nine" (the close just landed)`
-→ `POST ok — {…}` → the queue drains (badge back to `0/8`).
+When the starter's close lands (~0:55): `↻ redial — resending "nine" (the close just landed)`
+→ `POST ok — {…}` → the eight queued messages replay (badge drains to `0/8`).
 
 **Say:** "A full queue is a loud no — and the client redials by itself the
 moment the close frees the channel."

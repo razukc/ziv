@@ -46,4 +46,5 @@ Thumbs.db
 
 # The wearer's own data (relay v1: memory files + persistent inbox) —
 # user data, never repo state.
-agent/ziv_data/
+agent/ziv_data/agent/demo_beat.webm
+agent/demo_beat_trace.zip
