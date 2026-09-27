@@ -49,4 +49,8 @@ Thumbs.db
 # repo state.
 agent/ziv_data/
 agent/demo_beat.webm
+agent/demo_beat_narrated.mp4
 agent/demo_beat_trace.zip
+agent/narration/
+agent/ziv_data_gallery_tmp/
+agent/gallery_shots/
