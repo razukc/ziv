@@ -7,6 +7,7 @@ trip (add to spec -> consumers regenerate -> everything still verifies) —
 the last one in a private sandbox, never touching the real repo files.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -73,11 +74,18 @@ def test_header_and_feel_tool_carry_the_spec_words():
 
 
 def run_tool(words, *extra):
+    # The tool prints em-dashes; pin the child's stdio encoding so a
+    # UTF-8-mode parent (`-X utf8`, as CI invokes pytest) never dies
+    # decoding a cp1252 pipe on Windows — which surfaces as stdout=None
+    # and a TypeError instead of a real assertion.
     return subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "rename_check.py"), *words, *extra],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         timeout=60,
     )
 

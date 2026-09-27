@@ -15,6 +15,7 @@ touched.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -32,11 +33,17 @@ QEMU_TIMELINE = REPO_ROOT / "tools" / "qemu_timeline.py"
 
 
 def run_checker(argv=None):
+    # Tools print em-dashes; pin the child's stdio encoding so a UTF-8-mode
+    # parent (`-X utf8`, as CI invokes pytest) never dies decoding a cp1252
+    # pipe on Windows (stdout=None -> TypeError instead of a real assert).
     return subprocess.run(
         [sys.executable, str(CHECKER), *(argv or [])],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         timeout=60,
     )
 
@@ -196,7 +203,10 @@ def test_ladder_doc_stage_spans_match_the_spec():
 def run_differ(argv):
     return subprocess.run(
         [sys.executable, str(QEMU_TIMELINE), *argv],
-        cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
+        cwd=REPO_ROOT, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=60,
     )
 
 

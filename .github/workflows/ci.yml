@@ -70,6 +70,13 @@ jobs:
       - name: Provision ESP-IDF + Espressif QEMU (the one missing piece)
         id: idf
         if: ${{ false }}
+        # A step must declare `run` or `uses` to be a valid workflow file —
+        # without it GitHub rejects the whole workflow at parse time and
+        # every job (including the ziv suite) is never created. This stays
+        # disabled until filled in; the no-op run line is only the valid
+        # placeholder shape.
+        run: |
+          echo "verify-at-install: fill this step — see docs/QEMU_WINDOWS_INSTALL.md"
 
       - name: Boot the app under QEMU (bounded capture)
         if: steps.idf.outputs.available == 'true'

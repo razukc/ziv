@@ -34,8 +34,8 @@ cd agent
 python -m pytest -m "not e2e"
 ```
 
-**Expect: `126 passed, 2 skipped`** (the 2 skips are the Playwright browser
-tests; they skip cleanly when Playwright isn't installed). ~2 minutes on a
+**Expect: `126 passed`** (the 3 e2e browser tests are marker-deselected;
+without Playwright installed they skip cleanly instead). ~2 minutes on a
 laptop. This one command proves every row of the table above — each named
 test is in the output.
 
