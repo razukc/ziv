@@ -279,7 +279,7 @@ lost:
 
 ## 9. Pre-flight (final)
 
-- [ ] `pytest -m "not e2e"` → 126 passed, 2 skipped; `-m e2e` → 3 passed
+- [ ] `pytest -m "not e2e"` → 126 passed (3 e2e deselected); `-m e2e` → 3 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable, and
       Token Factory + Nemotron **named aloud** (§2's narrated pipeline),
       uploaded as MP4/WebM with the audio track present in the file
@@ -287,7 +287,9 @@ lost:
       274-check firmware bench, 49-check ziv_qemu host suite, 27 HAP events
       — JUDGE_REPRO.md is the source of truth)
 - [ ] Both deferral sentences intact (AI-composed replies = next build
-      step; wrist hardware = next revision)- [ ] Gallery images uploaded with **every caption field filled** (§3); thumbnail 3:2 ≤5 MB; ≤15 images
+      step; wrist hardware = next revision)
+- [ ] Gallery images uploaded with **every caption field filled** (§3);
+      thumbnail 3:2 ≤5 MB; ≤15 images
 - [ ] Elevator pitch pasted (93 chars, ≤100); thumbnail shows the card, not Devpost's placeholder
 - [ ] Project Story headings match Devpost's template (§4); Built With
       includes standalone **Nebius Token Factory** and **NVIDIA** chips

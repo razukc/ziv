@@ -23,6 +23,8 @@ Quick index — claim → where it's proven:
 | Health surfaces the schedule (depth/cap/corrupt) | `test_health_payload_surfaces_the_schedule` |
 | Redial give-up is a loud dead end | `tests/test_client_redial_contract.py` (+ browser proof in `test_redial_giveup_e2e.py`, marked `e2e`) |
 | Timing spec: one source, drift-guarded | `tests/test_haptic_timing.py`, `test_rename_check.py` |
+| Firmware bench: the sequencer plays the spec in host-portable C | `firmware/haptic_out/run_tests.py` → **274 checks, 0 failures** (`-Wall -Wextra -Werror`, no ESP-IDF needed) |
+| Boot demo: the ESP32-S3 app's demo chain plays the derived fixture exactly | `firmware/app/ziv_qemu/run_ziv_tests.py` → **49 checks, 0 failures** — 27 HAP events matched within tolerance (start times, payload names, dot masks, buzz/gap, beat index) |
 | Honesty audit trail | `HONESTY_CHANGELOG.md` |
 
 ---
@@ -36,8 +38,18 @@ python -m pytest -m "not e2e"
 
 **Expect: `126 passed`** (the 3 e2e browser tests are marker-deselected;
 without Playwright installed they skip cleanly instead). ~2 minutes on a
-laptop. This one command proves every row of the table above — each named
-test is in the output.
+laptop. This one command proves every agent row of the table above — each
+named test is in the output.
+
+The firmware half — both runners are host-portable (no hardware, no
+ESP-IDF; a C compiler is detected, or the repo venv's `ziglang`):
+
+```bash
+# from the repo root
+python firmware/haptic_out/run_tests.py        # → bench suite: PASS (274 checks, 0 failures)
+python firmware/app/ziv_qemu/run_ziv_tests.py  # → ziv host suite: PASS (49 checks, 0 failures)
+                                               #   PASS — 27 HAP events matched within tolerance
+```
 
 Just the honesty-critical ones (~30 s total — the four fast contract files
 run whole, the big server file is filtered to the felt-pattern tests):
