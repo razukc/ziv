@@ -9,13 +9,15 @@ on:
 jobs:
   ziv:
     name: Ziv — hermetic suite + timing drift guard
-    runs-on: ubuntu-latest
+    # Pinned image: `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19 —
+    # bump deliberately, not by surprise (see actions/runner-images#14748).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -45,13 +47,13 @@ jobs:
   qemu-boot:
     name: QEMU boot — ESP32-S3 app boots the demo (non-blocking)
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
