@@ -36,11 +36,14 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
 * ``GET /api/ziv/timing`` — the generated timing module serialized: the
   client bootstraps its vibrate patterns from the same source the firmware
   header was generated from (plan §4: structure universal).
-* ``POST /inject/audio`` — the audio seam, opt-in: the PWA records the mic
-  (MediaRecorder) and posts it as ``audio_b64``. It needs an audio-capable
-  endpoint, so it answers 503 without a key *and* without one configured
-  — a refusal, never a guess at a model id. ``{"simulate": "<text>"}`` is the
-  keyless path, and it takes the same turn a message would.
+* ``POST /api/ziv/schedule`` — a reminder, or an *intent* the agent path
+  turns into a line when it fires (see ``compose_reminder_line``): a live
+  NVIDIA open model on Nebius Token Factory, whose words the phone spells.
+* ``POST /inject/audio`` — the audio seam, held as asset: the PWA records
+  the mic and posts ``audio_b64``. It needs an audio-capable endpoint, so it
+  answers 503 unless one is configured rather than naming a model that cannot
+  serve the request. ``{"simulate": "<text>"}`` is the keyless path the demo
+  runs, and it takes the same turn a message would.
 * ``GET/DELETE /api/ziv/inbox`` — the persistent inbox: pending messages
   oldest-first, cap enforced; DELETE lets the wearer discard everything.
 * ``GET/POST /api/ziv/prefs`` — the wearer's cell-gap preference (clamped
@@ -147,10 +150,22 @@ async def fire_due() -> list[dict[str, Any]]:
     fired: list[dict[str, Any]] = []
     for r in scheduled.take_due():
         try:
-            await run_message_turn(
-                r["text"], source=r["source"], prefix_mark="reminder"
+            text, source = r["text"], r["source"]
+            if source == "agent":
+                # The store holds the *intent* the caller scheduled; the line
+                # the wearer hears is composed here, at fire time, by the
+                # model. If the agent path is unavailable the promise still
+                # fires — verbatim, and honestly labelled as an echo, so the
+                # log never claims a model ran when none did.
+                if agent_path_available():
+                    text = await compose_reminder_line(r["text"])
+                else:
+                    source = "text_echo"
+            await run_message_turn(text, source=source, prefix_mark="reminder")
+            fired.append(
+                {**r, "text": text, "source": source,
+                 "fired": True, "fired_at": time.time()}
             )
-            fired.append({**r, "fired": True, "fired_at": time.time()})
         except _NoDevices:
             # No phone attached: store as inbox entry so it's delivered on
             # the next attach (never lost, same contract as inbound msg).
@@ -236,21 +251,37 @@ FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
 ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
 ZIV_PORT = int(os.environ.get("ZIV_PORT", "8787"))
 
-# The audio seam (plan §7 week 1): Nebius Token Factory credentials
-# (NEBIUS_API_KEY), the standard OpenAI-compatible env pattern.
+# Nebius Token Factory (plan §7 week 1): one OpenAI-compatible endpoint, one
+# key, in a gitignored ``.env``. Two model paths live here, and they are not
+# equal — only one of them runs in this submission's demo.
+#
+# * **text** (``ZIV_TEXT_MODEL``) — the agent path. A scheduled reminder is
+#   composed by Nemotron at fire time and the phone spells the model's own
+#   words. This is the model the demo proves.
+# * **audio** (``ZIV_OMNI_MODEL``) — the transcription path. Opt-in and empty
+#   by default: it needs an audio-capable endpoint, so the relay refuses the
+#   call instead of naming a model id that cannot serve it. Held as asset.
 NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
-NEBIUS_BASE_URL = os.environ.get(
-    "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"
+NEBIUS_BASE_URL = (
+    os.environ.get("NEBIUS_BASE_URL")
+    or "https://api.tokenfactory.nebius.com/v1/"
 )
-#: Opt-in and empty by default. This path needs an endpoint that accepts an
-#: audio input part; with nothing configured /inject/audio answers 503
-#: rather than naming a model id that cannot serve the request. (The old
-#: default, nvidia/Nemotron-3-Nano-Omni, is not a model this account has:
-#: GET /v1/models lists four Nemotron models and it is not among them.)
+#: The agent model. A real NVIDIA open model this account's /v1/models lists,
+#: so a live call is a live NVIDIA open model on Nebius Token Factory.
+ZIV_TEXT_MODEL = (
+    os.environ.get("ZIV_TEXT_MODEL") or "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+)
+#: Empty means "no audio-capable endpoint is configured here"; /inject/audio
+#: answers 503 rather than guessing at a model id.
 ZIV_OMNI_MODEL = os.environ.get("ZIV_OMNI_MODEL", "")
 _OMNI_PROMPT = (
     "Transcribe this audio clip. Reply with only the words that were "
     "spoken, nothing else."
+)
+_COMPOSE_PROMPT = (
+    "You write the single line a vibro-braille channel plays to a deafblind "
+    "wearer. Reply with that line only — no quotes, no preamble, no markdown, "
+    "at most 30 characters, plain everyday words."
 )
 
 # Lifespan: start the always-on schedule loop when the app starts and stop
@@ -280,14 +311,24 @@ app = FastAPI(
 
 @app.post("/api/ziv/schedule")
 async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
-    """Schedule a reminder to fire at a specific epoch time (seconds)."""
+    """Schedule a reminder to fire at a specific epoch time (seconds).
+
+    ``text`` is a finished line, played verbatim. ``intent`` is the agent
+    path: the promise is stored as an intent, and the line is composed by the
+    model when it fires. Both are durable, so both survive a restart.
+    """
     fire_at = float(body.get("fire_at", 0))
     text = str(body.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="text is required")
+    intent = str(body.get("intent", "")).strip()
+    if not text and not intent:
+        raise HTTPException(
+            status_code=422, detail="text (a line) or intent (composed) is required"
+        )
     if fire_at <= time.time():
         raise HTTPException(status_code=422, detail="fire_at must be in the future")
-    rem = scheduled.add(fire_at, text)
+    rem = scheduled.add(
+        fire_at, intent or text, source="agent" if intent else "scheduled"
+    )
     return JSONResponse(
         {
             "scheduled": True,
@@ -598,7 +639,8 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     ``data`` is the **raw base64** audio and ``format`` names the container
     separately, which is the shape the OpenAI audio convention uses (a
     ``data:audio/...;base64,`` URL is Gemini's ``inlineData`` convention and
-    does not belong in this field). Raises ``HTTPException(502)`` with the
+    does not belong in this field). Raises ``HTTPException(503)`` when no
+    audio-capable endpoint is configured and ``HTTPException(502)`` with the
     provider's own words on any failure — the caller decides the
     wearer-visible path (the error long-buzz, never silence).
     """
@@ -615,7 +657,10 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
                     {"type": "text", "text": _OMNI_PROMPT},
                     {
                         "type": "input_audio",
-                        "input_audio": {"data": audio_b64, "format": mime},
+                        "input_audio": {
+                            "data": audio_b64,
+                            "format": mime,
+                        },
                     },
                 ],
             }
@@ -637,6 +682,8 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
             detail=f"Token Factory unreachable: {exc}",
         ) from exc
     if resp.status_code != 200:
+        # The provider's own words stay on the wire: the caller can check
+        # them, and we never invent a cause they cannot verify.
         raise HTTPException(
             status_code=502,
             detail=f"Token Factory error {resp.status_code}: {resp.text[:300]}",
@@ -652,6 +699,81 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     if not text:
         raise HTTPException(status_code=502, detail="Omni heard nothing (empty transcript)")
     return text
+
+
+async def compose_with_nebius(prompt: str, *, system: str = "") -> str:
+    """One Token Factory **text** call — the agent path.
+
+    Same endpoint, same key, same OpenAI-compatible wire shape as the audio
+    seam; a text body instead of an ``input_audio`` content part. This is the
+    call the demo actually proves, so it gets the same loud-not-silent
+    discipline: ``HTTPException(502)`` carrying the provider's words, never a
+    silent empty string.
+    """
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover — httpx ships with fastapi
+        raise HTTPException(status_code=500, detail="httpx unavailable") from exc
+    payload = {
+        "model": ZIV_TEXT_MODEL,
+        "messages": (
+            ([{"role": "system", "content": system}] if system else [])
+            + [{"role": "user", "content": prompt}]
+        ),
+        "max_tokens": 64,
+        "temperature": 0.0,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                NEBIUS_BASE_URL.rstrip("/") + "/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {NEBIUS_API_KEY}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Token Factory unreachable: {exc}"
+        ) from exc
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Token Factory error {resp.status_code}: {resp.text[:300]}",
+        )
+    try:
+        out = str(resp.json()["choices"][0]["message"]["content"]).strip()
+    except (KeyError, IndexError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502, detail="Token Factory reply had no text"
+        ) from exc
+    if not out:
+        raise HTTPException(status_code=502, detail="model composed nothing")
+    return out
+
+
+def agent_path_available() -> bool:
+    """Can the relay actually reach the model? Key present *and* a model id.
+
+    Used to decide ``source`` before the call, so the wire log says
+    ``text_live`` only when a real model call ran, and ``text_echo`` when the
+    stored line is played verbatim instead. Never guesses.
+    """
+    return bool(NEBIUS_API_KEY and ZIV_TEXT_MODEL)
+
+
+async def compose_reminder_line(intent: str) -> str:
+    """Ask the model for the one line this reminder should play.
+
+    The reminder the caller scheduled is an *intent* ("meds at nine"), not a
+    finished sentence — turning it into the line a wrist reads is exactly the
+    work an agent should do while nobody is chatting. The model's own words
+    are what plays; nothing here invents or templates them.
+    """
+    line = await compose_with_nebius(
+        f"Write the reminder line for this intent: {intent}",
+        system=_COMPOSE_PROMPT,
+    )
+    # One line, no leftover markdown emphasis or quotes the model added.
+    return line.strip().strip('"').splitlines()[0][:60] or intent
 
 
 async def deliver_inbox_one() -> dict[str, Any] | None:
@@ -887,13 +1009,13 @@ async def inject_audio(
     body: dict[str, Any],
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    """The audio seam (week 1): mic audio → transcript → turn.
+    """The Omni spike's seam (week 1), now real: mic audio → transcript → turn.
 
     The PWA records the mic (MediaRecorder) and posts
-    ``{"audio_b64": "…", "mime": "webm", "lang": "en"}``. Without a key or
-    without an audio-capable endpoint configured this answers 503 — a
-    refusal, never a silent failure. ``{"simulate": "<text>"}`` is the keyless
-    path; it takes the *same turn* a typed message would, so cues, ticks,
+    ``{"audio_b64": "…", "mime": "webm", "lang": "en"}``. Without an
+    audio-capable endpoint configured this answers 503 — a refusal, never a
+    silent failure. ``{"simulate": "<text>"}`` is the keyless path the demo
+    runs; it takes the *same turn* a typed message would, so cues, ticks,
     cells, close and the queue are all exercised either way.
     """
     _authorized_http(authorization)
@@ -1027,7 +1149,15 @@ def health() -> dict[str, Any]:
         "spec_version": timing.SPEC_VERSION,
         "fake_model_seconds": FAKE_MODEL_SECONDS,
         "auth": bool(ZIV_RELAY_TOKEN),
-        # Configured or not: the audio seam is opt-in, and health says which.
+        # The model wiring, operator-visible: which path can actually run
+        # right now. `text` is the demo's model; `omni` is the audio seam,
+        # unset unless an audio-capable endpoint is configured.
+        "text": {
+            "key_set": bool(NEBIUS_API_KEY),
+            "base_url": NEBIUS_BASE_URL.rstrip("/"),
+            "model": ZIV_TEXT_MODEL,
+            "available": agent_path_available(),
+        },
         "omni": {
             "key_set": bool(NEBIUS_API_KEY),
             "model": ZIV_OMNI_MODEL,

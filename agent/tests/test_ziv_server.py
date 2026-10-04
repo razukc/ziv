@@ -12,9 +12,14 @@ the in-process ASGI/WS test transport. What is proven:
 * the vibrate patterns are the generated module's beats inverted — the same
   numbers the firmware header plays (zero hand-copied timing);
 * /api/ziv/timing exposes the generated module verbatim;
-* /inject/audio (the audio seam, opt-in): ``audio_b64`` goes out as an OpenAI
-  ``input_audio`` content part — raw base64 in ``data``, the container named
-  in ``format`` — and the transcript takes the same turn; it answers 503
+* the agent path: a reminder scheduled as an *intent* is composed into a line
+  by a live NVIDIA open model on Nebius Token Factory (HTTP mocked; the wire
+  request asserted) and the model's own words are what the turn spells; with no
+  key the promise still fires verbatim, labelled ``text_echo`` so the log never
+  claims a model ran when none did;
+* /inject/audio (the audio seam, held as asset): ``audio_b64`` goes out as an
+  OpenAI ``input_audio`` content part — raw base64 in ``data``, the container
+  named in ``format`` — and the transcript takes the same turn; it answers 503
   without a key or without an audio-capable endpoint configured, 502 with the
   provider's own words otherwise, and the ``simulate`` stub keeps it keyless;
 * auth: when ZIV_RELAY_TOKEN is set, bad/missing bearer tokens and WS tokens
@@ -470,16 +475,6 @@ def test_omni_rejects_bad_mime_and_missing_body(client, monkeypatch):
     assert r.status_code == 422
 
 
-def test_omni_requires_a_configured_audio_endpoint(client, monkeypatch):
-    """A key alone is not enough: with no audio-capable endpoint configured the
-    seam refuses with 503 rather than naming a model that cannot serve it."""
-    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
-    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "")
-    r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "webm"})
-    assert r.status_code == 503
-    assert "ZIV_OMNI_MODEL" in r.json()["detail"]
-
-
 def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
     """audio_b64 → Token Factory call (mocked) → transcript takes the turn.
 
@@ -537,9 +532,11 @@ def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
         assert captured["json"]["model"] == zs.ZIV_OMNI_MODEL
         parts = captured["json"]["messages"][0]["content"]
         assert parts[1]["type"] == "input_audio"
+        # Exactly the OpenAI audio shape: raw base64 in ``data``, the container
+        # named in ``format``. Asserted for equality on purpose — a loosened
+        # ``endswith`` here is precisely how a ``data:`` URL slips into the
+        # payload and ships unnoticed.
         assert parts[1]["input_audio"] == {"data": _B64_PNG, "format": "webm"}
-        # Asserted for equality on purpose: a loosened ``endswith`` here is
-        # exactly how a ``data:`` URL slips into the payload and ships green.
 
         # The transcript — not the stub text — is what the wrist spells.
         frames = [ws.receive_json() for _ in range(7)]
@@ -547,14 +544,28 @@ def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
         assert "Pills at nine" in text_frame["text"]  # the transcript, spelled
 
 
+def test_omni_requires_a_configured_audio_endpoint(client, monkeypatch):
+    """A key alone is not enough: with no audio-capable endpoint configured the
+    seam refuses with 503 rather than naming a model that cannot serve it."""
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "")
+    r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "webm"})
+    assert r.status_code == 503
+    assert "ZIV_OMNI_MODEL" in r.json()["detail"]
+
+
 def test_omni_provider_failure_is_loud_not_silent(client, monkeypatch):
-    """A provider error answers 502 with the provider's words — the phone
+    """A provider error answers 502 with the provider's own words — the phone
     shows the failure; the turn never half-happens."""
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
     monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "audio-endpoint/for-tests")
 
     class _Resp:
         status_code = 503
         text = "model overloaded"
+
+        def json(self):
+            return {"detail": "model overloaded"}
 
     class _FakeClient:
         def __init__(self, **kw):
@@ -571,11 +582,11 @@ def test_omni_provider_failure_is_loud_not_silent(client, monkeypatch):
 
     class _FakeHttpx:
         AsyncClient = _FakeClient
+
         class HTTPError(Exception):
             pass
 
     monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
-    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
 
     with _attach(client):
         r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "ogg"})
@@ -583,11 +594,14 @@ def test_omni_provider_failure_is_loud_not_silent(client, monkeypatch):
     assert "model overloaded" in r.json()["detail"]
 
 
-def test_omni_stub_path_still_runs_keyless(client, monkeypatch):
-    """The hermetic demo path is untouched: simulate needs no key.
 
-    The stub must not touch Token Factory at all. Swapping between the stub
-    and a real transcription changes nothing on the phone — only the log's
+
+
+def test_omni_stub_path_still_runs_keyless(client, monkeypatch):
+    """The keyless demo path is untouched: simulate needs no key.
+
+    The stub must not touch Token Factory at all. Swapping between the stub and
+    a real transcription changes nothing on the phone — only the log's
     ``source`` field differs.
     """
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "")
@@ -625,6 +639,145 @@ def test_message_is_rejected_429_when_replay_queue_is_full(client, monkeypatch):
         assert str(zs.MessageGate.MAX_QUEUED) in r.json()["detail"]
     # The refusal pushed no frame: the wearer feels nothing for a no.
     assert pushed == []
+
+
+def test_health_surfaces_the_model_wiring(client, monkeypatch):
+    """Health says which model path can actually run right now, so the demo
+    take never claims a model ran when none did: ``text`` is the agent path the
+    demo proves, ``omni`` the audio seam, configured only when an audio-capable
+    endpoint is named."""
+    h = client.get("/api/ziv/health").json()
+    text, omni = h["text"], h["omni"]
+    assert text["base_url"].startswith("https://api.tokenfactory.nebius.com")
+    assert text["model"] == zs.ZIV_TEXT_MODEL
+    assert text["available"] == zs.agent_path_available()
+    assert omni["configured"] == bool(zs.ZIV_OMNI_MODEL)
+    assert omni["model"] == zs.ZIV_OMNI_MODEL
+
+    # A key plus a model id is what makes the agent path available.
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "k")
+    h2 = client.get("/api/ziv/health").json()
+    assert h2["text"]["key_set"] is True
+    assert h2["text"]["available"] is True
+
+
+def test_scheduled_intent_is_composed_by_the_model_and_played(client, monkeypatch):
+    """The agent path: a reminder scheduled as an *intent* is composed into a
+    line by a live NVIDIA open model on Nebius Token Factory, and the model's
+    own words are what the turn spells — not the intent, not a template."""
+    import asyncio
+
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Meds at nine tonight."}}]}
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured.update(url=url, json=json, headers=headers)
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    r = client.post(
+        "/api/ziv/schedule",
+        json={"fire_at": time.time() + 3600, "intent": "meds at nine"},
+    )
+    assert r.status_code == 200
+    # The durable store keeps the *intent* — never a line nobody composed.
+    assert r.json()["source"] == "agent"
+    assert r.json()["text"] == "meds at nine"
+
+    zs.scheduled._save([{**row, "fire_at": time.time() - 1}
+                        for row in zs.scheduled._load()])
+    with _attach(client):
+        fired = asyncio.run(zs.fire_due())
+    assert fired[0]["fired"] is True
+    assert fired[0]["source"] == "agent"
+    assert fired[0]["text"] == "Meds at nine tonight."
+
+    # The wire request is the provider contract, not our guess.
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["json"]["model"] == zs.ZIV_TEXT_MODEL
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert "meds at nine" in captured["json"]["messages"][-1]["content"]
+
+
+def test_scheduled_intent_echoes_verbatim_without_a_key(client, monkeypatch):
+    """No key, no model: the promise still fires — verbatim, and honestly
+    labelled ``text_echo``, so the log never claims a model ran when none did."""
+    import asyncio
+
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "")
+    client.post(
+        "/api/ziv/schedule",
+        json={"fire_at": time.time() + 3600, "intent": "meds at nine"},
+    )
+    zs.scheduled._save([{**row, "fire_at": time.time() - 1}
+                        for row in zs.scheduled._load()])
+    with _attach(client):
+        fired = asyncio.run(zs.fire_due())
+    assert fired[0]["fired"] is True
+    assert fired[0]["source"] == "text_echo"
+    assert fired[0]["text"] == "meds at nine"
+
+
+def test_compose_failure_is_loud_not_silent(monkeypatch):
+    """A model failure answers 502 with the provider's own words — never a
+    silent empty line, and never a fabricated substitute."""
+    import asyncio
+
+    class _Resp:
+        status_code = 500
+        text = "upstream exploded"
+
+        def json(self):
+            return {"detail": "upstream exploded"}
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    with pytest.raises(zs.HTTPException) as ei:
+        asyncio.run(zs.compose_with_nebius("meds at nine"))
+    assert ei.value.status_code == 502
+    assert "upstream exploded" in ei.value.detail
 
 
 def test_health_surfaces_queue_rejection_telemetry(client):
