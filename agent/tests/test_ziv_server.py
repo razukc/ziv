@@ -12,11 +12,11 @@ the in-process ASGI/WS test transport. What is proven:
 * the vibrate patterns are the generated module's beats inverted — the same
   numbers the firmware header plays (zero hand-copied timing);
 * /api/ziv/timing exposes the generated module verbatim;
-* /inject/audio (the Omni spike's seam, real now): ``audio_b64`` is
-  transcribed by Nemotron-3-Nano-Omni on Nebius Token Factory (HTTP mocked;
-  the wire request is asserted) and the transcript takes the same turn;
-  without ``NEBIUS_API_KEY`` it answers 503, provider errors answer 502 —
-  and the ``simulate`` stub keeps running keyless;
+* /inject/audio (the audio seam, opt-in): ``audio_b64`` goes out as an OpenAI
+  ``input_audio`` content part — raw base64 in ``data``, the container named
+  in ``format`` — and the transcript takes the same turn; it answers 503
+  without a key or without an audio-capable endpoint configured, 502 with the
+  provider's own words otherwise, and the ``simulate`` stub keeps it keyless;
 * auth: when ZIV_RELAY_TOKEN is set, bad/missing bearer tokens and WS tokens
   are rejected (monkeypatched — no env mutation).
 """
@@ -463,10 +463,21 @@ def test_omni_requires_key(client, monkeypatch):
 
 def test_omni_rejects_bad_mime_and_missing_body(client, monkeypatch):
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "k")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "audio-endpoint/for-tests")
     r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "flac"})
     assert r.status_code == 422
     r = client.post("/inject/audio", json={})
     assert r.status_code == 422
+
+
+def test_omni_requires_a_configured_audio_endpoint(client, monkeypatch):
+    """A key alone is not enough: with no audio-capable endpoint configured the
+    seam refuses with 503 rather than naming a model that cannot serve it."""
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "")
+    r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "webm"})
+    assert r.status_code == 503
+    assert "ZIV_OMNI_MODEL" in r.json()["detail"]
 
 
 def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
@@ -507,6 +518,7 @@ def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "audio-endpoint/for-tests")
 
     with _attach(client) as ws:
         r = client.post(
@@ -526,6 +538,8 @@ def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
         parts = captured["json"]["messages"][0]["content"]
         assert parts[1]["type"] == "input_audio"
         assert parts[1]["input_audio"] == {"data": _B64_PNG, "format": "webm"}
+        # Asserted for equality on purpose: a loosened ``endswith`` here is
+        # exactly how a ``data:`` URL slips into the payload and ships green.
 
         # The transcript — not the stub text — is what the wrist spells.
         frames = [ws.receive_json() for _ in range(7)]
@@ -536,6 +550,8 @@ def test_omni_audio_transcribes_and_runs_the_turn(client, monkeypatch):
 def test_omni_provider_failure_is_loud_not_silent(client, monkeypatch):
     """A provider error answers 502 with the provider's words — the phone
     shows the failure; the turn never half-happens."""
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "audio-endpoint/for-tests")
+
     class _Resp:
         status_code = 503
         text = "model overloaded"
@@ -568,8 +584,14 @@ def test_omni_provider_failure_is_loud_not_silent(client, monkeypatch):
 
 
 def test_omni_stub_path_still_runs_keyless(client, monkeypatch):
-    """The hermetic demo path is untouched: simulate needs no key."""
+    """The hermetic demo path is untouched: simulate needs no key.
+
+    The stub must not touch Token Factory at all. Swapping between the stub
+    and a real transcription changes nothing on the phone — only the log's
+    ``source`` field differs.
+    """
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "")
     with _attach(client) as ws:
         r = client.post("/inject/audio", json={"simulate": "Taxi here"})
         assert r.status_code == 200
@@ -810,6 +832,7 @@ def test_omni_provider_failure_feels_the_error_long_buzz(client, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    monkeypatch.setattr(zs, "ZIV_OMNI_MODEL", "audio-endpoint/for-tests")
 
     with _attach(client) as ws:
         r = client.post("/inject/audio", json={"audio_b64": _B64_PNG, "mime": "ogg"})

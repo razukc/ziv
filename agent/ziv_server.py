@@ -36,12 +36,11 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
 * ``GET /api/ziv/timing`` — the generated timing module serialized: the
   client bootstraps its vibrate patterns from the same source the firmware
   header was generated from (plan §4: structure universal).
-* ``POST /inject/audio`` — the week-1 Omni spike's seam, now real: the PWA
-  records the mic (MediaRecorder) and posts it as ``audio_b64``; the relay
-  transcribes it with Nemotron-3-Nano-Omni on Nebius Token Factory (guarded
-  by ``NEBIUS_API_KEY`` — without a key the endpoint answers 503) and runs
-  the same turn a message would take. ``{"simulate": "<text>"}`` keeps the
-  keyless stub path for hermetic demos.
+* ``POST /inject/audio`` — the audio seam, opt-in: the PWA records the mic
+  (MediaRecorder) and posts it as ``audio_b64``. It needs an audio-capable
+  endpoint, so it answers 503 without a key *and* without one configured
+  — a refusal, never a guess at a model id. ``{"simulate": "<text>"}`` is the
+  keyless path, and it takes the same turn a message would.
 * ``GET/DELETE /api/ziv/inbox`` — the persistent inbox: pending messages
   oldest-first, cap enforced; DELETE lets the wearer discard everything.
 * ``GET/POST /api/ziv/prefs`` — the wearer's cell-gap preference (clamped
@@ -237,14 +236,18 @@ FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
 ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
 ZIV_PORT = int(os.environ.get("ZIV_PORT", "8787"))
 
-# The Omni spike (plan §7 week 1): Nebius Token Factory credentials
-# (NEBIUS_API_KEY), the standard OpenAI-compatible env pattern. The model is
-# audio-in/text-out — one model transcribes *and* understands (plan §2).
+# The audio seam (plan §7 week 1): Nebius Token Factory credentials
+# (NEBIUS_API_KEY), the standard OpenAI-compatible env pattern.
 NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
 NEBIUS_BASE_URL = os.environ.get(
     "NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"
 )
-ZIV_OMNI_MODEL = os.environ.get("ZIV_OMNI_MODEL", "nvidia/Nemotron-3-Nano-Omni")
+#: Opt-in and empty by default. This path needs an endpoint that accepts an
+#: audio input part; with nothing configured /inject/audio answers 503
+#: rather than naming a model id that cannot serve the request. (The old
+#: default, nvidia/Nemotron-3-Nano-Omni, is not a model this account has:
+#: GET /v1/models lists four Nemotron models and it is not among them.)
+ZIV_OMNI_MODEL = os.environ.get("ZIV_OMNI_MODEL", "")
 _OMNI_PROMPT = (
     "Transcribe this audio clip. Reply with only the words that were "
     "spoken, nothing else."
@@ -591,11 +594,13 @@ async def _play_cells_and_close(
 async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     """One Token Factory Omni call: audio in, transcript text out.
 
-    OpenAI-compatible chat completions with an ``input_audio`` content part
-    (base64 data URL), the standard Token Factory
-    credentials/base. Raises ``HTTPException(502)`` with the provider's words on any
-    failure — the caller decides the wearer-visible path (the spike's
-    ``long-buzz`` error pattern, not silence).
+    OpenAI-compatible chat completions with an ``input_audio`` content part:
+    ``data`` is the **raw base64** audio and ``format`` names the container
+    separately, which is the shape the OpenAI audio convention uses (a
+    ``data:audio/...;base64,`` URL is Gemini's ``inlineData`` convention and
+    does not belong in this field). Raises ``HTTPException(502)`` with the
+    provider's own words on any failure — the caller decides the
+    wearer-visible path (the error long-buzz, never silence).
     """
     try:
         import httpx
@@ -882,16 +887,14 @@ async def inject_audio(
     body: dict[str, Any],
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
-    """The Omni spike's seam (week 1), now real: mic audio → transcript → turn.
+    """The audio seam (week 1): mic audio → transcript → turn.
 
     The PWA records the mic (MediaRecorder) and posts
-    ``{"audio_b64": "…", "mime": "webm", "lang": "en"}`` — the relay
-    transcribes with Nemotron-3-Nano-Omni on Nebius Token Factory (guarded by
-    ``NEBIUS_API_KEY``: without a key the endpoint answers 503, never a
-    silent failure) and the transcript takes the *same turn* a typed message
-    would — cues, ticks, cells, close, queue. ``{"simulate": "<text>"}``
-    keeps the keyless stub path for hermetic demos; swapping between them
-    changes nothing on the phone.
+    ``{"audio_b64": "…", "mime": "webm", "lang": "en"}``. Without a key or
+    without an audio-capable endpoint configured this answers 503 — a
+    refusal, never a silent failure. ``{"simulate": "<text>"}`` is the keyless
+    path; it takes the *same turn* a typed message would, so cues, ticks,
+    cells, close and the queue are all exercised either way.
     """
     _authorized_http(authorization)
     simulate = str(body.get("simulate") or "").strip()
@@ -908,8 +911,15 @@ async def inject_audio(
         if not NEBIUS_API_KEY:
             raise HTTPException(
                 status_code=503,
-                detail="NEBIUS_API_KEY is not set — Omni transcription "
-                "unavailable; use {\"simulate\": \"…\"} for the keyless stub",
+                detail="NEBIUS_API_KEY is not set — transcription unavailable; "
+                "use {\"simulate\": \"…\"} for the keyless path",
+            )
+        if not ZIV_OMNI_MODEL:
+            raise HTTPException(
+                status_code=503,
+                detail="no audio-capable endpoint configured — set "
+                "ZIV_OMNI_MODEL to an endpoint that accepts audio input; "
+                "use {\"simulate\": \"…\"} for the keyless path",
             )
         mime = str(body.get("mime") or "webm").strip().lower()
         allowed = {"webm", "ogg", "mp4", "mp3", "wav"}
@@ -1017,7 +1027,12 @@ def health() -> dict[str, Any]:
         "spec_version": timing.SPEC_VERSION,
         "fake_model_seconds": FAKE_MODEL_SECONDS,
         "auth": bool(ZIV_RELAY_TOKEN),
-        "omni": {"key_set": bool(NEBIUS_API_KEY), "model": ZIV_OMNI_MODEL},
+        # Configured or not: the audio seam is opt-in, and health says which.
+        "omni": {
+            "key_set": bool(NEBIUS_API_KEY),
+            "model": ZIV_OMNI_MODEL,
+            "configured": bool(ZIV_OMNI_MODEL),
+        },
         "gate_queue": len(gate),
         "gate_queue_cap": MessageGate.MAX_QUEUED,
         "queue_rejections": queue_rejections.snapshot(),
