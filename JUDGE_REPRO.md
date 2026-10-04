@@ -3,8 +3,10 @@
 Every claim in the DEVPOST posts maps to proof in this repo. Two ways in:
 the **60-second test run** (no phone, no key, fully hermetic) and the
 **two-minute live run-through** (real server, real restart, real HTTP).
-Nothing here needs `NEBIUS_API_KEY`; the Omni path is proven at the wire
-contract level with a mocked provider.
+Nothing here needs `NEBIUS_API_KEY`; the model path is proven at the wire
+contract level with a mocked provider, so the turn/gate/queue/close pipeline
+is exercised without a live provider call. With a key and a funded account,
+`python tools/model_probe.py` makes the real call instead.
 
 Quick index — claim → where it's proven:
 
@@ -66,26 +68,26 @@ python -m pytest -q tests/test_ziv_server.py -k "omni_provider_failure_feels \
 
 ## Step 1 — the two-minute live run-through
 
-From the repo root (PowerShell or bash; adjust `ZIV_PORT` if 8791 is taken).
+From the repo root (PowerShell or bash; adjust `ZIV_PORT` if 8787 is taken).
 Every output below was captured live on this repo.
 
 ```bash
 cd agent
-ZIV_PORT=8791 python ziv_server.py        # terminal 1
+ZIV_PORT=8787 python ziv_server.py        # terminal 1
 ```
 
 **1. Schedule a reminder (10 s out) — beat 1, "acts while you're away":**
 
 ```bash
 NOW=$(date +%s)
-curl -X POST http://127.0.0.1:8791/api/ziv/schedule \
+curl -X POST http://127.0.0.1:8787/api/ziv/schedule \
   -H 'Content-Type: application/json' \
   -d "{\"fire_at\": $((NOW+10)), \"text\": \"pills\"}"
 # → {"scheduled":true,"id":1,...,"text":"pills","source":"scheduled",...}
 ```
 
 **2. Watch it fire unprompted, name-mark first** — open the dev band in a
-browser: `http://127.0.0.1:8791/ziv_client/index.html`, tap **Unlock
+browser: `http://127.0.0.1:8787/ziv_client/index.html`, tap **Unlock
 vibration**, then feel/read the wire log: `reminder: pills` → Z-I-V cells →
 `triple-pulse` → breath → kind cue → cells → close. (No phone? The wire log
 on the page shows the same journey; `reminder: pills` arrives on its own.)
@@ -94,8 +96,8 @@ on the page shows the same journey; `reminder: pills` arrives on its own.)
 
 ```bash
 # Ctrl-C the server, then:
-ZIV_PORT=8791 python ziv_server.py        # same terminal
-curl http://127.0.0.1:8791/api/ziv/schedule
+ZIV_PORT=8787 python ziv_server.py        # same terminal
+curl http://127.0.0.1:8787/api/ziv/schedule
 # → the SAME reminder comes back: same id, same fire_at, same text
 ```
 
@@ -106,10 +108,10 @@ beat","source":"scheduled","fired":false}]}` — after a real kill.
 
 ```bash
 # with NO band attached (close the browser tab first):
-curl -X POST http://127.0.0.1:8791/inject/audio \
+curl -X POST http://127.0.0.1:8787/inject/audio \
   -H 'Content-Type: application/json' -d '{"simulate": "who is calling"}'
 # → {"event":"inbox:stored","stored":true,...}
-curl -X POST http://127.0.0.1:8791/api/ziv/message \
+curl -X POST http://127.0.0.1:8787/api/ziv/message \
   -H 'Content-Type: application/json' -d '{"text": "stored while away"}'
 # → {"event":"inbox:stored",...}  (same no-band contract for typed input)
 ```
@@ -120,7 +122,7 @@ as a **self-naming turn** — mark first, content after (inbox replay claim).
 **5. Health — the operator's view (badge numbers, telemetry):**
 
 ```bash
-curl http://127.0.0.1:8791/api/ziv/health
+curl http://127.0.0.1:8787/api/ziv/health
 ```
 
 Look for: `gate_queue`/`gate_queue_cap` (what the PWA badge renders),
@@ -128,7 +130,7 @@ Look for: `gate_queue`/`gate_queue_cap` (what the PWA badge renders),
 `schedule_corrupt`, `inbox_pending`, `store_problems`. The badge on the
 dev-band page shows the same numbers live, polled every 2 s.
 
-**Cleanup:** `curl -X DELETE http://127.0.0.1:8791/api/ziv/schedule`, then
+**Cleanup:** `curl -X DELETE http://127.0.0.1:8787/api/ziv/schedule`, then
 Ctrl-C. Wearer state lives in `agent/ziv_data/` (gitignored); DELETE clears
 your own test schedule.
 
@@ -136,7 +138,7 @@ your own test schedule.
 
 ## Step 2 — optional, 5 minutes: the full turn journey with your eyes
 
-With the server running, open `http://127.0.0.1:8791/ziv_client/index.html`
+With the server running, open `http://127.0.0.1:8787/ziv_client/index.html`
 on Android Chrome (or desktop Chrome — vibration needs Android, but the
 wire log, cells box, badge, and redial note all render anywhere):
 

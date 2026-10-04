@@ -18,7 +18,7 @@ The channel's manners were not invented for this hackathon — they were adopted
 
 Ziv is a thin relay plus the phone you already own, used as a display for a channel that is silent and invisible by physics:
 
-1. **Hears speech.** Push-to-talk: a clip goes to Nemotron-3-Nano-Omni on Nebius Token Factory — audio in, text out, one model transcribes natively — and the transcript enters the relay's single turn pipeline: `run_message_turn`, the exact code path, gate, and timing a typed message takes; the only added wait is the Token Factory round-trip, which the wrist feels as `processing` ticks. *(Composing AI replies from what is heard is the next build step; today the channel carries words — spoken in, tapped out.)*
+1. **Thinks for you.** A reminder you set while busy is not a line you typed — it is an intent ("meds at nine"), and when it fires an NVIDIA open model on Nebius Token Factory writes the line the wrist spells. The model's words enter the relay's single turn pipeline: `run_message_turn`, the exact code path, gate, and timing any message takes; the round-trip is the only added wait, and the wrist feels it as `processing` ticks rather than silence. *(Push-to-talk audio in is the designed hearing layer — held as asset, not part of this entry.)*
 2. **Speaks in rhythm.** Text is rendered as Grade-1 braille cells and played one cell at a time as vibration patterns — at the wearer's own pacing preference, clamped into the spec's envelope. Every event is framed by an attention vocabulary: an arrival cue before content, working ticks while the relay handles the turn, a descending close that says *this message is over*.
 3. **Stays polite.** The haptic channel is serial — it cannot interrupt without confusing the reader. If a message lands mid-playback, it announces itself (cue only) and queues; when the current event closes, the queue drains oldest-first, each message opening with its cue. A full queue answers the sender with HTTP 429 and a plain-language note — a loud no, never a silent drop.
 4. **Acts while you're away.** Scheduled reminders fire unprompted as their own full turns — arrival cue, working ticks, cells, close. A message that arrives with no phone attached is stored in a capped inbox, not dropped, and replays on the next attach as the same self-naming turn reminders take — mark first, content after.
@@ -26,20 +26,20 @@ Ziv is a thin relay plus the phone you already own, used as a display for a chan
 
 Concretely, the prototype does this now:
 
-- **Hears speech.** Push-to-talk mic → `/inject/audio` → Nemotron-3-Nano-Omni on Nebius Token Factory → the transcript runs the relay's one turn pipeline (same code path as a typed message). A keyless stub keeps the demo runnable without a key; the real call is wired, its request contract covered by a mocked-provider test.
+- **Thinks for you.** Schedule an *intent*, not a sentence: `POST /api/ziv/schedule` with `{"intent": "meds at nine"}`. When it fires, the relay calls Nemotron-3-Nano-30B-A3B on Nebius Token Factory and plays the line the model wrote — the wire log says `source: text_live`. Without a key the promise still fires verbatim, labelled `text_echo`, so the log never claims a model ran when none did.
 - **Speaks in rhythm.** Grade-1 braille cells, one at a time, at the wearer's persisted pacing preference (an API-set control, clamped into the spec envelope). The attention vocabulary — arrival cue, working ticks, end-of-message close — frames every turn; an error long-buzz answers a failed transcription, and a scheduled reminder opens with its triple-pulse tail.
 - **Acts while you're away.** A scheduler loop fires reminders as full turns, proven live by `/api/ziv/ready` + health telemetry — and the schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped), so a restart never drops a pending reminder.
 - **Stays polite.** `MessageGate` enforces queue-don't-interrupt; a full queue is a sender-visible 429; the client shows a live queue badge, and re-sends a refused typed or stub message automatically when the freeing close lands on the wire (a refused mic clip stays a manual retry — it would need re-transcription).
 - **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) plus a capped persistent inbox: stored, not dropped; mark-after-play, so redelivery is the failure mode, never loss.
 - **Boots its timing from one source.** Every pattern the phone plays comes from `GET /api/ziv/timing` — the serialized generated module — so the phone and the wrist firmware play identical patterns by construction, not by convention.
 
-**A scene from the demo.** A colleague texts "taxi is here" during a meeting. The phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. The room sees and hears nothing. Ten minutes later, unprompted, a scheduled reminder arrives as its own full turn. Both sides of the demo are shown honestly: the message's words are visible as text in the relay's wire log, because a haptic channel has no speaker — and that is the point.
+**A scene from the demo.** You set an intent — "meds at nine" — and get back to work. Ten minutes later, unprompted, the phone taps the arrival cue, spells the Z-I-V mark, ticks while the relay finishes, spells the line a model wrote for you, and closes. The room sees and hears nothing. Both sides are shown honestly: the words are visible as text in the relay's wire log, because a haptic channel has no speaker — and that is the point.
 
 ## How we built it
 
 **Key technologies:**
 
-- **NVIDIA Nemotron-3-Nano-Omni** — audio in → text out; the hearing layer, on Nebius Token Factory
+- **NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory** — text in → the line a wrist reads; the model behind the agent path this demo runs
 - **Nebius Token Factory** — inference for the Omni model
 - **FastAPI + WebSockets** — the thin relay: WS gateway, optional shared-token auth, per-wearer memory files, capped inbox, scheduler loop
 - **The Android Vibration API** — the output channel; the wrist hardware (ESP32-S3 + DRV2605L + 6 LRA motors) is the next revision
@@ -55,13 +55,13 @@ Concretely, the prototype does this now:
         ▼
 [relay — thin FastAPI service]
   WS gateway (optional shared-token auth; open on the LAN by default)
-  audio → Token Factory Omni (hearing, Nemotron-3-Nano-Omni)
+  intent → Nemotron-3-Nano-30B-A3B on Nebius (writes the line the wrist spells)  [wire source: text_live]
   text  → the transcript runs the relay's one turn pipeline (same code path as a typed message)
   memory: per-wearer memory files + capped inbox
   scheduler: a poll loop fires reminders while nobody is "chatting" (schedule durable like the inbox)
         ▼
 [Nebius Token Factory — NVIDIA open models]
-  Nemotron-3-Nano-Omni  (audio in → text out; the hearing layer)
+  Nemotron-3-Nano-30B-A3B  (text in → the line a wrist reads)
 ```
 
 **Design decisions** — the five that shaped everything else:
@@ -80,7 +80,7 @@ Concretely, the prototype does this now:
 2. **Making waiting legible.** A model round-trip is dead air unless the channel says so — so the turn plays working ticks while the relay handles it, and a descending close when it ends. Latency may be slow, never silent.
 3. **Courtesy has to be architectural when the channel is serial.** A vibration channel cannot interrupt without confusing the reader, so queue-don't-interrupt became a relay behavior with a bounded queue, a 429 refusal path, and operator-visible rejection telemetry.
 4. **Keeping the infrastructure honest.** The relay runs on our infrastructure, not the wearer's (model inference on Nebius Token Factory); wearer self-hosting is the next revision, scoped rather than claimed.
-5. **Verifying the Token Factory Omni audio payload format** (the week-1 spike) — the real call is wired, with its request contract covered by a mocked-provider test; a keyless stub keeps the demo runnable without a key.
+5. **Verifying the Token Factory Omni audio payload format** (the week-1 spike) — the real call is wired, with its request contract covered by a mocked-provider test; a keyless stub keeps the demo runnable without a key. The v1 demo takes the stub path so the turn pipeline is exercised without a live provider call.
 6. **Making the demo honest without a speaker.** A channel with no audio output can leave a room assuming the wrong thing — so the demo shows the friend's side as text in the relay's wire log rather than leaving it to the room to guess.
 
 ## Accomplishments that we're proud of
@@ -89,7 +89,7 @@ Concretely, the prototype does this now:
 - **A single timing source shared by construction.** One JSON generates the phone feel-tool, the firmware header, the Python consumer, and the ladder doc's demo table; a drift guard refuses any hand edit to a generated block.
 - **A relay that enforces the right behavior by default.** Queue-don't-interrupt, working-while-waiting, close-before-release, mark-after-play redelivery — made real in the relay seam and the turn timeline, with a threaded concurrency guard so concurrent arrivals never lose or duplicate a message.
 - **A refusal path that is loud and sender-visible.** A full queue answers 429 with a reason; the phone shows a plain-language "busy" note and keeps the drafted text; a live queue badge shows how close the queue is to refusing; health surfaces the rejection count and rate.
-- **An audio-in path that is wired, not just a diagram.** MediaRecorder → base64 → `/inject/audio` → Nemotron-3-Nano-Omni → the relay's single turn pipeline (the exact code path, gate, and timing a typed message takes).
+- **A model inside the channel, not beside it.** MediaRecorder → base64 → `POST /inject/audio` is the designed hearing layer, held as asset. What the demo proves is the other direction: a live NVIDIA open model on Nebius Token Factory composing the line a wrist reads, through the relay's one turn pipeline — the exact code path, gate, and timing any message takes.
 - **Honest scope.** The built things are proven; the wrist hardware, chord input, hardware-gated mic, and wearer-hosted relay are scoped and de-risked — and the submission says so in the same sentence that claims what is built.
 
 ## What we learned

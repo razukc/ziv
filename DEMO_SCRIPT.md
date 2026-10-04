@@ -70,15 +70,29 @@ When the starter's close lands (~0:55): `↻ redial — resending "nine" (the cl
 **Say:** "A full queue is a loud no — and the client redials by itself the
 moment the close frees the channel."
 
-### 1:10–1:35 — speech in (the Omni turn)
+### 1:10–1:35 — the model, on camera
 
-Hold **Talk to Omni** → `recording — speak, then tap again (10 s max)` →
-say "who is calling" → tap again → `transcribing via Token Factory…` →
-`mic clip: NN kB (audio/webm)` → `Omni heard — turn turn_complete, source audio_omni`
-→ the turn plays (`message: who is calling` → 12 cells → close).
+This beat is the live one. Schedule an *intent* and let the relay write the
+line:
 
-**Say:** "One model, audio in — the transcript runs the relay's single turn
-pipeline. If the provider fails, the wrist feels the error long-buzz."
+```bash
+curl -X POST http://127.0.0.1:8787/api/ziv/schedule \
+  -H 'Content-Type: application/json' \
+  -d "{\"intent\": \"meds at nine\", \"fire_at\": $((NOW+8))}"
+```
+
+When it fires: the relay calls Nemotron-3-Nano-30B-A3B on Nebius Token
+Factory → `source: text_live` on the wire → `reminder: <the model's line>`
+text frame → the Z-I-V mark cells → `▶ triple-pulse` → the line spelled cell
+by cell → `▶ end-of-message (close)`.
+
+**Say:** "That's an NVIDIA open model on Nebius Token Factory writing the
+sentence my phone just spelled. I gave it an intent, not a message — the
+wearing channel asked for it while I wasn't looking."
+
+If no key is set, the relay still fires the promise, verbatim, and the wire
+log says `source: text_echo`. Say that on the take if it shows up: the log
+never claims a model ran when none did.
 
 ### 1:35–2:35 — the agent acts while you're away
 

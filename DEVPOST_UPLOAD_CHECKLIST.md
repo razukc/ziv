@@ -31,7 +31,7 @@ page's own counter is the source of truth — don't plan a last-day upload.
 | **"What technologies did you use?"** | GENERIC → Devpost-Specific Answers | Keep the parenthetical "wrist hardware is the next revision" — it keeps the stack list honest |
 | **"What hackathon track are you in?"** | GENERIC → Devpost-Specific Answers | Best Apps and Agents |
 | **GitHub repo link** | `https://github.com/razukc/ziv` | Judges land on the README's "For judges" block; the `submission-v1` tag freezes the verified tree. Public-repo requirements are a graded form item — see §6 |
-| **"Built with" chips** | NVIDIA Nemotron-3-Nano-Omni, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3, DRV2605L, Python | Add chips exactly as listed (ESP32/DRV2605 belong to the next revision — the tech answer already scopes that). NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
+| **"Built with" chips** | NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3, DRV2605L, Python | Add chips exactly as listed (ESP32/DRV2605 belong to the next revision — the tech answer already scopes that). NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
 | **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack — see §2's recording notes |
 | **Screenshot gallery** | See shot list below | 4–6 images, each with its caption — §3 |
 
@@ -55,14 +55,16 @@ trail is HONESTY_CHANGELOG.md."*
    `refusing — queue full (8/8)`; show the HTTP 429 and the busy note; then
    the redial: `↻ redial armed — … 3 chances left`, the auto resend on the
    freeing close, `POST ok`.
-4. **1:10–1:50 the stack** — push-to-talk press → mic clip log line →
-   `transcribing via Token Factory…` → `Omni heard — turn turn_complete`;
-   flash `tools/haptic_timing.py` verify output (spec v3, 7 consumers in
-   sync) and `docs/haptic-timing.json`.
-5. **1:50–2:30 the agent** — schedule a reminder via curl (command from
-   JUDGE_REPRO Step 1); reminder arrives unprompted: `reminder: pills`
-   narration, Z-I-V cells, `triple-pulse`, close. Then the durability
-   beat: kill the relay, restart, `GET /api/ziv/schedule` returns the same
+4. **1:10–1:50 the stack** — the live model. Schedule an *intent* by curl
+   (`{"intent": "meds at nine", "fire_at": …}`); the relay calls
+   Nemotron-3-Nano-30B-A3B on Nebius Token Factory and plays the line the
+   model wrote (`source: text_live` on the wire). Flash
+   `python tools/prove.py` — one block with every suite's counts and the
+   drift-guard result — and `docs/haptic-timing.json`.
+5. **1:50–2:30 the agent acts while you're away** — a finished `text`
+   reminder, scheduled by curl, fires unprompted: `reminder: pills`
+   narration, Z-I-V cells, `triple-pulse`, close. Then the durability beat:
+   kill the relay, restart, `GET /api/ziv/schedule` returns the same
    reminder. Close the tab, send while away → `inbox:stored`; reattach →
    replay arrives as a self-naming turn.
 6. **2:30–3:00 who it serves** — the GENERIC Use-cases paragraph (everyday
@@ -73,19 +75,27 @@ is the star); record phone vibration close-ups with a second angle; keep
 each wire-log scroll readable (bump browser zoom to 125%).
 
 **Say the required names out loud.** The organizers' own tip: name Nebius
-Token Factory / AI Cloud and the NVIDIA model "clearly — **with audio** —
-in your demo video, not just a passing mention." The scripted path now
-does this itself: `agent/record_beat_narrated.py` records the beat above
-(same e2e-style timing trick), synthesizes a SAPI voiceover that names
-NVIDIA Nemotron-3-Nano-Omni and Nebius Token Factory in the closing
-"stack" lines, and muxes `demo_beat_narrated.mp4` with ffmpeg (video
-frame-held until the last words land; per-phase marks kept in
-`agent/narration/` for re-mixing). Run it against a fresh relay
-(`ZIV_FAKE_MODEL_SECONDS=8 ZIV_PORT=8787 python ziv_server.py`) — the
-script refuses to start on a poisoned gate. `record_beat.py` alone still
-emits a **silent webm**; use the narrated pipeline for the upload track.
-Also treat the video as a pitch per the same email: lead with the
-problem, show it working, say who it's for.
+Token Factory / AI Cloud and the NVIDIA model "clearly — in your demo
+video, not just a passing mention." Two scripted paths do this themselves
+(SAPI voiceover + ffmpeg mux, per-phase marks kept for re-mixing):
+
+-  `agent/record_full_demo.py` — the **whole §2 outline in one take**
+  (cold-open card → channel → the live model beat → refusal → the durability
+  beat with a real relay kill/restart → closing card) →
+  `demo_full_narrated.mp4` (~110 s). It owns the relay lifecycle on :8787,
+  sweeps stray relays, and refuses a poisoned gate. The stack beat schedules
+  an intent and shows the relay's own call to Nemotron on Token Factory
+  producing the line the wrist spells — `source: text_live`, and the
+  narration says that is a live model call. If the key is absent the relay
+  still fires the promise, labelled `text_echo`, and the log says so rather
+  than claiming a model ran.
+- `agent/record_beat_narrated.py` — just the 0:20–1:10 beat against a
+  self-started relay on :8787 (`ZIV_FAKE_MODEL_SECONDS=8`) →
+  `demo_beat_narrated.mp4`.
+
+`record_beat.py` alone still emits a **silent webm**; use a narrated
+pipeline for the upload track. Also treat the video as a pitch per the
+same email: lead with the problem, show it working, say who it's for.
 
 ## 3. Screenshot gallery (4–6 images, each with a caption)
 
@@ -129,7 +139,7 @@ them, trimming long sub-lists rather than rewriting:
 | `## Accomplishments that we're proud of` | "Accomplishments that we're proud of" (direct paste) |
 | `## What we learned` | "What We Learned" (direct paste) |
 | `## What's next for Ziv` | "What's next for Ziv" (wrist revision + the numbered list; keep the open-decision points — learnability, naming) |
-| **Built with** (≤25 tags) | NVIDIA Nemotron-3-Nano-Omni, NVIDIA, Nebius Token Factory, Nebius AI Cloud, FastAPI, WebSockets, Python, Android, PWA, Vibration API, ESP32, ESP32-S3, DRV2605L, ESP-IDF, Embedded C, braille, haptics, accessibility, deaf-blind, assistive tech, uvicorn, pytest, Playwright, HTTP 429, agents — add **Nebius Token Factory** and **NVIDIA** as standalone chips; organizers check for them by name |
+| **Built with** (≤25 tags) | NVIDIA Nemotron-3-Nano-30B-A3B, NVIDIA, Nebius Token Factory, Nebius AI Cloud, FastAPI, WebSockets, Python, Android, PWA, Vibration API, ESP32, ESP32-S3, DRV2605L, ESP-IDF, Embedded C, braille, haptics, accessibility, deaf-blind, assistive tech, uvicorn, pytest, Playwright, HTTP 429, agents — add **Nebius Token Factory** and **NVIDIA** as standalone chips; organizers check for them by name |
 | **"Try it out" links** | GitHub repo `https://github.com/razukc/ziv` (+ the working-demo URL from §6 if one is hosted) |
 | **Image gallery** | 9 shots from §3, each with its caption |
 | **Video demo link** | YouTube or Vimeo URL — Devpost embeds it at the top of the public page; upload unlisted-but-public-linkable and confirm it plays |
@@ -148,73 +158,13 @@ anyone without naming the tool). Paste-ready drafts:
 - **Upload a File (≤35 MB):** a zip of the verified tree (`submission-v1`
   tag content, minus gitignored state) — or a PDF of JUDGE_REPRO.md. One
   file only; zip multiples.
-- **Which model(s) did you use, and why did you choose that size/variant?**
-  > NVIDIA Nemotron-3-Nano-Omni, served through Nebius Token Factory's
-  OpenAI-compatible API. Ziv's hearing layer needs one model that takes
-  audio in natively and returns text — no separate ASR stage, no pipeline
-  to keep in sync. The nano/omni variant is the smallest audio-native
-  Nemotron, which keeps the push-to-talk round-trip snappy enough that the
-  wrist feels working-ticks, not dead air, and its single audio→text step
-  matches the product's one-relay-turn architecture.
-- **How would you rate Nemotron's output quality for your use case? (1–10)**
-  > 8. Transcription of short, clear push-to-talk clips was reliable, and
-  instruction-following through the chat/completions contract was
-  consistent. It fell short on noisy/clip-edge audio (clipped first
-  syllables on fast taps), which matters for a push-to-talk flow; we guard
-  it with an error long-buzz and a manual retry rather than claiming ASR
-  perfection.
-- **Did you fine-tune, prompt-engineer, or use Nemotron out of the box?
-  What was your approach?**
-  > Out of the box, via Token Factory's OpenAI-compatible
-  `chat/completions` endpoint with an audio payload — no fine-tuning, no
-  prompt engineering beyond a minimal transcription instruction. The
-  integration is a thin seam (`/inject/audio` in `agent/ziv_server.py`),
-  its request contract covered by a mocked-provider test, and a keyless
-  stub keeps the demo runnable without a key. A fine-tuned braille-output
-  model is explicitly scoped as v2, not part of this submission.
-- **How did Nemotron's performance compare to other models you've used
-  for similar tasks?**
-  > Comparable accuracy to the hosted ASR+LLM two-step we'd otherwise
-  bolt together, in one call and one vendor. Latency on Token Factory was
-  the pleasant surprise: short clips come back fast enough to sit inside
-  a haptic turn with felt "working" feedback rather than silence. We did
-  not run a formal benchmark against other audio models this hackathon —
-  the claim is integration experience, not a leaderboard result.
-- **Which Nebius platform capabilities were most valuable to your project
-  and how?**
-  > Nebius Token Factory: the OpenAI-compatible API meant the relay's
-  model client is a standard HTTP call with an audio payload — the same
-  client shape a judge already has code for — and key management lives in
-  a gitignored `.env`, so the public repo ships without secrets. The
-  audio-native serving of Nemotron-3-Nano-Omni is the capability the
-  product stands on: one hosted model turns push-to-talk speech into the
-  text that drives the whole haptic turn pipeline.
-- **How likely are you to recommend running Nemotron on Nebius to other
-  developers? (1–10)** — and why.
-  > 9. One endpoint, one key, OpenAI-compatible wire format, and an
-  audio-native Nemotron variant you can't get everywhere; the missing
-  point is onboarding polish — the audio payload format took a spike to
-  verify (documented in the repo's honesty changelog).
-- **How would you rate your experience running Nemotron inference on
-  Nebius compared to previous cloud or local development environments?
-  (1–10)** — and why.
-  > 8 — no GPU provisioning, no model hosting, the API contract is the
-  familiar one, and per-request keys made the demo/story split trivial.
-  Docked points only because docs for the audio request shape required
-  experimentation; once pinned, it never bit again.
-- **What additional features or improvements would have made the Nemotron
-  on Nebius experience more effective for your project?**
-  > A documented, copy-paste audio-input example for Omni-style models
-  (base64 WAV in `chat/completions`) — we reverse-engineered the payload
-  shape; streaming partial transcripts, so a long clip could feel
-  responsive; and per-request latency headers to make the working-tick
-  pacing honest against real round-trip times.
-- **What do you most hope to see from the Nemotron team next?**
-  > Smaller/faster audio-native variants with stable low-latency serving
-  (wearable round-trips live or die on TTFB); a documented speech→model-
-  reply loop (audio in, text out, one call) for on-device-feeling agents;
-  and multilingual audio robustness — Ziv's sharpest use case is global,
-  and accents are the norm, not the exception.
+- **The eight required Nemotron/Nebius answers are written once, in
+  [DEVPOST_FIELDS.md](DEVPOST_FIELDS.md) §4 — paste them from there.**
+  Do not keep a second copy here: two copies of an answer is how a stale
+  claim ships. Before you paste, run `python tools/model_probe.py` and fill
+  in the output-quality rating marked with the `‹PASTE…›` marker.
+- **What do you most hope to see from the Nemotron team next?** → the answer
+  is in [DEVPOST_FIELDS.md](DEVPOST_FIELDS.md) §4.
 - **Did you use Tavily in your project?** → **No.** (The form notes a
   Tavily-track qualification requires a functional, runtime call to the
   Tavily API — Ziv makes none. Answer honestly; don't select Yes.)
@@ -232,11 +182,11 @@ requirement in this repo:
       relay)" + "For judges" block; keep them current with any code change
       before submitting.
 - [x] **Highlight NVIDIA Nemotron usage + where Token Factory accelerated
-      the workflow** — README names Nemotron-3-Nano-Omni on Nebius Token
-      Factory in the first paragraph, the Omni seam row, and Quick start;
-      the Additional-info questionnaire (§5) says it in judge-facing words
-      too. The **description and Built With must repeat the names** (the
-      email's "impossible to miss" tip) — §1's rows already do.
+      the workflow** — README names Nemotron-3-Nano-30B-A3B on Nebius Token
+      Factory in the first paragraph, the agent-path row, and Quick start;
+      the Additional-info questionnaire (§4 of DEVPOST_FIELDS.md) says it in
+      judge-facing words too. The **description and Built With must repeat
+      the names** (the email's "impossible to miss" tip) — §1's rows do.
 - [ ] **Verify before submit:** repo is public, default branch builds the
       README badges honestly, `submission-v1` tag visible, no secrets
       (`agent/.env` is gitignored — `git status --porcelain` shows no

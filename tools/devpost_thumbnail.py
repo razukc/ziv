@@ -2,7 +2,7 @@
 
 The same branded card as docs/social_preview.png (social_preview.py), re-set
 for Devpost's overview step: 3:2 (their recommended ratio) at 1500x1000, and
-with the stack line — Nemotron-3-Nano-Omni on Nebius Token Factory — spelled
+with the stack line — Nemotron-3-Nano-30B-A3B on Nebius Token Factory — spelled
 out, per the organizers' tip to make the required tools impossible to miss.
 
 Run:  python tools/devpost_thumbnail.py     (needs playwright + chromium)
@@ -54,7 +54,7 @@ HTML = """<!DOCTYPE html>
     <h1>Ziv</h1>
   </div>
   <div class="tag">Messages you can feel. <em>Nobody else can see.</em></div>
-  <div class="stack"><b>Nemotron-3-Nano-Omni</b> on <b>Nebius Token Factory</b> — speech in, vibro-braille out</div>
+  <div class="stack"><b>Nemotron-3-Nano-30B-A3B</b> on <b>Nebius Token Factory</b> — it thinks, the wrist reads</div>
 </body></html>
 """
 

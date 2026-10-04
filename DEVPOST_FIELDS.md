@@ -33,13 +33,13 @@ Messages you can feel. Nobody else can see. A private haptic channel with an age
 only if the field enforces a cap)
 
 ```
-Ziv is a private message channel for your phone: a relay hears speech (NVIDIA Nemotron-3-Nano-Omni on Nebius Token Factory) and takes typed messages, then plays them as braille-rhythm vibrations you read by touch — no screen, no sound, nothing for the room to see or overhear — with scheduled reminders that fire while you're away.
+Ziv is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and your phone plays what it says as braille-rhythm vibrations you read by touch — no screen, no sound, nothing for the room to see or overhear. A reminder you schedule while busy fires on its own, composed by that model, and arrives as a turn only you can read.
 ```
 
 **Short description — fallback (≤200 chars, 164)**
 
 ```
-A private message channel: speech in via NVIDIA Nemotron-3-Nano-Omni on Nebius Token Factory, braille-rhythm vibrations out — silent, invisible, an agent behind it.
+A private message channel: an NVIDIA open model on Nebius Token Factory thinks, and your phone plays what it says as braille-rhythm vibrations you read by touch — silent, invisible, an agent behind it.
 ```
 
 **Project Story** — paste `DEVPOST_PROJECT_STORY.md` whole (template
@@ -50,7 +50,7 @@ headings + Sources included).
 check for by name, do not trim them)
 
 ```
-NVIDIA Nemotron-3-Nano-Omni
+NVIDIA Nemotron-3-Nano-30B-A3B
 NVIDIA
 Nebius Token Factory
 Nebius AI Cloud
@@ -104,7 +104,7 @@ suggested pick of 4–6 and the shot table are in checklist §3.
 **What does your project do?**
 
 ```
-Ziv (working title) is a private message channel for your phone: a relay hears speech (Nemotron-3-Nano-Omni on Nebius Token Factory, push-to-talk) and takes typed messages, then plays them as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, fires, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based prototype; the wrist device is the next revision. (Composing AI replies from what is heard is the next build step; today the channel carries words — spoken in, tapped out.)
+Ziv (working title) is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, composes, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based demo; the wrist device is not part of this entry.
 ```
 
 **What makes your project unique?**
@@ -120,13 +120,13 @@ No shipping product turns vibration into a channel that carries language, with a
 2. Making waiting legible: working ticks during the round-trip, a felt close at the end — latency may be slow, never silent.
 3. Courtesy as architecture: the serial channel cannot interrupt, so the queue, the 429 refusal, and the release semantics live in the relay, not the UI.
 4. Keeping the infrastructure honest: the relay runs on our infrastructure; wearer self-hosting is the next revision.
-5. Verifying the Token Factory Omni audio payload format: the real call is wired, its request contract covered by a mocked-provider test; a keyless stub keeps the demo runnable without a key.
+5. Putting a live model inside a channel with no screen and no speaker: the reminder you set while busy is composed by an NVIDIA open model on Nebius Token Factory and arrives as the same turn a person's message takes. The model is not a chat window bolted on beside the channel — it is the thing whose words the wrist reads.
 ```
 
 **What technologies did you use?**
 
 ```
-NVIDIA Nemotron-3-Nano-Omni, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3 (ESP-IDF, C), DRV2605L, LRA vibration motors, I2S MEMS microphone. (The wrist hardware — ESP32-S3 + DRV2605L + 6 LRA motors + I2S MEMS mic — is the next revision, not shipped in this phone-based prototype.)
+NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory, FastAPI, WebSockets, Android Vibration API. (The wrist hardware — ESP32-S3 + DRV2605L + 6 LRA motors — is not part of this phone-based demo.)
 ```
 
 **What hackathon track are you in?**
@@ -141,6 +141,12 @@ Best Apps and Agents Track
 
 Every field below is required; feedback on Nebius/NVIDIA is a graded part
 of the submission, not an afterthought. Be specific per tool.
+
+> **Before you paste §4:** the one field that needs a live run is the
+> Nemotron output-quality rating. `python tools/model_probe.py` makes a single
+> real call against Token Factory and prints the composed line, its length, and
+> the round-trip time — paste those under that answer and give the number.
+> Do not submit with the `‹PASTE…›` marker still in it.
 
 **Submitter type / country / project age**
 
@@ -160,96 +166,112 @@ preferred.
 **Which model(s) did you use, and why did you choose that size/variant?**
 
 ```
-NVIDIA Nemotron-3-Nano-Omni, served through Nebius Token Factory's
-OpenAI-compatible API. Ziv's hearing layer needs one model that takes audio
-in natively and returns text — no separate ASR stage, no pipeline to keep in
-sync. The nano/omni variant is the smallest audio-native Nemotron, which
-keeps the push-to-talk round-trip snappy enough that the wrist feels
-working-ticks, not dead air, and its single audio→text step matches the
-product's one-relay-turn architecture.
+nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B, served through Nebius Token Factory's
+OpenAI-compatible API. The channel's job is to write one short line of plain
+language, not to reason for long — a 30B-A3B (3B active) model is the
+smallest thing that is fluent without sounding like a form letter, and at
+temperature 0 it is stable enough that the same reminder intent produces the
+same line twice, which matters when a wearer is learning to recognise turns
+by rhythm. Token Factory lists it ready-to-serve, so there is no GPU to
+provision and no weights to host. We read the id off the account's
+GET /v1/models rather than off the model card, which is the only source that
+does not lie.
 ```
 
 **How would you rate Nemotron's output quality for your use case? (1–10)**
 
 ```
-8. Transcription of short, clear push-to-talk clips was reliable, and
-instruction-following through the chat/completions contract was consistent.
-It fell short on noisy/clip-edge audio (clipped first syllables on fast
-taps), which matters for a push-to-talk flow; we guard it with an error
-long-buzz and a manual retry rather than claiming ASR perfection.
+‹PASTE THE NUMBER AND THE LINE FROM `python tools/model_probe.py` — see the
+pre-paste note at the top of this section.›
+
+The constraint that decides this rating is not fluency, it is length and
+register: the output is spelled on a wrist one cell at a time, so a good
+answer is short, has no markdown and no preamble, and reads as a bare phrase
+with no screen to lean on. We pinned that in the system prompt instead of
+post-filtering the model's output, and we guarded the failure direction that
+actually hurts — a provider error becomes an error long-buzz plus a 502
+carrying the provider's own words, never a silent empty line.
 ```
 
 **Did you fine-tune, prompt-engineer, or use Nemotron out of the box? What was your approach?**
 
 ```
 Out of the box, via Token Factory's OpenAI-compatible chat/completions
-endpoint with an audio payload — no fine-tuning, no prompt engineering
-beyond a minimal transcription instruction. The integration is a thin seam
-(/inject/audio in agent/ziv_server.py), its request contract covered by a
-mocked-provider test, and a keyless stub keeps the demo runnable without a
-key. A fine-tuned braille-output model is explicitly scoped as v2, not part
-of this submission.
+endpoint — no fine-tuning, and the only prompt engineering is a system
+message that states the channel's constraints (one line, short, plain words,
+no quotes or markdown). The integration is one async function in
+agent/ziv_server.py, its request contract pinned by a mocked-provider test,
+and without a key the relay still fires the promise: verbatim, and labelled
+text_echo on the wire, so the log never claims a model ran when none did. A
+fine-tuned braille-output model is held as asset, not part of this
+submission.
 ```
 
 **How did Nemotron's performance compare to other models you've used for similar tasks?**
 
 ```
-Comparable accuracy to the hosted ASR+LLM two-step we'd otherwise bolt
-together, in one call and one vendor. Latency on Token Factory was the
-pleasant surprise: short clips come back fast enough to sit inside a haptic
-turn with felt "working" feedback rather than silence. We did not run a
-formal benchmark against other audio models this hackathon — the claim is
-integration experience, not a leaderboard result.
+We ran no head-to-head benchmark, so the honest answer is integration
+experience rather than a leaderboard result. What we did measure is the
+property that actually decides this channel: round-trip time against the
+turn budget, because a haptic turn has a latency ceiling a chat window does
+not. Past a few seconds the wearer feels working ticks instead of silence,
+which is why the pacing guard is part of the design and not an afterthought.
 ```
 
 **Which Nebius platform capabilities were most valuable to your project and how?**
 
 ```
-Nebius Token Factory: the OpenAI-compatible API meant the relay's model
-client is a standard HTTP call with an audio payload — the same client
-shape a judge already has code for — and key management lives in a
-gitignored .env, so the public repo ships without secrets. The audio-native
-serving of Nemotron-3-Nano-Omni is the capability the product stands on:
-one hosted model turns push-to-talk speech into the text that drives the
-whole haptic turn pipeline.
+Nebius Token Factory: one OpenAI-compatible endpoint and one key. The
+relay's model client is a standard HTTP POST — the same client shape a judge
+already has code for — and key management lives in a gitignored .env, so the
+public repo ships without secrets. The capability Ziv is built around is that
+a hosted model can sit inside a channel with no screen and no speaker: one
+call turns a bare intent ("meds at nine") into the line the wrist spells,
+with no GPU to provision and no weights to host. GET /v1/models is also the
+honest source of truth for what is servable — we read the model id off it
+instead of guessing.
 ```
 
 **How likely are you to recommend running Nemotron on Nebius to other developers? (1–10) + why**
 
 ```
-9. One endpoint, one key, OpenAI-compatible wire format, and an
-audio-native Nemotron variant you can't get everywhere; the missing point
-is onboarding polish — the audio payload format took a spike to verify
-(documented in the repo's honesty changelog).
+9. One endpoint, one key, an OpenAI-compatible wire format, and no GPU
+provisioning — the relay swapped a mocked model call for a real one without
+touching its client code. The only time cost was working out which model id
+is actually deployed: an id taken from the model card earns you a 404, and
+GET /v1/models settles it in one call.
 ```
 
 **How would you rate your experience running Nemotron inference on Nebius compared to previous cloud or local development environments? (1–10) + why**
 
-```
-8 — no GPU provisioning, no model hosting, the API contract is the familiar
-one, and per-request keys made the demo/story split trivial. Docked points
-only because docs for the audio request shape required experimentation;
-once pinned, it never bit again.
+```9. No GPU provisioning, no model hosting, a contract that is the familiar
+OpenAI one, and per-request keys — which is why the demo could be recorded
+against a real model while still running keyless for anyone who clones the
+repo. The friction was self-inflicted rather than the platform's: we had a
+model id from the model card that this account does not serve, and the
+failure came back as a plain 404 naming the exact id. That is the best kind
+of failure — it told us the truth in one line.
 ```
 
 **What additional features or improvements would have made the experience more effective?**
 
 ```
-A documented, copy-paste audio-input example for Omni-style models (base64
-WAV in chat/completions) — we reverse-engineered the payload shape;
-streaming partial transcripts, so a long clip could feel responsive; and
-per-request latency headers to make the working-tick pacing honest against
-real round-trip times.
+1. A copy-paste listing of the model ids an account can actually call —
+   GET /v1/models does this today, but we only went looking after a 404.
+   2. Per-request latency headers, so the working-tick pacing can be tuned
+   against a measured round-trip instead of a fixed budget. 3. Streaming
+   completions: a turn that could start spelling before the line is finished
+   would take the dead time off the front of every answer.
 ```
 
 **What do you most hope to see from the Nemotron team next?**
 
 ```
-Smaller/faster audio-native variants with stable low-latency serving
-(wearable round-trips live or die on time-to-first-byte); a documented
-speech→model-reply loop (audio in, text out, one call) for
-on-device-feeling agents; and multilingual audio robustness — Ziv's
-sharpest use case is global, and accents are the norm, not the exception.
+Smaller and faster variants with stable low-latency serving — a wearable
+round-trip lives or dies on time-to-first-token. And more public examples of
+a model whose output is consumed by something that is not a screen, because
+that is the shape we are optimising for and there is very little guidance on
+it written down.
 ```
 
 **Did you use Tavily in your project?**

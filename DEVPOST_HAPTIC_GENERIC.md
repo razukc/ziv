@@ -14,7 +14,7 @@ Messages you can feel. Nobody else can see.
 
 ## Short Description (one-liner)
 
-Ziv is a private message channel for your phone: a relay hears speech (NVIDIA Nemotron-3-Nano-Omni on Nebius Token Factory) and takes typed messages, then plays them as braille-rhythm vibrations you read by touch — no screen, no sound, nothing for the room to see or overhear — with scheduled reminders that fire while you're away.
+Ziv is a private message channel for your phone: the phone plays what arrives as braille-rhythm vibrations you read by touch — no screen, no sound, nothing for the room to see or overhear — with scheduled reminders that fire while you're away. The demo runs the relay's keyless stub path, so the turn plays without a live provider call.
 
 ---
 
@@ -36,29 +36,27 @@ The gap: **no shipping product turns vibration into a channel that carries langu
 
 Ziv is a thin relay plus the phone you already own, used as a display for a channel that is silent and invisible by physics:
 
-1. **Hears speech.** Push-to-talk: a clip goes to Nemotron-3-Nano-Omni on Nebius Token Factory — audio in, text out, one model transcribes natively — and the transcript enters the relay's single turn pipeline: `run_message_turn`, the exact code path, gate, and timing a typed message takes; the only added wait is the Token Factory round-trip, which the wrist feels as `processing` ticks. *(Composing AI replies from what is heard is the next build step; today the channel carries words — spoken in, tapped out.)*
-2. **Speaks in rhythm.** Text is rendered as Grade-1 braille cells and played one cell at a time as vibration patterns — at the wearer's own pacing preference, clamped into the spec's envelope. Every event is framed by an attention vocabulary: an arrival cue before content, working ticks while the relay handles the turn, a descending close that says *this message is over*.
-3. **Stays polite.** The haptic channel is serial — it cannot interrupt without confusing the reader. If a message lands mid-playback, it announces itself (cue only) and queues; when the current event closes, the queue drains oldest-first, each message opening with its cue. A full queue answers the sender with HTTP 429 and a plain-language note — a loud no, never a silent drop.
-4. **Acts while you're away.** Scheduled reminders fire unprompted as their own full turns — arrival cue, working ticks, cells, close. A message that arrives with no phone attached is stored in a capped inbox, not dropped, and replays on the next attach as the same self-naming turn reminders take — mark first, content after.
-5. **Private by physics.** Nothing to overhear, nothing to glance at: a message vibrates against the holder's skin and is invisible to the room. The mic is push-to-talk, never always-on.
+1. **Speaks in rhythm.** Text is rendered as Grade-1 braille cells and played one cell at a time as vibration patterns — at the wearer's own pacing preference, clamped into the spec's envelope. Every event is framed by an attention vocabulary: an arrival cue before content, working ticks while the relay handles the turn, a descending close that says *this message is over*.
+2. **Stays polite.** The haptic channel is serial — it cannot interrupt without confusing the reader. If a message lands mid-playback, it announces itself (cue only) and queues; when the current event closes, the queue drains oldest-first, each message opening with its cue. A full queue answers the sender with HTTP 429 and a plain-language note — a loud no, never a silent drop.
+3. **Acts while you're away.** Scheduled reminders fire unprompted as their own full turns — arrival cue, working ticks, cells, close. A message that arrives with no phone attached is stored in a capped inbox, not dropped, and replays on the next attach as the same self-naming turn reminders take — mark first, content after.
+4. **Private by physics.** Nothing to overhear, nothing to glance at: a message vibrates against the holder's skin and is invisible to the room. The mic is push-to-talk, never always-on.
 
 ### Why It Matters
 
 - **Silent and invisible by physics** — of the channels a phone already carries (screen, speaker, buzz), only vibration delivers a message to one person without telling the room; no new device required.
 - **Dignity, not just convenience:** the device that tells you things *without telling the room* changes what you can read, and where. Under a table. Mid-shift. Anywhere a screen is rude and sound is worse.
 - **Courtesy is architecture, not a setting.** Queue-don't-interrupt, legible waiting, a felt end-of-message: the rules are enforced in the relay, so the channel behaves the same no matter who sends.
-- **An NVIDIA open model doing real work:** Omni hears — one model, audio-native, on Nebius Token Factory.
 
 ### What it does (this submission)
 
 Concretely, the prototype does this now:
 
-- **Hears speech.** Push-to-talk mic → `/inject/audio` → Nemotron-3-Nano-Omni on Nebius Token Factory → the transcript runs the relay's one turn pipeline (same code path as a typed message). A keyless stub keeps the demo runnable without a key; the real call is wired, its request contract covered by a mocked-provider test.
+- **A demo turn that plays without a live provider call.** The relay's keyless stub path hands a transcript to the relay directly, so the turn plays on the phone without a live provider call — cue, processing ticks, braille cells, felt close, queue release.
 - **Speaks in rhythm.** Grade-1 braille cells, one at a time, at the wearer's persisted pacing preference (an API-set control, clamped into the spec envelope). The attention vocabulary — arrival cue, working ticks, end-of-message close — frames every turn; an error long-buzz answers a failed transcription, and a scheduled reminder opens with its triple-pulse tail.
 - **Acts while you're away.** A scheduler loop fires reminders as full turns, proven live by `/api/ziv/ready` + health telemetry — and the schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped), so a restart never drops a pending reminder.
 - **Stays polite.** `MessageGate` enforces queue-don't-interrupt; a full queue is a sender-visible 429; the client shows a live queue badge, and re-sends a refused typed or stub message automatically when the freeing close lands on the wire (a refused mic clip stays a manual retry — it would need re-transcription).
 - **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) plus a capped persistent inbox: stored, not dropped; mark-after-play, so redelivery is the failure mode, never loss.
-- **Boots its timing from one source.** Every pattern the phone plays comes from `GET /api/ziv/timing` — the serialized generated module — so the phone and the wrist firmware play identical patterns by construction, not by convention.
+- **Boots its timing from one source.** Every pattern the phone plays comes from `GET /api/ziv/timing` — the serialized generated module — so the phone and the feel-tool play identical patterns by construction, not by convention.
 
 **A scene from the demo.** A colleague texts "taxi is here" during a meeting. The phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. The room sees and hears nothing. Ten minutes later, unprompted, a scheduled reminder arrives as its own full turn. Both sides of the demo are shown honestly: the message's words are visible as text in the relay's wire log, because a haptic channel has no speaker — and that is the point.
 
@@ -66,8 +64,8 @@ Concretely, the prototype does this now:
 
 ## Key Technologies Used
 
-- **NVIDIA Nemotron-3-Nano-Omni** — audio in → text out; the hearing layer, on Nebius Token Factory
-- **Nebius Token Factory** — inference for the Omni model
+- **NVIDIA Nemotron-3-Nano-30B-A3B** — text in → the line a wrist reads; the model behind the agent path this demo runs, on Nebius Token Factory
+- **Nebius Token Factory** — inference for the Omni model; the hearing layer runs on Nebius when an audio-capable Omni endpoint is configured
 - **FastAPI + WebSockets** — the thin relay: WS gateway, optional shared-token auth, per-wearer memory files, capped inbox, scheduler loop
 - **The Android Vibration API** — the output channel; the wrist hardware (ESP32-S3 + DRV2605L + 6 LRA motors) is the next revision
 - **ESP32-S3 N16R8 + DRV2605L + 6 LRA motors** — the next revision's hardware (~$40 BOM); the firmware is written against it (`firmware/haptic_out/`), boards are not shipped in this prototype
@@ -86,13 +84,13 @@ Concretely, the prototype does this now:
         ▼
 [relay — thin FastAPI service]
   WS gateway (optional shared-token auth; open on the LAN by default)
-  audio → Token Factory Omni (hearing, Nemotron-3-Nano-Omni)
+  intent → Nemotron-3-Nano-30B-A3B on Nebius (writes the line the wrist spells)  [wire source: text_live]
   text  → the transcript runs the relay's one turn pipeline (same code path as a typed message)
   memory: per-wearer memory files + capped inbox
   scheduler: a poll loop fires reminders while nobody is "chatting" (schedule durable like the inbox)
         ▼
 [Nebius Token Factory — NVIDIA open models]
-  Nemotron-3-Nano-Omni  (audio in → text out; the hearing layer)
+  Nemotron-3-Nano-30B-A3B  (text in → the line a wrist reads)
 ```
 
 The phone is the display for this hackathon; the wrist firmware is generated from the same timing source the phone boots from, but it is not on hardware for this submission.
@@ -113,11 +111,9 @@ The phone is the display for this hackathon; the wrist firmware is generated fro
 ## Challenges we ran into
 
 1. **Rendering language as rhythm.** cell → dot bitmask → vibration waveform timing, with pacing as the first-class control — and with the honest unknown out front: how fast people actually learn to read text by vibration is unproven (see Use cases).
-2. **Making waiting legible.** A model round-trip is dead air unless the channel says so — so the turn plays working ticks while the relay handles it, and a descending close when it ends. Latency may be slow, never silent.
+2. **Making waiting legible.** A turn is dead air unless the channel says so — so the turn plays working ticks while the relay handles it, and a descending close when it ends. Latency may be slow, never silent.
 3. **Courtesy has to be architectural when the channel is serial.** A vibration channel cannot interrupt without confusing the reader, so queue-don't-interrupt became a relay behavior with a bounded queue, a 429 refusal path, and operator-visible rejection telemetry.
-4. **Keeping the infrastructure honest.** The relay runs on our infrastructure, not the wearer's (model inference on Nebius Token Factory); wearer self-hosting is the next revision, scoped rather than claimed.
-5. **Verifying the Token Factory Omni audio payload format** (the week-1 spike) — the real call is wired, with its request contract covered by a mocked-provider test; a keyless stub keeps the demo runnable without a key.
-6. **Making the demo honest without a speaker.** A channel with no audio output can leave a room assuming the wrong thing — so the demo shows the friend's side as text in the relay's wire log rather than leaving it to the room to guess.
+4. **Making the demo honest without a speaker.** A channel with no audio output can leave a room assuming the wrong thing — so the demo shows the friend's side as text in the relay's wire log rather than leaving it to the room to guess.
 
 ---
 
@@ -127,7 +123,7 @@ The phone is the display for this hackathon; the wrist firmware is generated fro
 - **A single timing source shared by construction.** One JSON generates the phone feel-tool, the firmware header, the Python consumer, and the ladder doc's demo table; a drift guard refuses any hand edit to a generated block.
 - **A relay that enforces the right behavior by default.** Queue-don't-interrupt, working-while-waiting, close-before-release, mark-after-play redelivery — made real in the relay seam and the turn timeline, with a threaded concurrency guard so concurrent arrivals never lose or duplicate a message.
 - **A refusal path that is loud and sender-visible.** A full queue answers 429 with a reason; the phone shows a plain-language "busy" note and keeps the drafted text; a live queue badge shows how close the queue is to refusing; health surfaces the rejection count and rate.
-- **An audio-in path that is wired, not just a diagram.** MediaRecorder → base64 → `/inject/audio` → Nemotron-3-Nano-Omni → the relay's single turn pipeline (the exact code path, gate, and timing a typed message takes).
+- **A model inside the channel, not beside it.** You schedule an intent, the relay calls Nemotron on Nebius Token Factory, and the phone spells the line the model wrote — through the same turn pipeline (the exact code path, gate, and timing any message takes). The audio-in seam is the designed hearing layer, held as asset.
 - **Honest scope.** The built things are proven; the wrist hardware, chord input, hardware-gated mic, and wearer-hosted relay are scoped and de-risked — and the submission says so in the same sentence that claims what is built.
 
 ---
@@ -156,15 +152,7 @@ The phone is the display for this hackathon; the wrist firmware is generated fro
 
 ## What's next for Ziv
 
-**Next revision (after the hackathon):** the wrist device — ESP32-S3 + DRV2605L + 6 LRA motors, ~$40 BOM — with a hardware-gated mic and 6-key braille chord input, running the same relay protocol and the same generated timing source the phone uses now. The phone prototype already generates the firmware header from the same timing JSON the phone feels, so the wrist step is a bring-up, not a rebuild.
-
-After the wrist lands:
-
-1. **Hardware-gated mic** — push-to-talk becomes a physical property, not a software choice.
-2. **Wearer-hosted relay** — the wearer runs their own relay, so their data is under their control.
-3. **AI-composed replies** — a text model on the relay turns what was heard into an answer, closing the conversation loop.
-4. **Spoken replies for the sender (v2)** — TTS, so the sighted-hearing side hears the answer.
-5. **Grade 2 braille contractions** — 20–40% fewer cells per message, tuned with braille readers.
+What is held as asset, only if someone asks: the wrist device — ESP32-S3 + DRV2605L + 6 LRA motors, ~$40 BOM — with a hardware-gated mic and 6-key braille chord input, running the same relay protocol and the same generated timing source the phone uses now. The phone prototype already generates the firmware header from the same timing JSON the phone feels, so the wrist step is a bring-up, not a rebuild. Also held as asset: an audio-in hearing layer (`POST /inject/audio`) — wired, opt-in, contract-tested; it needs an endpoint that accepts audio input, so it is not part of this entry's demonstrated beat.
 
 Open now (decision points, not promises):
 
@@ -181,7 +169,7 @@ Best Apps and Agents Track
 
 ### What does your project do?
 
-Ziv (working title) is a private message channel for your phone: a relay hears speech (Nemotron-3-Nano-Omni on Nebius Token Factory, push-to-talk) and takes typed messages, then plays them as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, fires, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based prototype; the wrist device is the next revision. *(Composing AI replies from what is heard is the next build step; today the channel carries words — spoken in, tapped out.)*
+Ziv (working title) is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, composes, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based demo; the wrist device is not part of this entry.
 
 ### What makes your project unique?
 
@@ -197,7 +185,7 @@ No shipping product turns vibration into a channel that carries language, with a
 
 ### What technologies did you use?
 
-NVIDIA Nemotron-3-Nano-Omni, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3 (ESP-IDF, C), DRV2605L, LRA vibration motors, I2S MEMS microphone. *(The wrist hardware — ESP32-S3 + DRV2605L + 6 LRA motors + I2S MEMS mic — is the next revision, not shipped in this phone-based prototype.)*
+NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3 (ESP-IDF, C), DRV2605L, LRA vibration motors. *(The wrist hardware — ESP32-S3 + DRV2605L + 6 LRA motors + I2S MEMS mic — is the next revision, not shipped in this phone-based prototype.)*
 
 ---
 
@@ -205,9 +193,8 @@ NVIDIA Nemotron-3-Nano-Omni, Nebius Token Factory, FastAPI, WebSockets, Android 
 
 1. **0:00–0:20** — cold open: a phone face-down and silenced in a meeting buzzes; fingers read it; the room sees and hears nothing. "A message only one person receives."
 2. **0:20–1:10** — the channel: arrival cue → working ticks → braille cells → close; the attention vocabulary; a queued message released by the close; the 429 and the auto-redial.
-3. **1:10–1:50** — the stack: push-to-talk speech → Nemotron-3-Nano-Omni on Token Factory → the relay's one turn pipeline (same code path as a typed message); the timing spec generated from one JSON, the drift guard proving phone and wrist share the same patterns.
-4. **1:50–2:30** — the agent: a scheduled reminder fires unprompted, proven by the relay's ready/health telemetry; the inbox stores a message that arrived with no phone attached; honest scope (relay on our infrastructure; wrist hardware + wearer-hosted relay = next revision).
-5. **2:30–3:00** — who it serves best: everyday private contexts, and the deaf-blind community — the population nothing else is built for, whose practice wrote the channel's manners. The ask: "a new channel for messages the room was never meant to see."
+3. **1:10–1:50** — the timing source: the spec is generated from one JSON; the drift guard proves the phone and the feel-tool share the same patterns. The demo beat plays cue, working ticks, braille cells, close, queue release.
+4. **1:50–2:30** — the agent: a scheduled reminder fires unprompted, proven by the relay's ready/health telemetry; the inbox stores a message that arrived with no phone attached; held as asset: the wrist device, and the audio-in hearing layer. The ask: "a new channel for messages the room was never meant to see."
 
 ---
 

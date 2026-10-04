@@ -1,35 +1,42 @@
 # Ziv — a haptic phone companion
 
-**Messages you can feel.** A phone that taps out incoming AI messages in vibration
-patterns so a deafblind wearer can keep connected without a screen or sound — the
-relay hears using NVIDIA Nemotron-3-Nano-Omni on Nebius Token Factory.
+**Messages you can feel.** A phone that taps out what a model wrote for you in
+vibration patterns, so a deafblind wearer can keep connected without a screen
+or sound. The demo run below is the whole loop on the phone: you set an intent,
+an NVIDIA open model on Nebius Token Factory writes the line, and the phone
+spells it — cue, legible wait, braille cells, felt close, queue release.
 
 > The product plan lives in [docs/HAPTIC_COMPANION_PLAN.md](docs/HAPTIC_COMPANION_PLAN.md) —
-> invariants, phases, and the hardware story for the next revision.
+> invariants, phases, and the hardware story.
 >
-> **This repository is the submission artifact for the hackathon:** the built
-> part of Ziv, run on a phone for the demo. The wrist hardware is scoped, de-risked,
-> and deliberately deferred — not claimed for this submission.
+> **This repository is the submission artifact for the hackathon.** What is built
+> and proven is the submission. The rest is held as asset — available if someone
+> asks, not stacked around the claim.
 
 ---
 
 ## What Ziv does (this submission)
 
-Ziv (working title) is a private, always-on AI companion for deaf-blind users —
+Ziv (working title) is a private haptic message channel for deaf-blind users —
 a population with combined hearing and vision loss that almost nothing is built for.
-One NVIDIA open model on Nebius Token Factory hears speech (push-to-talk); the wearer’s phone
-plays what it hears as vibro-braille they can feel, with no screen and no sound in
-the room.
+The wearer's phone plays what arrives as vibro-braille they can feel, with no
+screen and no sound in the room.
 
-This prototype ships as a **phone-based demo for the hackathon**. The built things
-are real and proven; the hardware that would make them a wrist device is deferred.
-See [What is built / what is scoped](#what-is-built--what-is-scoped) for the exact
-line, because that line is the honest claim for this submission.
+This submission ships as **a phone-based demo**. The built things are real and
+proven; the wrist hardware is not part of this entry. See
+[What is built / held as asset](#what-is-built--held-as-asset) for the exact
+line, because that line is the honest claim here.
 
+- **A model inside the channel, not beside it** — you schedule an *intent*
+  (`{"intent": "meds at nine"}`); when it fires the relay calls
+  Nemotron-3-Nano-30B-A3B on Nebius Token Factory and plays the line the model
+  wrote, through the same turn pipeline any message takes. Without a key the
+  promise still fires verbatim, labelled `text_echo` — the log never claims a
+  model ran when none did
 - **Haptic braille turns** — every message plays as a fixed journey the wearer can
   learn: kind cue → processing ticks → braille cells → end-of-message close, timed
-  by the generated feel spec (`docs/haptic-timing.json` → one source, both the phone
-  feel-tool and the firmware header are generated from it)
+  by the generated feel spec (`docs/haptic-timing.json` → one source; the phone
+  feel-tool and the firmware header are both generated from it)
 - **Queue, don't interrupt** — a message arriving during playback gets its attention
   cue only and queues until the current event closes (plan §4 invariant 4); a full
   queue gets a sender-visible refusal (HTTP 429 + `message:rejected`)
@@ -39,15 +46,14 @@ line, because that line is the honest claim for this submission.
   (`agent/ziv_store.py`): a message arriving with no band attached is stored, not
   dropped, and delivered as a full event on the next attach (mark-after-play:
   redelivery, never loss)
-- **Hears with NVIDIA on Nebius** — the relay transcribes the wearer's voice with
-  Nemotron-3-Nano-Omni on Nebius Token Factory (`/inject/audio`, the Omni spike), then
-  routes the transcript through the same turn/gate/queue path a typed message would take;
-  a keyless stub (`{"simulate": "..."}`) keeps the demo runnable without a key, but the
-  real TF call is wired, its request contract covered by a mocked-provider test
-- **The phone stands in for the wrist** — the PWA (`agent/ziv_client/index.html`)
-  renders the relay's turns through the Android Vibration API and transcribes with the
-  phone mic; the wrist hardware (ESP32-S3 + DRV2605L + 6 LRA motors) is the next
-  revision — see the plan doc's hardware section
+- **A demo turn that plays without a live provider call** — the demo hands a
+  transcript to the relay through the keyless stub path, so the
+  turn/gate/queue/close journey is fully real and reproducible on the phone.
+- **A feelable timing source and interaction language** — the same generated spec
+  that drives the phone today also drives the feel-tool
+  ([docs/haptic-name-marks.html](docs/haptic-name-marks.html)): five name marks,
+  the full attention vocabulary, the name-mark prefix, the 26-letter braille
+  alphabet, and self-test modes (M1 session, blind A/B) — all offline, no relay.
 
 ---
 
@@ -62,26 +68,25 @@ badge draining back to `queue 0/8`. Re-record it yourself:
 
 ---
 
-## What is built / what is scoped
+## What is built / held as asset
 
-The honest claim for this submission is the line between what is built and proven
-and what is designed and deferred. A reviewer (or a judge) should be able to read
-this table and know which claim is being made — and which claim is not.
+The honest claim is the line between what is built and proven and what is held as
+asset. A reviewer should be able to read this table and know which claim is being
+made — and which claim is not.
 
-| What is built (this submission) | What is scoped (next revision) |
+| What is built (this submission) | Held as asset (only if someone asks) |
 |---|---|
-| **The relay** — a FastAPI server that owns the interaction loop: WS transport with optional token auth, the message gate (queue-don't-interrupt), the turn timeline, the generated timing module, inbox, wearer memory, health, and the PWA it serves (`agent/ziv_server.py`; hermetic tests green) | **The wrist device** — ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-gated mic + LiPo (~$40 BOM); the phone is the dev band until boards ship |
-| **The phone PWA** — the wearer feels each message through the Vibration API, with the same timing derivation as the firmware and zero hand-copied numbers (`agent/ziv_client/index.html`; VR unlock after one tap on Android Chrome) | **Braille-chord input** — 6-key braille chord keyboard; this prototype's input is phone mic + text |
-| **The timing spec** — one generated source (`docs/haptic-timing.json`) → firmware header + phone feel-tool + Python consumer + ladder tables; drift guard fails on any hand edit to a generated block | **Hardware-gated mic** — the ESP32 pin; this prototype uses the phone mic (push-to-talk, software-gated) |
-| **The inbox + memory** — durable wearer state: per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) + a capped persistent inbox (messages with no band attached are stored, not dropped, and delivered as full events on next attach) (`agent/ziv_store.py`; gitignored) | **Wearer-hosted relay** — this prototype runs on our infrastructure, not the wearer's (model inference on Nebius Token Factory); wearer self-hosting is the next revision (the honest answer to "data under your control") |
-| **The Omni spike seam** — phone mic → `/inject/audio` → Nemotron-3-Nano-Omni on Nebius Token Factory → vibro-braille, with the same turn/gate/queue path a typed message takes; keyless stub (`{"simulate": "..."}`) keeps it runnable without a key (`/inject/audio`; guarded: 503 without a key, 502 on provider errors) | **Fine-tuned braille-output model** — Qwen3-1.7B LoRA distillation; v2, not MVP |
-| **The always-on skeleton** — a scheduled relay job that fires an unprompted reminder while nobody is "chatting"; the demo beat, proven live by the relay's scheduler (loop + telemetry) | **On-device practice mode / per-contact people-marks** — v2, from early-years practice |
-| **The test suite** — hermetic suite (seam, server, store, timing drift guard, demo-chain generation) + Playwright e2e (real server + real redial) + host firmware bench (274 checks) + QEMU-ladder host suite (49 checks) | **Flashed wrist, braille-reader naming session, spoken replies (TTS)** — not built yet; naming is community-held and ships under working title |
+| **The relay** — a FastAPI server that owns the interaction loop: WS transport with optional token auth, the message gate (queue-don't-interrupt), the turn timeline, the generated timing module, inbox, wearer memory, health, and the PWA it serves (`agent/ziv_server.py`; hermetic tests green) | **Wrist device** — ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-gated mic + LiPo (~$40 BOM) |
+| **The phone PWA** — the wearer feels each message through the Vibration API, with the same timing derivation as the firmware and zero hand-copied numbers (`agent/ziv_client/index.html`; VR unlock after one tap on Android Chrome) | **Braille-chord input** — 6-key braille chord keyboard |
+| **The timing spec** — one generated source (`docs/haptic-timing.json`) → firmware header + phone feel-tool + Python consumer + ladder tables; drift guard fails on any hand edit to a generated block | **Hardware-gated mic** — the ESP32 pin |
+| **The inbox + memory** — durable wearer state: per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) + a capped persistent inbox (messages with no band attached are stored, not dropped, and delivered as full events on next attach) (`agent/ziv_store.py`; gitignored) | **Wearer-hosted relay** — the honest answer to "data under your control" |
+| **A live model in the turn** — a scheduled intent is composed by Nemotron-3-Nano-30B-A3B on Nebius Token Factory and the phone spells the line the model wrote; without a key the same promise fires verbatim, labelled `text_echo` | **An audio-in hearing layer** (`POST /inject/audio`) — wired, opt-in, and contract-tested; it needs an endpoint that accepts audio input, so it is not part of this entry's demonstrated beat |
+| **A feelable timing source and interaction language** — the generated feel-tool
+  ([docs/haptic-name-marks.html](docs/haptic-name-marks.html)): name marks, attention
+  vocabulary, prefix, full alphabet, M1 session + blind A/B — offline, no relay | **Fine-tuned braille-output model**, **on-device practice mode / per-contact people-marks**, **spoken replies (TTS)** — not built; naming is community-held and ships under working title |
+| **The test suite** — hermetic suite (seam, server, store, timing drift guard, demo-chain generation) + Playwright e2e (real server + real redial) + host firmware bench (274 checks) + QEMU-ladder host suite (49 checks) | **Flashed wrist, braille-reader naming session** — not built yet |
 
-The real track claims are in the *built* column: **≥1 NVIDIA open model on Nebius
-(Token Factory)** doing real work, **persistent wearer memory**, **queue-don't-interrupt
-as a tested seam**, and **a working demo the wearer feels on their phone**. The *scoped*
-column is what a wrist device would add — it is the honest next revision, not a claim.
+The track claims are in the *built* column: **an NVIDIA open model on Nebius Token Factory doing real work inside a channel with no screen**, **a working demo the wearer feels on their phone**, **persistent wearer memory**, **queue-don't-interrupt as a tested seam**, and **one generated timing source shared by the phone today and the feel-tool — and, later, the wrist firmware (drift-guarded)**.
 
 > **One asymmetry that is intentional and must not silently unify:** the phone feel-tool's
 > spell box caps at **12 letters** (page affordance), while the firmware accepts **16
@@ -109,9 +114,8 @@ speaker would leak the message to the room. The deaf-blind companion is the shar
 version of that; the phone-as-dev-band architecture is what makes it buildable for the
 hackathon.
 
-For this submission, Ziv is **a phone-based prototype to the Best Apps and Agents track**.
-The full private, wearer-controlled system (wrist device with hardware-gated mic +
-wearer-hosted relay) is the next revision, scoped honestly rather than claimed.
+For this submission, Ziv is **a phone-based demo to the Best Apps and Agents track**.
+The built things are the submission. The rest is held as asset.
 
 ---
 
@@ -130,28 +134,31 @@ wearer-hosted relay) is the next revision, scoped honestly rather than claimed.
 
 | Path | What it is |
 |------|------------|
-| `agent/ziv_server.py` | The dev-band relay server — WS transport (optional token auth), HTTP API (`/api/ziv/message`, `/inject/audio`, `/api/ziv/inbox`, `/api/ziv/prefs`, `/api/ziv/timing`, `/api/ziv/health`), serves the PWA |
-| `agent/ziv_client/index.html` | The phone PWA (queue badge, refusal note, auto-redial, Omni mic path, keyless stub demo path) |
+| `agent/ziv_server.py` | The relay server — WS transport (optional token auth), HTTP API (`/api/ziv/message`, `/api/ziv/inbox`, `/api/ziv/prefs`, `/api/ziv/timing`, `/api/ziv/health`), serves the PWA |
+| `agent/ziv_client/index.html` | The phone PWA (queue badge, refusal note, auto-redial, keyless stub demo path) |
 | `agent/ziv_store.py` | Per-wearer memory files + inbox + durable reminder schedule (atomic JSON, corrupt-file recovery, capped) |
 | `agent/ziv_relay.py` | The relay seam: `MessageGate`, `TurnTimeline`, lifecycle constants, `TelemetryRing` |
 | `agent/requirements.txt` · `agent/.env.example` | Python deps + env vars |
-| `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events (for the next revision) |
-| `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo (ladder rungs 1–2, for the next revision) |
+| `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events |
+| `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo (ladder rungs 1–2) |
 | `tools/haptic_timing.py` | The timing spec's generator + drift guard (7 generated consumers) |
+| `tools/prove.py` | One command, one paste-able block of proof for every suite |
+| `tools/model_probe.py` | One live call to the agent path, for the questionnaire's quality rating |
 | `tools/build_ziv_demo.py` | The demo-chain single source — one `DEMO_STAGES` generates app, fixture, and docs |
 | `tools/qemu_timeline.py` | The rung-2 differ (bench/boot HAP logs vs the derived fixture) |
 | `docs/` | Plan, timing spec, QEMU ladder, hardware bring-up + shopping |
+| `docs/haptic-name-marks.html` | The feel-tool — the timing source and interaction language, felt on a phone, offline |
 | `JUDGE_REPRO.md` · `HONESTY_CHANGELOG.md` | Judge entry points: the claim→proof index and the honesty audit trail |
 
 ---
 
 ## Quick start (dev-band relay)
 
-Prerequisites: Python 3.10+. No key needed for the keyless stub demo path.
+Prerequisites: Python 3.10+. No key needed for the demo path.
 
 ```bash
 cd agent
-cp .env.example .env        # optional: NEBIUS_API_KEY enables the real Omni path
+cp .env.example .env        # optional: NEBIUS_API_KEY enables the real audio path
 python -m venv venv
 source venv/bin/activate    # venv\Scripts\activate on Windows
 pip install -r requirements.txt
@@ -160,44 +167,51 @@ python ziv_server.py
 
 The printed URL (default `http://127.0.0.1:8787`) is the PWA. On Android Chrome,
 allow notification permission and the Vibration API unlocks after one tap gesture.
-Without `NEBIUS_API_KEY` the Omni path runs the keyless stub: the whole
-turn/gate/queue journey is real, only transcription is stubbed (the `{"simulate":
-"..."}` path on `/inject/audio`). With a real `NEBIUS_API_KEY`, the relay transcribes
-the mic audio with Nemotron-3-Nano-Omni on Nebius Token Factory.
+
+Copy `.env.example` to `.env` and add `NEBIUS_API_KEY` to let the agent path call
+the real model. Without a key everything still runs — a scheduled intent fires
+its stored text instead, and the wire log says `text_echo`. To see the real
+call on its own, run `python tools/model_probe.py`.
 
 ---
 
-## Tests
+## Tests — one command, one block
 
 ```bash
-cd agent
-python -m pytest -q          # hermetic suite — browser e2e deselected
-python -m pytest -m e2e      # Playwright e2e (real server + real browser)
+python tools/prove.py           # every suite + the drift guard
+python tools/prove.py --e2e     # also the browser tier (needs Playwright)
 ```
 
-The hermetic suite — **126 passed, 2 skipped** — covers the seam (gate, timeline,
-thread safety incl. concurrent admits losing/duplicating nothing), the server
-endpoints, the durable store (schedule round-trip across instances, corrupt
-recovery, cap), the two-sided PWA badge contract, the loud redial give-up
-contract, and the timing drift guard. The 2 skips are the browser e2e files,
-which skip cleanly when Playwright isn't installed — no ignore flags needed.
+Last run on this tree:
 
-With a browser installed (`pip install playwright && playwright install
-chromium`), the e2e tier — **3 passed in real chromium** — proves the redial
-journey end to end: a real `MessageGate` filled to the cap behind a live turn, a
-429, the client re-sending by itself when the freeing close lands on the wire,
-and a budget exhausted three times ending in a visible dead-end note that only
-a wearer action clears. **129 green total.**
+```
+PASS  hermetic relay suite            131 checks
+PASS  haptic bench                    274 checks
+PASS  QEMU host suite                  49 checks
+PASS  drift guard                     7 consumers in sync
+```
 
-Firmware-side checks (host-portable, no ESP-IDF needed):
+The hermetic suite covers the seam (gate, timeline, thread safety incl.
+concurrent admits losing/duplicating nothing), the server endpoints, the agent
+path (a scheduled intent composed by the model and played as its own words; the
+keyless echo; the loud failure), the durable store (schedule round-trip across
+instances, corrupt recovery, cap), the two-sided PWA badge contract, and the loud
+redial give-up contract. With a browser installed (`pip install playwright &&
+playwright install chromium`), `--e2e` adds the redial journey end to end: a real
+`MessageGate` filled to the cap behind a live turn, a 429, the client re-sending
+by itself when the freeing close lands on the wire, and a budget exhausted three
+times ending in a visible dead-end note that only a wearer action clears.
+
+Those numbers are generated, not typed. If a suite changes, this block changes —
+which is the point: no hand-maintained count can drift.
+
+Run a single suite while iterating:
 
 ```bash
-python firmware/app/ziv_qemu/run_ziv_tests.py    # 49-check C bench + boot check
+cd agent && python -m pytest -q -m "not e2e"
+python firmware/haptic_out/run_tests.py
+python tools/haptic_timing.py --verify
 ```
-
-(The C fixture and QEMU differ need a C toolchain; they are proven on machines with one
-and are host-portable — they do not run on machines without a C compiler, and exit
-cleanly rather than fail.)
 
 ---
 
@@ -221,9 +235,7 @@ runtime ceiling). Do not unify them.
 ## Security
 
 Ziv stores the wearer's messages and memory files locally in `agent/ziv_data/`
-(gitignored — user data, never repo state).The relay server binds to all interfaces by default (a LAN dev relay); the WS transport accepts an optional shared token (`ZIV_RELAY_TOKEN`). The
-Omni endpoint (`/inject/audio`) is guarded by `NEBIUS_API_KEY`: without a key it answers
-503, never a silent failure. This is a single-developer project — no separate disclosure
+(gitignored — user data, never repo state).The relay server binds to all interfaces by default (a LAN dev relay); the WS transport accepts an optional shared token (`ZIV_RELAY_TOKEN`). This is a single-developer project — no separate disclosure
 channel yet; contact the maintainer directly.
 
 ---
