@@ -204,7 +204,7 @@ var ATTENTION = [
 window.ATTENTION=ATTENTION;
 var SPELL_MAX=12;
 /* spell_max_letters cap on the spell box; the firmware's runtime word ceiling (HAPTIC_OUT_MAX_WORD_LEN=16) is a separate, deliberate asymmetry. See docs/haptic-timing.json note. */
-var SPELL_LIMIT_NOTE="Feel-tool page affordances only - the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope. spell_max_letters caps the page's spell box; the firmware accepts up to 16 (HAPTIC_OUT_MAX_WORD_LEN) so the band is never the weaker player. These two numbers are intentionally different and are NOT the same setting: spell_max_letters (12) is a page affordance that limits what the spell box headlines for the wearer, while HAPTIC_OUT_MAX_WORD_LEN (16) is the firmware's hard ceiling on word length the band will actually play. Do not unify them - the asymmetry is deliberate, and the drift guard (tools/haptic_timing.py --verify) treats the generated feel-tool JS block and the firmware header as separate consumers of the same spec, each free to use different UI vs. runtime limits.";
+var SPELL_LIMIT_NOTE="Feel-tool page affordances only. spell_max_letters caps the page's spell box; HAPTIC_OUT_MAX_WORD_LEN (16) is the firmware's runtime ceiling on the device. The two are deliberately different — page versus device — and the drift guard treats them as separate consumers of one spec. Do not unify them.";
 function dur(d){ return CELL_BASE + CELL_PER_DOT * d; }
 var SPELL_FILLS_NOTE = "Same dot-count arc as raz.";
 var SPELL_FILLS = [

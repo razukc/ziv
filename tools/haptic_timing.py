@@ -813,6 +813,10 @@ def check_asymmetry(spec, firmware_hdr, problems):
 def main():
     ap = argparse.ArgumentParser(description="Generate/verify the haptic timing consumers from docs/haptic-timing.json")
     ap.add_argument("--write", action="store_true", help="regenerate consumers from the spec (default: verify only)")
+    # Explicit no-op: verification already runs by default (and again after
+    # --write). This flag exists because the spec's own note and the generated
+    # feel-tool page tell readers to run it, and argparse used to reject it.
+    ap.add_argument("--verify", action="store_true", help="verify only (the default; accepted explicitly)")
     args = ap.parse_args()
 
     problems = []
