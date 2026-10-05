@@ -185,7 +185,7 @@ python tools/prove.py --e2e     # also the browser tier (needs Playwright)
 Last run on this tree:
 
 ```
-PASS  hermetic relay suite            131 checks
+PASS  hermetic relay suite            159 checks
 PASS  haptic bench                    274 checks
 PASS  QEMU host suite                  49 checks
 PASS  drift guard                     7 consumers in sync

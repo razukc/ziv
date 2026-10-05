@@ -261,6 +261,46 @@ def test_seam_is_proven_gate_admit_is_queue_dont_interrupt():
     assert len(gate) == 2
 
 
+def test_seam_is_proven_a_play_decision_reserves_the_channel():
+    """``message:play`` is the reservation, not a suggestion.
+
+    This is the whole channel-ownership contract in one assertion: the gate
+    is busy from the moment it says "play" — not from the first cell. An
+    arrival during the model round-trip (seconds, not milliseconds) must
+    queue, or MAX_QUEUED is decorative.
+    """
+    gate = MessageGate()
+    assert gate.playing is False
+    assert gate.admit("first").event_type == "message:play"
+    assert gate.playing is True, (
+        "the gate must be held from the admit decision — otherwise every "
+        "window before the first cell is an idle channel"
+    )
+    # A second arrival queues instead of barging in, and the drain hands it
+    # back as a full event.
+    assert gate.admit("second").event_type == "attention:double-tap"
+    assert [e.payload["text"] for e in gate.close_event()] == ["second"]
+    assert gate.playing is False
+
+
+def test_seam_is_proven_reserve_claims_the_idle_channel_or_declines():
+    """``reserve()`` is the queue-less claim: inbox delivery, not a turn.
+
+    Returns False rather than waiting, so a caller that has nothing to
+    queue can decline cleanly and leave its (durable) work pending instead
+    of interleaving with whoever holds the channel.
+    """
+    gate = MessageGate()
+    assert gate.reserve() is True
+    assert gate.playing is True
+    # An admit that lost the race queues rather than stealing the channel.
+    assert gate.admit("racing arrival").event_type == "attention:double-tap"
+    assert gate.reserve() is False, "a held channel must refuse a second claim"
+    gate.close_event()
+    assert gate.reserve() is True, "a released channel is claimable again"
+    gate.abort()
+
+
 def test_seam_is_proven_gate_close_drains_fifo_with_prefix():
     """MessageGate.close_event drains oldest-first, each with its prefix (inv 1)."""
     gate = MessageGate()
@@ -322,10 +362,15 @@ def test_seam_gate_stampede_queues_every_arrival_and_no_loss():
     lost, nothing duplicated, and the drain is exactly the admitted set.
 
     Decision semantics, made explicit by this test: the gate answers
-    ``message:play`` whenever it observes an idle channel and never claims
-    it — claiming the channel for a *turn* is the caller's turn lock (the
-    server holds one). What the gate's lock guarantees under a stampede is
-    the queue side: no loss, no duplication, no corruption.
+    ``message:play`` only to the FIRST arrival that finds the channel idle,
+    and that answer *is* the reservation — the caller now owns the channel
+    until it closes or aborts. Under a stampede that means exactly one
+    winner and ``MAX_QUEUED - 1`` queues. What the gate's lock guarantees is
+    the whole decision: no loss, no duplication, no corruption, no two
+    winners. (The pre-overhaul seam instead *suggested* a play without
+    claiming anything, and left the caller to hold the channel via its own
+    lock — which left the gate idle for the whole model round-trip and made
+    MAX_QUEUED unreachable under a burst.)
     """
     gate = MessageGate()
     N = MessageGate.MAX_QUEUED

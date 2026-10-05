@@ -28,6 +28,8 @@ the in-process ASGI/WS test transport. What is proven:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 import threading
 import time
@@ -44,6 +46,7 @@ for _p in (str(_ROOT / "agent"), str(_ROOT / "tools")):
 
 import haptic_timing_gen as timing  # noqa: E402
 import ziv_server as zs  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 
 
 @pytest.fixture()
@@ -99,6 +102,80 @@ def _vibrate_ms(pattern_id: str) -> list[int]:
         out.append(buzz)
         out.append(gap)
     return out
+
+
+# ---------------------------------------------------------------------------
+# The wearer's pace, made observable
+#
+# Every dwell the relay owes the wrist goes through ``ziv_server._dwell``.
+# Real dwells make the suite read wall-clock minutes, so tests that are about
+# *ordering* rather than pacing shorten them here — and ``test_pump_uses_the_
+# wearer_pace`` below reads the same seam to assert the real numbers.
+# ---------------------------------------------------------------------------
+
+def _instant_dwells(monkeypatch) -> None:
+    """Make every dwell instant — for tests about ordering, not timing."""
+
+    async def fake(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(zs, "_dwell", fake)
+
+
+def _yielding_dwells(monkeypatch) -> None:
+    """Make dwells cost no wall-clock but still yield the event loop.
+
+    ``asyncio.gather`` only interleaves its tasks where one of them actually
+    awaits something that suspends. With every dwell a plain ``return`` the
+    first turn runs to completion before the second one is ever scheduled —
+    which would make a concurrency test measure nothing at all (and is
+    exactly how a bug like this hides: the bursts that break the bound are
+    the ones where turns are genuinely in flight together).
+    """
+    real_sleep = asyncio.sleep
+
+    async def fake(_seconds: float) -> None:
+        await real_sleep(0)
+
+    monkeypatch.setattr(zs, "_dwell", fake)
+
+
+def _skip_cell_dwells(monkeypatch, *, keep: float = 0.06) -> None:
+    """Keep the short processing tick real, drop the long cell/mark dwells.
+
+    A test that has to land *inside* a multi-second model wait still needs
+    that wait to pass in real time, but has no interest in replaying nine
+    half-second cells while it does.
+    """
+    real = zs._dwell
+
+    async def fake(seconds: float) -> None:
+        if seconds <= keep:
+            await real(seconds)
+
+    monkeypatch.setattr(zs, "_dwell", fake)
+
+
+def _record_dwells(monkeypatch) -> list[float]:
+    """Replace the dwells with a recorder and return the list it fills."""
+    seen: list[float] = []
+
+    async def fake(seconds: float) -> None:
+        seen.append(seconds)
+
+    monkeypatch.setattr(zs, "_dwell", fake)
+    return seen
+
+
+def _detach(device) -> None:
+    """Drop a test band from the hub — the hub may have dropped it first.
+
+    ``DeviceHub.broadcast`` detaches a socket that raises on send, so a
+    band that dies mid-turn removes itself; removing it again would be an
+    error rather than a cleanup.
+    """
+    if device in zs.hub.devices:
+        zs.hub.devices.remove(device)
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +337,441 @@ def test_band_vanishing_mid_turn_conflicts(client, monkeypatch):
     assert "no dev band" in r.json()["detail"]
 
 
+class _ArrivingMidDelivery:
+    """A band that lets a live message arrive while a stored one is played.
+
+    ``inject`` fires the moment the delivery starts spelling its content —
+    before the close, which is where the gate's queue is decided — and
+    ``die_after`` takes the band down right there, so the drain that follows
+    has nobody to play it on.
+    """
+
+    def __init__(self, inject=None, die_after: bool = False) -> None:
+        import json as _json
+
+        self._json = _json
+        self.frames: list[dict] = []
+        self.inject = inject
+        self.die_after = die_after
+        self.arrived = False
+
+    async def send_text(self, s: str) -> None:
+        frame = self._json.loads(s)
+        self.frames.append(frame)
+        if (
+            not self.arrived
+            and frame.get("type") == "text"
+            and frame.get("text", "").startswith("queued: ")
+        ):
+            self.arrived = True
+            if self.inject is not None:
+                self.inject()
+            if self.die_after:
+                raise ConnectionResetError("band vanished")
+
+
+def test_inbox_delivery_drains_what_arrived_behind_it(client, fresh_store, monkeypatch):
+    """A stored backlog does not strand the messages that cue behind it.
+
+    ``deliver_inbox_one`` owns the channel, so it also owns whatever queued
+    during it. Before this, a text that arrived mid-delivery cued on the
+    wearer's wrist and then sat in the gate until the *next* inbound message
+    arrived to drain it — a "something arrived" cue with no content behind
+    it, which is the loud-not-silent rule broken quietly.
+    """
+    _instant_dwells(monkeypatch)
+    zs.inbox.offer("stored one")
+
+    band = _ArrivingMidDelivery(inject=lambda: zs.gate.admit("arrived mid delivery"))
+    zs.hub.devices.append(band)
+    try:
+        entry = asyncio.run(zs.deliver_inbox_one())
+    finally:
+        _detach(band)
+
+    assert entry is not None and entry["text"] == "stored one"
+    texts = [f.get("text", "") for f in band.frames if f["type"] == "text"]
+    assert any(t.startswith("queued: stored one") for t in texts)
+    assert any(t.startswith("queued: arrived mid delivery") for t in texts), (
+        "the text that cued during the delivery never got its content"
+    )
+    assert len(zs.gate) == 0, "the drain left the queue occupied"
+    assert zs.gate.playing is False
+
+
+def test_inbox_delivery_strands_what_it_could_not_play(client, fresh_store, monkeypatch):
+    """The band dies mid-drain: the queued text goes to the inbox, not limbo.
+
+    The gate is a *minutes*-long buffer. When the band that was going to
+    play a drained text vanishes, nobody is left who ever will, so the text
+    has to leave the gate — otherwise it occupies one of MAX_QUEUED's slots
+    until the process restarts, pushing real senders into 429s for a message
+    nobody is going to deliver. The inbox is where undelivered content goes.
+    """
+    _instant_dwells(monkeypatch)
+    zs.inbox.offer("stored one")
+
+    band = _ArrivingMidDelivery(
+        inject=lambda: zs.gate.admit("arrived mid delivery"), die_after=True
+    )
+    zs.hub.devices.append(band)
+    try:
+        with pytest.raises(zs._NoDevices):
+            asyncio.run(zs.deliver_inbox_one())
+    finally:
+        _detach(band)
+
+    assert zs.gate.playing is False, "a dead delivery must release the channel"
+    assert len(zs.gate) == 0, "the gate kept a text nobody will ever play"
+    pending = [e["text"] for e in zs.inbox.pending()]
+    # The entry was never marked delivered (its close never landed) and the
+    # arrival was handed on — both still owed to the wearer, neither lost.
+    assert "stored one" in pending
+    assert "arrived mid delivery" in pending
+
+
+def test_inbox_delivery_declines_while_a_turn_holds_the_channel(
+    client, fresh_store, monkeypatch
+):
+    """A delivery never interleaves into a turn in flight.
+
+    The entry stays pending (it is durable, so declining costs a delay and
+    nothing else) and the next attach offers it again.
+    """
+    _instant_dwells(monkeypatch)
+    zs.inbox.offer("stored one")
+    zs.gate.begin_playback()  # a turn owns the channel
+    try:
+        assert asyncio.run(zs.deliver_inbox_one()) is None
+        assert zs.inbox.count() == 1, "a declined delivery must stay pending"
+    finally:
+        zs.gate.close_event()  # the turn ends and frees the channel
+
+    # ...and with the channel free again the same entry plays.
+    band = _RecordingDevice()
+    zs.hub.devices.append(band)
+    try:
+        assert asyncio.run(zs.deliver_inbox_one()) is not None
+    finally:
+        _detach(band)
+    assert zs.inbox.count() == 0
+
+
+def test_inbox_delivery_drains_even_when_nothing_is_stored(client, fresh_store, monkeypatch):
+    """The last delivery of a backlog still plays what cued behind it.
+
+    The attach loop drains until the inbox is empty and then stops asking.
+    If the final call released the channel by throwing away whatever it
+    drained, a message that arrived during the last delivery would cue on
+    the wrist and then vanish — silently, which is the one outcome the
+    queue-don't-interrupt contract forbids.
+    """
+    _instant_dwells(monkeypatch)
+    zs.inbox.offer("stored one")
+
+    band = _ArrivingMidDelivery(inject=lambda: zs.gate.admit("arrived mid delivery"))
+    zs.hub.devices.append(band)
+    try:
+        assert asyncio.run(zs.deliver_inbox_one()) is not None
+        # The inbox is empty now; the final call reports "nothing left"...
+        assert asyncio.run(zs.deliver_inbox_one()) is None
+    finally:
+        _detach(band)
+
+    texts = [f.get("text", "") for f in band.frames if f["type"] == "text"]
+    assert any(t.startswith("queued: arrived mid delivery") for t in texts), (
+        "the drain was discarded when the inbox ran dry"
+    )
+    assert len(zs.gate) == 0
+    assert zs.inbox.count() == 0
+
+
+class _SucceedingThenDying:
+    """A band that queues a text mid-content, then dies at the drain.
+
+    It models the exact race a reservation must survive: the turn pushes its
+    close (releasing the channel), starts replaying what it drained, and an
+    arrival takes the channel over *while that replay is still in flight*.
+    """
+
+    def __init__(self) -> None:
+        self.queued = False
+        self.handover = False
+
+    async def send_text(self, s: str) -> None:
+        frame = json.loads(s)
+        if not self.queued and frame.get("type") == "cell":
+            self.queued = True
+            zs.gate.admit("queued behind the doomed turn")
+        if frame.get("why") == "queued replay cue" and not self.handover:
+            # The gate is idle again the instant finish_playback() released
+            # it. This is exactly what an arriving run_message_turn does
+            # when it finds the channel idle: reserve it, then wait on the
+            # turn lock this turn is still holding.
+            self.handover = True
+            self.decision = zs.gate.admit("arrived after the close")
+            zs.gate.admit("waiting behind the new arrival")
+            raise ConnectionResetError("band vanished")
+
+
+def test_an_aborting_turn_does_not_release_the_next_arrival_s_channel(
+    client, fresh_store, monkeypatch
+):
+    """A turn that dies during its replays must not touch what isn't its.
+
+    The channel is released at the close, but the turn keeps replaying
+    drained texts long afterwards. If its failure path calls ``abort()``
+    unconditionally it releases the channel an arrival has *already*
+    legitimately reserved — and drains that arrival's queue into this turn's
+    inbox. Observed on the code this test guards: ``gate.playing`` went
+    False while the new arrival owned it, and its queued text was silently
+    relocated to the inbox, where it waits for a phone attach instead of
+    playing after the next close.
+    """
+    _instant_dwells(monkeypatch)
+    zs.FAKE_MODEL_SECONDS = 0.0
+
+    band = _SucceedingThenDying()
+    zs.hub.devices.append(band)
+    try:
+        with pytest.raises(zs._NoDevices):
+            asyncio.run(zs.run_message_turn("the doomed turn"))
+    finally:
+        _detach(band)
+
+    assert band.decision.event_type == "message:play", (
+        "the handover must be a real reservation for this test to mean anything"
+    )
+    assert zs.gate.playing is True, (
+        "the aborting turn released a channel it no longer owned"
+    )
+    assert len(zs.gate) == 1, "and it drained the new arrival's queue"
+    # Only the dying turn's OWN undelivered text was stored.
+    assert [e["text"] for e in zs.inbox.pending()] == [
+        "queued behind the doomed turn"
+    ]
+
+
+class _VanishingDevice:
+    """A hub device that dies after ``alive_frames`` sends — a phone locking,
+    the tab closing, the network dropping mid-message."""
+
+    def __init__(self, alive_frames: int) -> None:
+        self.alive_frames = alive_frames
+        self.sent = 0
+
+    async def send_text(self, s: str) -> None:
+        self.sent += 1
+        if self.sent > self.alive_frames:
+            raise ConnectionResetError("band vanished")
+
+
+# ---------------------------------------------------------------------------
+# The channel is held for the WHOLE turn — the reservation IS the decision
+#
+# The bug these guard is that ``gate.admit`` used to *suggest* a play and the
+# channel only went busy at ``turn.begin_playback()`` — after the model
+# round-trip. Every window before that first cell (3 s of fake model by
+# default, up to the 30 s provider timeout in production) was an idle gate,
+# and 20 simultaneous arrivals got 20 × ``message:play``: all of them
+# blocked on the turn lock and all of them played, so MAX_QUEUED was
+# unreachable exactly when it was most needed.
+# ---------------------------------------------------------------------------
+
+def test_burst_of_arrivals_plays_one_and_bounds_the_rest(client, monkeypatch):
+    """20 simultaneous arrivals against an idle gate: ONE plays, the queue
+    fills to MAX_QUEUED, everything past it is refused loudly.
+
+    Before the reservation, this returned 20 ``turn_complete``s with an
+    empty queue — the bound was decorative.
+    """
+    _yielding_dwells(monkeypatch)
+    zs.FAKE_MODEL_SECONDS = 0.05
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)
+    n = 20
+    try:
+        results = asyncio.run(_gather_turns(n))
+    finally:
+        _detach(rec)
+
+    played = [r for r in results if isinstance(r, dict) and r.get("event") == "turn_complete"]
+    queued = [r for r in results if isinstance(r, dict) and r.get("queued")]
+    refused = [r for r in results if isinstance(r, HTTPException)]
+
+    assert len(played) == 1, f"only one turn may hold the channel, got {len(played)}"
+    assert len(queued) == zs.MessageGate.MAX_QUEUED
+    assert len(refused) == n - 1 - zs.MessageGate.MAX_QUEUED
+    assert all(e.status_code == 429 for e in refused)
+    # Every text is accounted for exactly once: played, queued, or refused.
+    assert len(played) + len(queued) + len(refused) == n
+    # ...and the gate ends the turn empty and idle — nothing leaked.
+    assert len(zs.gate) == 0
+    assert zs.gate.playing is False
+    # Every queued text was actually replayed, not just counted.
+    spells = [f["text"] for f in rec.frames
+              if f["type"] == "text" and f["text"].startswith("queued: ")]
+    assert len(spells) == zs.MessageGate.MAX_QUEUED
+
+
+async def _gather_turns(n: int) -> list[object]:
+    """Fire n turns at once and report each one's outcome.
+
+    ``run_message_turn`` raises HTTPException(429) rather than returning a
+    refusal, so the gather collects them instead of stopping at the first.
+    """
+    async def one(i: int) -> object:
+        try:
+            return await zs.run_message_turn(f"burst-{i}")
+        except HTTPException as exc:
+            return exc
+
+    return list(await asyncio.gather(*(one(i) for i in range(n))))
+
+
+def test_arrival_during_the_model_wait_queues_instead_of_barging(client, monkeypatch):
+    """The gate is NOT idle while the model thinks.
+
+    The window between ``admit`` and the first cell is the whole model
+    round-trip — ``FAKE_MODEL_SECONDS`` here, up to the 30 s provider
+    timeout in production. Before the fix the gate was still idle for all
+    of it, so a message arriving mid-wait was answered ``message:play`` and
+    merely waited behind the turn lock: it jumped the queue it should have
+    joined. Now it cues (the wearer learns something arrived) and its
+    content waits for the close.
+    """
+    _skip_cell_dwells(monkeypatch)  # keep the processing tick, drop the cells'
+    zs.FAKE_MODEL_SECONDS = 1.2  # a real, observable processing window
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)
+    try:
+        outcome, held_during_wait = asyncio.run(_arrive_during_the_wait())
+    finally:
+        _detach(rec)
+
+    assert outcome["event"] == "attention:double-tap"
+    assert outcome["queued"] is True
+    assert held_during_wait, (
+        "the gate was idle while the model was still thinking — the arrival "
+        "barged into the turn instead of queueing behind it"
+    )
+    # ...and the turn it queued behind went on to finish normally, draining it.
+    patterns = [f.get("pattern") for f in rec.frames if f["type"] == "haptic"]
+    assert patterns[-1] == "end-of-message"
+    assert len(zs.gate) == 0
+    assert any(t.startswith("queued: second") for t in
+               (f.get("text", "") for f in rec.frames if f["type"] == "text"))
+
+
+async def _arrive_during_the_wait() -> tuple[dict[str, object], bool]:
+    """Post one message while a first turn is inside its model wait."""
+    first = asyncio.ensure_future(zs.run_message_turn("first"))
+    while not zs.gate.playing and not first.done():
+        # The gate flips to held the moment admit answers message:play —
+        # which is *before* the wait we are trying to land inside.
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(zs.FAKE_MODEL_SECONDS / 2)
+    assert not first.done(), "the first turn finished before the arrival"
+    held = zs.gate.playing
+    second = await zs.run_message_turn("second")
+    await first
+    return second, held
+
+
+def test_band_vanishing_mid_turn_releases_the_gate(client):
+    """The wedge: a band dying mid-playback must not brick the relay.
+
+    Regression for a real bug. ``turn.begin_playback()`` sets the gate
+    playing and only ``finish_playback()`` clears it — so a turn that raised
+    between the two (here: the phone locks while cells are being spelled)
+    left ``playing`` True forever. Every later arrival then queued against a
+    wrist that was not reading, and after MAX_QUEUED the relay refused
+    everything until restart. This is the sequence that did it: cue,
+    processing, cue-as-content, then the band dies during the cells.
+    """
+    zs.FAKE_MODEL_SECONDS = 0.05  # reach PLAYING fast; the dwell is the window
+    dying = _VanishingDevice(alive_frames=3)  # dies just after begin_playback
+    zs.hub.devices.append(dying)  # attach() is async; the list is its state
+    try:
+        with pytest.raises(zs._NoDevices):
+            asyncio.run(zs.run_message_turn("hello"))
+    finally:
+        zs.hub.devices.clear()
+
+    # THE FIX: the channel is released, so the relay is usable again.
+    assert zs.gate.playing is False, (
+        "the gate is wedged playing — every later arrival would queue "
+        "against a wrist that is not reading, and the relay would refuse "
+        "everything after the cap until restart"
+    )
+    # ...and the next arrival PLAYS instead of queueing.
+    assert zs.gate.admit("after the crash").event_type == "message:play"
+
+
+def test_band_vanishing_mid_turn_stores_the_in_flight_text(client, fresh_store):
+    """The other half of the same bug: the undelivered text is not lost.
+
+    The abandoned turn's text was in NEITHER the queue (the gate had already
+    taken it) NOR the inbox — it was simply gone, which contradicts the
+    relay's "never a silent drop" contract. It must now be stored, so the
+    next attach delivers it as a full event.
+    """
+    zs.FAKE_MODEL_SECONDS = 0.05
+    dying = _VanishingDevice(alive_frames=3)
+    zs.hub.devices.append(dying)
+    try:
+        with pytest.raises(zs._NoDevices):
+            asyncio.run(zs.run_message_turn("call mum back"))
+    finally:
+        zs.hub.devices.clear()
+
+    pending = [e["text"] for e in zs.inbox.pending()]
+    assert "call mum back" in pending, (
+        "the in-flight text was silently dropped — it was admitted by the "
+        "gate and never played, so nothing else would ever deliver it"
+    )
+    # Stored once, not once per layer that noticed the failure.
+    assert pending.count("call mum back") == 1
+
+
+def test_band_vanishing_mid_turn_strands_queued_messages_not_drops_them(client, fresh_store):
+    """Texts queued behind the doomed turn survive it too.
+
+    They were queued (so the gate held them), but an abort drains the gate —
+    the texts must come back to the caller for re-offering rather than
+    vanishing with the queue. The arrivals land while the doomed turn is
+    spelling cells, which is exactly the window that used to strand them.
+    """
+    zs.FAKE_MODEL_SECONDS = 0.05
+    # Survives cue + processing + cue-as-content + text + the first cell;
+    # dies on the next push, so the gate is already playing.
+    dying = _VanishingDevice(alive_frames=5)
+    zs.hub.devices.append(dying)
+
+    async def scenario() -> None:
+        task = asyncio.ensure_future(zs.run_message_turn("in flight"))
+        # Let the turn reach PLAYING, then queue arrivals behind it.
+        while not zs.gate.playing:
+            await asyncio.sleep(0.01)
+        for text in ("queued one", "queued two"):
+            assert zs.gate.admit(text).event_type == "attention:double-tap"
+        assert len(zs.gate) == 2, "both arrivals are queued behind the turn"
+        with pytest.raises(zs._NoDevices):
+            await task
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        zs.hub.devices.clear()
+        zs.gate = zs.MessageGate()
+
+    pending = [e["text"] for e in zs.inbox.pending()]
+    # The in-flight text AND both queued texts all came back: three stored,
+    # none dropped, none stored twice.
+    assert set(pending) == {"in flight", "queued one", "queued two"}
+    assert len(pending) == 3, "a stranded text was stored twice"
+
+
 def test_health_counts_devices_and_gate(client):
     assert client.get("/api/ziv/health").json()["devices"] == 0
     with _attach(client):
@@ -288,6 +800,66 @@ def test_auth_rejects_missing_and_bad_bearer(client, monkeypatch):
     # Relay v1: auth passed, no band attached → stored, not dropped.
     assert r.status_code == 200
     assert r.json()["event"] == "inbox:stored"
+
+
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("POST", "/api/ziv/schedule", {"text": "meds", "fire_at": 4102444800.0}),
+        ("GET", "/api/ziv/schedule", None),
+        ("DELETE", "/api/ziv/schedule", None),
+        ("GET", "/api/ziv/ready", None),
+        ("GET", "/api/ziv/inbox", None),
+        ("DELETE", "/api/ziv/inbox", None),
+        ("GET", "/api/ziv/prefs", None),
+        ("POST", "/api/ziv/prefs", {"cell_gap_ms": 500}),
+    ],
+)
+def test_auth_covers_every_route_that_carries_or_reveals_content(
+    client, monkeypatch, method, path, body
+):
+    """Every content route is behind the bearer token, not just the sender's.
+
+    The gap this closes: with ``ZIV_RELAY_TOKEN`` set, ``/api/ziv/message``
+    and ``/inject/audio`` were gated, but the *readers* were not — an
+    unauthenticated caller could read a private reminder's line out of the
+    schedule and the wearer's whole inbox, and could clear either one. Who
+    may send a message is who may read it; the rest is nobody.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+
+    def call(headers=None):
+        return client.request(method, path, json=body, headers=headers or {})
+
+    assert call().status_code == 401, f"{method} {path} is open to anyone"
+    assert call({"Authorization": "Bearer wrong"}).status_code == 401
+    assert call({"Authorization": "Bearer sekrit"}).status_code == 200
+
+
+def test_auth_leaves_the_bootstrap_routes_open(client, monkeypatch):
+    """What stays open, and why: the PWA has to boot before it can hold a
+    credential.
+
+    ``/api/ziv/timing`` is the generated spec the client renders from and
+    ``/api/ziv/health`` is the queue badge it polls — neither carries any
+    message text. ``health`` is pinned content-free here so widening it
+    stays a deliberate act rather than a side effect of adding a field.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    assert client.get("/api/ziv/timing").status_code == 200
+    assert client.get("/ziv_client/index.html").status_code == 200
+
+    h = client.get("/api/ziv/health")
+    assert h.status_code == 200
+    # Store something private first, then prove health cannot report it.
+    client.post("/api/ziv/message", json={"text": "secret taxi fare"},
+                headers={"Authorization": "Bearer sekrit"})
+    client.post("/api/ziv/schedule", json={"text": "private reminder",
+                                           "fire_at": 4102444800.0},
+                headers={"Authorization": "Bearer sekrit"})
+    body = h.json()
+    assert "secret taxi fare" not in json.dumps(body)
+    assert "private reminder" not in json.dumps(body)
 
 
 def test_auth_rejects_bad_ws_token(client, monkeypatch):
@@ -437,6 +1009,80 @@ def test_pump_uses_the_wearer_pace(client, fresh_store):
         assert body["event"] == "turn_complete"
         # 3 s model wait + 2 fast cells: well under the 420 ms default pace.
         assert body["seconds"] < zs.FAKE_MODEL_SECONDS + 1.5
+
+
+def test_the_wearer_pace_lands_on_the_wire_as_real_dwells(
+    client, fresh_store, monkeypatch
+):
+    """The cell gap is not just *read* — it is the gap the relay waits.
+
+    Every dwell goes through ``ziv_server._dwell``, so recording that seam
+    turns the pacing from an intention into an assertion: for every letter
+    spelled, the relay waited exactly ``cell_ms(letter) + the wearer's gap``,
+    derived from the same generated table the firmware plays. Before this
+    seam existed nothing in the suite could say that, and a pace that was
+    read but never awaited would have passed every test here.
+    """
+    _instant_dwells(monkeypatch)  # the waits are the subject, not the runtime
+    zs.FAKE_MODEL_SECONDS = 0.05
+    text = "pacing"
+    gap_s = timing.CELL_GAP_DEFAULT_MS / 1000.0
+
+    seen = _record_dwells(monkeypatch)
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)
+    try:
+        asyncio.run(zs.run_message_turn(text))
+    finally:
+        zs.hub.devices.remove(rec)
+
+    letters = [c for c in text.lower() if "a" <= c <= "z"]
+    # The first dwell is the fake model's poll tick; the rest are the cells.
+    assert seen[0] == 0.05
+    assert len(seen[1:]) == len(letters)
+    for ch, dwell in zip(letters, seen[1:]):
+        assert dwell == pytest.approx(timing.cell_ms(ch) / 1000.0 + gap_s), (
+            f"cell {ch!r} did not wait cell_ms + the wearer's gap"
+        )
+    # The wire carries the same numbers the dwell was built from.
+    assert [f["ms"] for f in rec.frames if f["type"] == "cell"] == [
+        timing.cell_ms(c) for c in letters
+    ]
+
+
+def test_moving_the_pace_moves_every_dwell_by_exactly_that_much(
+    client, fresh_store, monkeypatch
+):
+    """Parameters are personal: one stored preference, every cell feels it.
+
+    Structure universal, parameters personal — the spec owns the envelope
+    and the wearer owns the value inside it. This is the executable half of
+    that sentence: the SAME message, spelled twice, differs in every dwell
+    by exactly the difference the wearer asked for, and nothing else.
+    """
+    _instant_dwells(monkeypatch)
+    zs.FAKE_MODEL_SECONDS = 0.05
+    text = "pace"
+    rec = _RecordingDevice()
+    zs.hub.devices.append(rec)
+
+    def spell_once() -> list[float]:
+        seen = _record_dwells(monkeypatch)
+        asyncio.run(zs.run_message_turn(text))
+        return seen[1:]  # drop the model's poll tick
+
+    try:
+        default_dwells = spell_once()
+        client.post("/api/ziv/prefs", json={"cell_gap_ms": timing.CELL_GAP_MAX_MS})
+        assert zs._effective_cell_gap_ms() == timing.CELL_GAP_MAX_MS
+        fast_dwells = spell_once()
+    finally:
+        zs.hub.devices.remove(rec)
+
+    delta = (timing.CELL_GAP_MAX_MS - timing.CELL_GAP_DEFAULT_MS) / 1000.0
+    assert len(default_dwells) == len(fast_dwells) == len(text)
+    for before, after in zip(default_dwells, fast_dwells):
+        assert after - before == pytest.approx(delta)
 
 
 def test_health_reports_inbox_prefs_and_store_problems(client, fresh_store):
@@ -1027,7 +1673,9 @@ def test_prefix_mark_order_is_mark_tail_then_turn(client, monkeypatch):
     rec = _RecordingDevice()
     zs.hub.devices.append(rec)  # attach() is async; the list is its state
     try:
-        result = asyncio.run(zs.run_scheduled_reminder("pills"))
+        result = asyncio.run(
+            zs.run_message_turn("pills", source="scheduled", prefix_mark="reminder")
+        )
     finally:
         zs.hub.devices.remove(rec)
     assert result["event"] == "turn_complete"

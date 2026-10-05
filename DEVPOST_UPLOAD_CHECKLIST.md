@@ -7,7 +7,7 @@ keeps the deaf-blind case in its own section) and stay in that voice for
 every field. Before you record or upload, run the gate:
 
 ```bash
-cd agent && python -m pytest -m "not e2e"   # → 126 passed (3 e2e deselected)
+cd agent && python -m pytest -m "not e2e"   # → 159 passed (3 e2e deselected)
 python -m pytest -m e2e                     # → 3 passed (needs Playwright)
 ```
 
@@ -229,11 +229,11 @@ lost:
 
 ## 9. Pre-flight (final)
 
-- [ ] `pytest -m "not e2e"` → 126 passed (3 e2e deselected); `-m e2e` → 3 passed
+- [ ] `pytest -m "not e2e"` → 159 passed (3 e2e deselected); `-m e2e` → 3 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable, and
       Token Factory + Nemotron **named aloud** (§2's narrated pipeline),
       uploaded as MP4/WebM with the audio track present in the file
-- [ ] Every number in the description matches the repo (126 passed / 3 e2e,
+- [ ] Every number in the description matches the repo (159 passed / 3 e2e,
       274-check firmware bench, 49-check ziv_qemu host suite, 27 HAP events
       — JUDGE_REPRO.md is the source of truth)
 - [ ] Both deferral sentences intact (AI-composed replies = next build

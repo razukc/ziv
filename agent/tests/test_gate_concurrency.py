@@ -19,6 +19,9 @@ sleep before the wave) so workers overlap; asserts read only final states
 plus each decision's own payload, so the test stays deterministic even when
 the interleaving is not.
 
+The reservation itself is pinned too: ``message:play`` *claims* the channel,
+so exactly one arrival in a stampede wins and the rest queue or are refused.
+
 Pure unit level: a fresh ``MessageGate`` per test, no server, no store.
 """
 
@@ -172,3 +175,124 @@ def test_refusals_are_loud_and_bounded():
     drained = [e.payload["text"] for e in gate.close_event()]
     assert len(drained) == MessageGate.MAX_QUEUED
     assert len(set(drained)) == MessageGate.MAX_QUEUED
+
+
+def test_a_stampede_on_an_idle_gate_produces_exactly_one_winner():
+    """Reservation under contention: one play, the rest queue or refuse.
+
+    The property the bounded queue exists for. Before the play decision
+    *reserved* the channel, all N racers observed idle and all N were told
+    ``message:play`` — so the bound below could never engage and a burst
+    turned into N sequential turns instead of one plus a queue.
+    """
+    gate = MessageGate()
+    N = 24
+    barrier = threading.Barrier(N)
+    decisions: list = [None] * N
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        decisions[i] = gate.admit("m-%02d" % i)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    plays = [d for d in decisions if d.event_type == "message:play"]
+    queued = [d for d in decisions if d.event_type == "attention:double-tap"]
+    refused = [d for d in decisions if d.event_type == "message:rejected"]
+
+    assert len(plays) == 1, "only one arrival may take the idle channel"
+    assert len(queued) == MessageGate.MAX_QUEUED
+    assert len(refused) == N - 1 - MessageGate.MAX_QUEUED
+    assert len(gate) == MessageGate.MAX_QUEUED
+    # The winner owns the channel, and its text is not in the queue.
+    assert gate.playing is True
+    assert plays[0].payload["text"] not in {d.payload["text"] for d in queued}
+    # Everything the gate took comes back out of the drain, once each.
+    drained = [e.payload["text"] for e in gate.close_event()]
+    assert sorted(drained) == sorted(d.payload["text"] for d in queued)
+    assert gate.playing is False
+
+
+def test_reserve_races_admit_without_a_double_owner():
+    """``reserve()`` and ``admit()`` share one lock, so there is never a
+    moment where two callers both believe they own the channel."""
+    gate = MessageGate()
+    N = 16
+    barrier = threading.Barrier(2 * N)
+    holds: list = [False] * (2 * N)
+
+    def claim_reserve(i: int) -> None:
+        barrier.wait()
+        holds[i] = gate.reserve()
+
+    def claim_admit(i: int) -> None:
+        barrier.wait()
+        holds[i] = gate.admit("m-%02d" % i).event_type == "message:play"
+
+    threads = [threading.Thread(target=claim_reserve, args=(i,)) for i in range(N)]
+    threads += [threading.Thread(target=claim_admit, args=(N + i,))
+                for i in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert sum(1 for h in holds if h) == 1, (
+        "two callers believed they owned the channel at once"
+    )
+    gate.abort()
+
+
+def test_abort_releases_the_channel_so_the_next_arrival_plays():
+    """A turn that dies mid-playback must not wedge the relay.
+
+    The wedge this guards against: ``begin_playback()`` sets ``playing`` and
+    only the normal close clears it. If a band vanishes between the two,
+    every later arrival queues against a wrist that is not reading, and
+    once the queue fills the relay refuses everything until restart.
+    """
+    gate = MessageGate()
+    gate.begin_playback()
+    assert gate.playing is True
+
+    for i in range(3):
+        gate.admit(f"queued-{i}")  # arrivals land behind the doomed turn
+    stranded = gate.abort()
+
+    assert gate.playing is False, "abort must release the channel"
+    # The next arrival PLAYS (message:play) — it does not queue behind a
+    # gate that will never drain again.
+    assert gate.admit("next").event_type == "message:play"
+
+
+def test_abort_hands_back_the_queue_instead_of_dropping_it():
+    """Nothing queued is lost by an abort: the texts come back, oldest first.
+
+    An abort cannot replay them (there is no band left to feel it), so the
+    caller needs them to re-offer elsewhere — dropping them here would turn
+    an interrupted turn into silent data loss.
+    """
+    gate = MessageGate()
+    gate.begin_playback()
+    for i in range(5):
+        gate.admit(f"m{i}")
+
+    stranded = gate.abort()
+
+    assert stranded == ["m0", "m1", "m2", "m3", "m4"]
+    assert len(gate) == 0, "the queue is handed back, not silently emptied"
+    # A second abort is a no-op: idempotent, and it loses nothing.
+    assert gate.abort() == []
+    assert gate.playing is False
+
+
+def test_abort_on_an_idle_gate_is_a_no_op():
+    """Aborting a gate that never played must not raise or invent state."""
+    gate = MessageGate()
+    assert gate.playing is False
+    assert gate.abort() == []
+    assert gate.admit("hi").event_type == "message:play"

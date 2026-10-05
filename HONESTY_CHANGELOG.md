@@ -128,6 +128,218 @@ fire loop lying.
   `test_schedule_malformed_rows_are_dropped_not_crashing` forced the fix by
   asserting id continuation past rows the file had never seen.
 
+### 1.4 The stuck-gate wedge — a bug the seam tests could not see (fixed)
+The third silent-data-loss bug, found by probing the seam rather than
+reading it, and the one the existing suite was *structurally* unable to
+catch.
+
+**What happened.** `turn.begin_playback()` sets the gate's `playing` flag;
+only `turn.finish_playback()` clears it. A turn that raised *between* the
+two — the real case being a band that vanishes mid-content, where the next
+`_push` raises `_NoDevices` — never reached the close, so `playing` stayed
+`True` for the life of the process. Measured on the unfixed code: after one
+abandoned turn, `gate.playing` stayed `True`; the next 12 arrivals gave
+**7 queued, 5 refused, 0 played**, and the relay refused everything else
+until restart. The in-flight text was in neither the queue (the gate had
+taken it) nor the inbox — simply gone, contradicting the "never a silent
+drop" claim the README leads with.
+
+**Why the suite missed it.** `test_gate_concurrency.py` is thorough about
+the gate *in isolation* (12 threads × 25 admits, no loss, no duplication,
+loud bounded refusal) — and every one of those tests drives a gate the
+driver has already put into `playing`. The wedge needs the *server's* call
+order (`admit` → lock → `begin_playback` → … → `finish_playback`), which no
+test exercised. The unit was correct; the composition was not.
+
+**The fix, in two parts.**
+- `MessageGate.abort()` — the interrupted counterpart to `close_event()`:
+  releases the channel (so the next arrival plays instead of queueing) and
+  hands back the still-queued texts so the caller can re-offer them. An
+  abort drains nothing silently.
+- `run_message_turn` now tracks every text it still owes the wearer and, on
+  *any* failure, stores the remainder in the inbox before re-raising.
+  Redelivery, never loss — the same rule the store already follows.
+- `fire_due`'s no-band branch no longer offers the reminder a second time
+  (the turn already stored it), which would have double-stored one promise
+  into two inbox entries.
+
+**Evidence.** `test_band_vanishing_mid_turn_releases_the_gate`,
+`test_band_vanishing_mid_turn_stores_the_in_flight_text`,
+`test_band_vanishing_mid_turn_strands_queued_messages_not_drops_them`, plus
+three `MessageGate.abort` contract tests in `test_gate_concurrency.py`. All
+three server-level tests **fail on the pre-fix code and pass after** —
+verified by reverting the fix and re-running, not by inspection.
+
+**Superseded in part by §1.5.** The `abort()` pairing here was the right
+symptom-level fix, but it left `admit()` *suggesting* a play rather than
+reserving the channel — which is why the three bugs in §1.5 were reachable
+in the first place. `abort()` stays; its motive is now the reservation.
+
+---
+
+### 1.5 The channel was described twice, and the two descriptions disagreed
+
+Three more bugs, one cause. This is the deepest thing found in the whole
+review, and it is a design fault rather than a coding slip.
+
+**The fault.** The haptic channel had two owners-on-paper. `MessageGate`
+tracked `_playing`, which read as "content is on the motors", and set it only
+at `turn.begin_playback()`. `asyncio._turn_lock` tracked "a task is driving
+the wrist right now". Those are not the same window: a turn spends most of
+its life *not* vibrating. Between `admit()` and the first cell it waits for
+the model — `ZIV_FAKE_MODEL_SECONDS` in the fake path, the 30 s provider
+timeout in production — and in that whole stretch the gate said "idle".
+
+**What that cost, measured on the unfixed code.**
+- *The bound was decorative.* 20 simultaneous `run_message_turn` calls
+  against an idle gate: **20 played, 0 queued, 0 refused.** Every one of
+  them was answered `message:play`, so every one of them blocked on the
+  turn lock and then played in turn. `MessageGate.MAX_QUEUED` (8) could not
+  engage in exactly the situation it exists for — a burst.
+- *A barging turn.* A message arriving during another turn's model wait was
+  answered `message:play` and simply waited behind the turn lock: it jumped
+  to the *front* of a queue it should have joined at the back.
+- *Inbox delivery bypassed the gate entirely.* `deliver_inbox_one` drove the
+  wrist without reserving anything, so a stored backlog could interleave
+  into a live turn — and, symmetrically, a message that cued during a
+  backlog drain sat in the gate until the *next* inbound message arrived to
+  drain it. That is a "something arrived" cue with no content behind it:
+  the loud-not-silent rule, broken quietly.
+
+**The fix: the decision is the reservation.** `admit()` answering
+`message:play` now holds the channel, inside the same lock that chose it.
+The channel is therefore held for the turn's *entire* lifetime, and
+`close_event()` / `abort()` are the only two ways to give it back — one
+pairing, two releases, no second source of truth. Two smaller consequences
+fell out of the same change:
+
+- `MessageGate.reserve()` — the queue-less claim, for a caller whose
+  content is already durable (an inbox entry must not wait behind a *turn*
+  queue, nor interleave into a turn). It returns `False` rather than
+  blocking, so a declined delivery leaves its entry pending and loses
+  nothing.
+- Inbox delivery now *drains*: whatever queued behind a stored backlog has
+  already cued on the wrist, and the delivery is the owner that owes it
+  content. If the band dies mid-drain, the stranded texts go to the inbox —
+  the gate is a minutes-long buffer, and nobody is left who will ever play
+  what it holds.
+
+**Why the suite missed all three.** Every concurrency test in
+`test_gate_concurrency.py` and `test_ziv_server_seam.py` drives a gate the
+driver has *already* put into `playing` (`gate.begin_playback()` first), so
+the idle→busy transition — the entire bug — is outside their frame. And the
+new burst test, as first written, measured nothing: with instant dwells the
+first turn ran to completion before `asyncio.gather` ever scheduled the
+second, so 20 turns played serially and the test happily reported "no
+bug". The test now *yields* the event loop at each dwell, which is what
+makes the arrivals genuinely simultaneous; that detail is the reason the
+bug survived a suite that looked thorough.
+
+**Evidence.** `test_burst_of_arrivals_plays_one_and_bounds_the_rest` and
+`test_arrival_during_the_model_wait_queues_instead_of_barging` **fail on the
+pre-fix code and pass after** — verified by removing the reservation and
+re-running (20 played before, 1 played / 8 queued / 11 × 429 after).
+Gate-level: `test_a_stampede_on_an_idle_gate_produces_exactly_one_winner`,
+`test_reserve_races_admit_without_a_double_owner`,
+`test_seam_is_proven_a_play_decision_reserves_the_channel`,
+`test_seam_is_proven_reserve_claims_the_idle_channel_or_declines`.
+Inbox: `test_inbox_delivery_drains_what_arrived_behind_it`,
+`test_inbox_delivery_strands_what_it_could_not_play`,
+`test_inbox_delivery_declines_while_a_turn_holds_the_channel`.
+
+#### 1.5.1 The reservation, and the abort that reached past it
+
+The reservation had a bug of its own, found by adversarial review of the
+change above rather than by any test — every test in the section passed
+while it was live.
+
+`abort()` releases the channel unconditionally. But a turn releases the
+channel at its *close* (`finish_playback` → `close_event`) and then keeps
+playing drained replays for seconds afterwards. In that window the next
+arrival legitimately finds the channel idle, reserves it, and waits on the
+turn lock. If the dying turn's failure path then called `abort()`, it
+released a channel it did not own and pulled that arrival's queue into its
+own inbox.
+
+Measured on the code as written, with a band that vanished at the first
+replay frame:
+
+```
+B admitted: message:play | gate held: True | queue: 1
+>>> after the abort path:
+    gate.playing = False      <- B owns it, so this must be True
+    gate queue   = 0          <- B's queue was drained away
+    inbox        = ['queued one', 'queued behind B']
+```
+
+Nothing was lost — both texts are durable in the inbox — but B now believes
+it owns a channel the gate says is idle, so a third arrival would be
+admitted as a second owner, and B's queued text sat waiting for a phone
+attach instead of playing after B's close. The cue had already fired.
+
+**The fix.** A turn tracks whether the channel is still *its* (`released`,
+set at the release, with no await in between so the two are simultaneous
+as far as the event loop is concerned) and aborts only while it is. This is
+the residue of having two release paths: a state change needs an owner, and
+`released` is the only record of who that is.
+
+**Evidence.** `test_an_aborting_turn_does_not_release_the_next_arrival_s_channel`,
+which **fails when the guard is removed and passes with it** — verified by
+editing the guard out and re-running.
+
+#### 1.5.2 What the reservation still does not fix
+
+- **An inbox drain declines rather than waits.** `reserve()` returns `False`
+  rather than blocking, so if an arrival takes the channel in the gap
+  between one delivery's drain and the next, the attach loop stops early.
+  The entries stay pending and are delivered on the next attach: no loss, a
+  real delay. This is a deliberate trade (a blocking wait would need the
+  gate — a thread-safe, lock-based object — to grow an asyncio-facing wait,
+  and `MessageGate` is deliberately independent of any event loop).
+- **The channel is released before the replays play**, because that is the
+  seam's documented order (`close_event` releases and drains). A message
+  arriving during the replay therefore reserves the channel rather than
+  queueing, and is serialised behind the replays by the turn lock. Correct,
+  but the policy is "one turn at a time", not strictly "one message at a
+  time" during a drain.
+
+### 1.6 The auth gap: the senders were gated, the readers were not
+
+Found by reading the routes against each other, not by testing them. With
+`ZIV_RELAY_TOKEN` set, `/api/ziv/message` and `/inject/audio` required
+`Authorization: Bearer`. Nothing else did. So an unauthenticated caller on
+the LAN could:
+
+- read a private reminder's text out of `GET /api/ziv/schedule`,
+- read the wearer's entire message inbox out of `GET /api/ziv/inbox`,
+- clear either one (`DELETE /api/ziv/schedule`, `DELETE /api/ziv/inbox`),
+- read and rewrite the wearer's preferences.
+
+**The fix.** One `require_auth` dependency, declared once and attached to
+every route that can carry or reveal content: `/api/ziv/message`,
+`/inject/audio`, `/api/ziv/schedule` (GET/POST/DELETE), `/api/ziv/ready`,
+`/api/ziv/inbox` (GET/DELETE), `/api/ziv/prefs` (GET/POST). Declared as a
+dependency rather than an in-body call so the next endpoint added inherits
+the rule instead of forgetting it.
+
+**What deliberately stays open**, and why: `/ws` (a WebSocket handshake
+cannot carry an `Authorization` header — it keeps its own `?token=`),
+`/api/ziv/timing` (the generated spec; the PWA bootstraps from it before it
+can hold a credential), `/api/ziv/health` (the operator view the queue
+badge polls — counts, caps, model wiring, turn telemetry, no message text),
+and the client page. `test_auth_leaves_the_bootstrap_routes_open` pins that
+`health` stays content-free by storing a private message and a private
+reminder and asserting neither appears in the payload, so widening it stays
+a deliberate act.
+
+**Not fixed, stated plainly.** The PWA itself sends no token: it opens `/ws`
+without `?token=` and posts without an `Authorization` header. So with a
+token set, the dev band client cannot connect or send at all. That is
+pre-existing and unchanged — the relay is a LAN dev band and the token is
+unset by default — but it means "auth on" and "the demo works" are
+mutually exclusive today. Making the client token-aware is a feature, not
+part of this fix.
+
 ---
 
 ## 2. Claims corrected
@@ -179,7 +391,15 @@ What's-next list lost the items this work built.
   promises: every message accounted exactly once (set-exact, buckets
   partition), the drain returns every queued text with no duplication, and
   every refusal beyond the cap is a loud `message:rejected` with reason
-  `queue_full` and the cap named. Stable across repeated runs.
+  `queue_full` and the cap named. Stable across repeated runs. **Caveats
+  added by §1.4 and §1.5:** those tests drive the gate *in isolation*,
+  always from an already-`playing` state — which is exactly why they could
+  not see the interrupted-turn bug, nor the idle-gate window that made the
+  cap unreachable under a burst. The gate is now also pinned through the
+  server's real call order (`admit` → lock → … → `finish_playback` /
+  `abort`), *and* from the idle side: a stampede on an idle gate must
+  produce exactly one winner, so the claim rests on the composition, not
+  only the unit.
 - ~~**External statistics need source links**~~ — closed: both DEVPOST files
   now carry a "Sources (every external claim, checkable)" block before the
   License: the 2.4M figure (HKNC DeafBlind Awareness Week 2026), the 45–70k
@@ -205,13 +425,13 @@ What's-next list lost the items this work built.
 Generated by `python tools/prove.py` — do not hand-edit the numbers:
 
 ```
-PASS  hermetic relay suite            131 checks
+PASS  hermetic relay suite            159 checks
 PASS  haptic bench                    274 checks
 PASS  QEMU host suite                  49 checks
 PASS  drift guard                     7 consumers in sync
 ```
 
-- **Suite:** `python -m pytest -m "not e2e"` → **131 passed, 3 deselected**
+- **Suite:** `python -m pytest -m "not e2e"` → **159 passed, 3 deselected**
   (deselected = e2e, needs a browser; collection is clean with no ignore
   flags). With a browser installed: `python -m pytest -m e2e` → **3 passed**
   in a real chromium — the full redial + give-up journeys, end to end.

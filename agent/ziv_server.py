@@ -24,9 +24,11 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
   log.
 * ``POST /api/ziv/message`` — one inbound message through the real seam:
   the process-wide ``MessageGate`` decides play-now vs cue-and-queue
-  (invariant 4 — a message arriving mid-turn queues, it never barges),
-  and an arrival when the replay queue is full (``MessageGate.MAX_QUEUED``)
-  is rejected with 429 — bounded memory; the sender is told no, loudly,
+  (invariant 4 — a message arriving mid-turn queues, it never barges) and
+  ``message:play`` **reserves the channel for the whole turn**, model wait
+  and all, so the queue-don't-interrupt policy covers the quiet stretches
+  too. An arrival when the replay queue is full (``MessageGate.MAX_QUEUED``)
+  is rejected with 429 — bounded memory; the sender is told no, loudly.
   ``TurnTimeline`` emits the journey (cue → ``processing`` → playing →
   ``end-of-message`` → release), and the pump pushes each event's pattern to
   the WS. Fake-model mode sleeps ``ZIV_FAKE_MODEL_SECONDS`` (default 3 s) so
@@ -57,8 +59,15 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
   telemetry, and any corrupt-store reports.
 
 Auth: when ``ZIV_RELAY_TOKEN`` is set, WS connections must present it
-(``?token=``) and HTTP event endpoints must carry ``Authorization: Bearer``.
-Unset (default) is open — this is a LAN dev relay, not a deployment.
+(``?token=``) and every route that can carry or reveal the wearer's content
+(``/api/ziv/message``, ``/inject/audio``, ``/api/ziv/schedule``, ``/api/ziv/
+ready``, ``/api/ziv/inbox``, ``/api/ziv/prefs``) must carry
+``Authorization: Bearer`` — one declared dependency, so the next endpoint
+added inherits the rule instead of forgetting it. ``/api/ziv/timing`` (the
+generated spec), ``/api/ziv/health`` (counts and telemetry, no content) and
+the client page stay open because the PWA bootstraps from them before it can
+present a credential. Unset (default) is open — this is a LAN dev relay, not
+a deployment.
 
 Run: ``python agent/ziv_server.py`` (port 8787); the dev band URL is then
 ``http://<lan-ip>:8787/ziv_client/index.html`` opened on the phone.
@@ -80,7 +89,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 # Load .env (gitignored) before reading env vars below — the relay reads
@@ -167,9 +176,11 @@ async def fire_due() -> list[dict[str, Any]]:
                  "fired": True, "fired_at": time.time()}
             )
         except _NoDevices:
-            # No phone attached: store as inbox entry so it's delivered on
-            # the next attach (never lost, same contract as inbound msg).
-            inbox.offer(r["text"], source=r["source"])
+            # No phone attached. run_message_turn already stored the text
+            # it was carrying (the no-band case at its top, or the abort
+            # path if the band vanished mid-turn), so offering it AGAIN
+            # here would double-store one promise into two inbox entries.
+            # The reminder is already safe; this only reports the misfire.
             fired.append(
                 {**r, "fired": False,
                  "reason": "no_device_attached_stored_in_inbox"}
@@ -209,15 +220,18 @@ scheduled = ScheduledReminders()
 _schedule_task: asyncio.Task[None] | None = None
 
 
-async def run_scheduled_reminder(text: str) -> dict[str, Any]:
-    """One unprompted reminder — kept as the prefix-marked path's name.
+async def _dwell(seconds: float) -> None:
+    """Wait out one beat of the wearer's pace — the relay's only sleep.
 
-    The mark + kind tail + breath now live in ``_play_prefix_mark`` and run
-    inside ``run_message_turn``'s turn lock (so no message can interleave
-    between the name and what it announces); the scheduler's fire loop
-    passes ``prefix_mark="reminder"`` and lands here for the same shape.
+    Every dwell the relay owes the wrist goes through here: the gap between
+    two cells, the model's processing wait, the mark's tail and breath. The
+    numbers are computed from the generated timing module upstream, so this
+    is the single place where "how long did the relay actually wait" lives —
+    which is what makes the pacing assertable instead of merely intended.
+    (The scheduler's own poll interval is NOT a dwell and still sleeps
+    directly.)
     """
-    return await run_message_turn(text, source="scheduled", prefix_mark="reminder")
+    await asyncio.sleep(seconds)
 
 
 async def _play_prefix_mark(kind: str, text: str) -> None:
@@ -238,13 +252,13 @@ async def _play_prefix_mark(kind: str, text: str) -> None:
     cell_gap = _effective_cell_gap_ms() / 1000.0
     for cell in cells:
         await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
-        await asyncio.sleep(cell["ms"] / 1000.0 + cell_gap)
+        await _dwell(cell["ms"] / 1000.0 + cell_gap)
     await _push(haptic_frame(tail_id, why=f"{kind} mark"))
-    await asyncio.sleep(
+    await _dwell(
         sum(buzz + gap for buzz, gap in timing.pattern_beats(tail_id)) / 1000.0
     )
     # The breath: a beat of silence between the mark and what it announces.
-    await asyncio.sleep(timing.PREFIX_BREATH_MS / 1000.0)
+    await _dwell(timing.PREFIX_BREATH_MS / 1000.0)
 
 
 FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
@@ -309,7 +323,56 @@ app = FastAPI(
 )
 
 
-@app.post("/api/ziv/schedule")
+# ---------------------------------------------------------------------------
+# Auth (optional; open by default on the LAN)
+#
+# Defined above the routes because it is declared as a route dependency: the
+# policy is stated once, here, instead of being re-derived (and forgotten) at
+# each endpoint.
+# ---------------------------------------------------------------------------
+
+def _authorized_websocket(token: str | None) -> bool:
+    if not ZIV_RELAY_TOKEN:
+        return True
+    return token == ZIV_RELAY_TOKEN
+
+
+def _authorized_http(authorization: str | None) -> None:
+    if not ZIV_RELAY_TOKEN:
+        return
+    if authorization != f"Bearer {ZIV_RELAY_TOKEN}":
+        raise HTTPException(status_code=401, detail="bad or missing bearer token")
+
+
+def require_auth(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token gate for every route that can *carry or reveal* content.
+
+    The wearer's messages, their scheduled reminders and their preferences
+    are their own: whoever may send a message may read the inbox, and
+    nothing else. Applied as a route dependency so the rule is declared once
+    and cannot be quietly skipped on the next endpoint added.
+
+    What stays open, and why:
+
+    * ``/ws`` — the device transport, gated by its own ``?token=`` (a
+      WebSocket handshake cannot carry an Authorization header).
+    * ``/api/ziv/timing`` — the generated spec, no wearer content; the PWA
+      must bootstrap from it before it holds any credential.
+    * ``/api/ziv/health`` — the operator view the PWA's queue badge polls.
+      Counts, caps, model wiring and turn telemetry only; never a message's
+      text. Anything added here has to keep that true.
+    * ``/ziv_client/index.html`` — the client page itself, which a phone has
+      to load before it can present anything.
+    """
+    _authorized_http(authorization)
+
+
+#: Attached to every route that reveals or mutates the wearer's durable state,
+#: so the set is auditable at a glance instead of per-route.
+AUTHENTICATED = [Depends(require_auth)]
+
+
+@app.post("/api/ziv/schedule", dependencies=AUTHENTICATED)
 async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
     """Schedule a reminder to fire at a specific epoch time (seconds).
 
@@ -340,20 +403,20 @@ async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
     )
 
 
-@app.get("/api/ziv/schedule")
+@app.get("/api/ziv/schedule", dependencies=AUTHENTICATED)
 async def list_schedule() -> JSONResponse:
     """List scheduled reminders (id, fire_at, text, source)."""
     return JSONResponse({"reminders": scheduled.list_all()})
 
 
-@app.delete("/api/ziv/schedule")
+@app.delete("/api/ziv/schedule", dependencies=AUTHENTICATED)
 async def clear_schedule() -> JSONResponse:
     """Cancel all scheduled reminders."""
     n = scheduled.clear()
     return JSONResponse({"cleared": n})
 
 
-@app.get("/api/ziv/ready")
+@app.get("/api/ziv/ready", dependencies=AUTHENTICATED)
 async def ready() -> dict[str, Any]:
     """Health-plus: liveness + the schedule + the always-on loop state.
 
@@ -485,23 +548,6 @@ async def _push(frame: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Auth (optional; open by default on the LAN)
-# ---------------------------------------------------------------------------
-
-def _authorized_websocket(token: str | None) -> bool:
-    if not ZIV_RELAY_TOKEN:
-        return True
-    return token == ZIV_RELAY_TOKEN
-
-
-def _authorized_http(authorization: str | None) -> None:
-    if not ZIV_RELAY_TOKEN:
-        return
-    if authorization != f"Bearer {ZIV_RELAY_TOKEN}":
-        raise HTTPException(status_code=401, detail="bad or missing bearer token")
-
-
-# ---------------------------------------------------------------------------
 # The turn pump: gate + timeline → WS frames (the relay's event loop, live)
 # ---------------------------------------------------------------------------
 
@@ -624,12 +670,42 @@ async def _play_cells_and_close(
     gap = _effective_cell_gap_ms() / 1000.0
     for cell in cells:
         await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
-        await asyncio.sleep(cell["ms"] / 1000.0 + gap)
+        await _dwell(cell["ms"] / 1000.0 + gap)
     close = haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
     if free_fn is not None and free_fn():
         close["free"] = True
     await _push(close)
     return len(cells)
+
+
+async def _play_drained(drained: list[Any], owed: list[str]) -> None:
+    """Replay the texts the gate drained as their own full events.
+
+    The gate's queue is a *minutes*-long buffer, and every text in it has
+    already cued on the wearer's wrist — so it must have exactly one drain
+    point, and both owners of the channel come through here:
+
+    * the turn pump, with the events ``TurnTimeline.finish_playback``
+      drained at its close, and
+    * inbox delivery, with whatever arrived while a stored backlog played.
+
+    ``owed`` is the caller's "undelivered, oldest first" list. It is
+    REPLACED with the drained texts and popped as each one's close plays,
+    so a failure part-way through leaves exactly the unplayed remainder —
+    which is what the caller's abort path hands to the inbox. The last
+    replay's close carries the ``free`` marker (see
+    ``_play_cells_and_close``): the wrist is only truly free after the last
+    one, not after the turn's own.
+    """
+    owed[:] = [str(ev.payload.get("text", "")) for ev in drained]
+    for idx in range(len(drained)):
+        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="queued replay cue"))
+        await _play_cells_and_close(
+            owed[0],
+            note=True,
+            free_fn=lambda idx=idx, n=len(drained): idx == n - 1,
+        )
+        owed.pop(0)  # this replay's close played — the wearer has it
 
 
 async def _transcribe_omni(audio_b64: str, mime: str) -> str:
@@ -781,9 +857,19 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
 
     Marked delivered only *after* the close plays — a band vanishing
     mid-delivery leaves the message pending (redelivery, never loss).
-    Serialized behind the turn lock: the *peek* happens inside the lock too,
-    so two transports attaching at once cannot both pick up the same entry
-    and play it twice — the second waits, then peeks the next one.
+
+    Delivery owns the haptic channel exactly the way a turn does
+    (``gate.reserve()``): an inbox entry is already durable, so it must not
+    interleave into a turn in flight, and — just as important — a *turn*
+    must not interleave into the middle of a stored message. If the channel
+    is already held the delivery declines and returns ``None``, leaving the
+    entry pending for the next attach; nothing is lost, because nothing was
+    touched. The turn lock additionally serializes two deliveries racing the
+    same oldest entry, so the peek and the mark cannot straddle each other.
+
+    After the entry's close it drains the gate queue: texts that arrived
+    while a stored backlog played have already cued on the wrist, and this
+    is the owner that owes them their content.
 
     Every replay is a self-naming turn: the entry's source picks the mark
     kind (a stored reminder replays with the reminder's triple-pulse tail,
@@ -792,17 +878,52 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
     stored content arrives.
     """
     async with _turn_lock:
-        entry = inbox.peek_one()
-        if entry is None:
+        if not gate.reserve():
+            # A turn owns the channel. Leave the entry pending — it is
+            # durable, so declining costs a delay and nothing else.
             return None
-        source = str(entry.get("source", "message"))
-        # Inbox sources are storage origins, not mark kinds: map them —
-        # a reminder stored while away replays as a reminder; everything
-        # else (typed, transcribed) replays as a message.
-        kind = "reminder" if source == "scheduled" else "message"
-        await _play_prefix_mark(kind, str(entry.get("text", "")))
-        await _play_cells_and_close(str(entry.get("text", "")), note=True)
-        inbox.mark_delivered(entry)
+        # The entry itself needs no bookkeeping here: it stays pending in the
+        # inbox until its close actually plays, so a failure cannot lose it
+        # (and must not re-offer it — that would duplicate). Only the texts
+        # the drain is holding need carrying out.
+        owed: list[str] = []
+        # See run_message_turn: once close_event() has run, the channel is
+        # the next arrival's, and aborting would release *its* reservation.
+        released = False
+        try:
+            entry = inbox.peek_one()
+            if entry is None:
+                # Nothing stored — but the channel is ours, and something may
+                # have cued behind the previous delivery. Play it; discarding
+                # the drain here would silently drop a message the wearer has
+                # already been told about.
+                released = True
+                await _play_drained(gate.close_event(), owed)
+                return None
+            source = str(entry.get("source", "message"))
+            # Inbox sources are storage origins, not mark kinds: map them —
+            # a reminder stored while away replays as a reminder; everything
+            # else (typed, transcribed) replays as a message.
+            kind = "reminder" if source == "scheduled" else "message"
+            await _play_prefix_mark(kind, str(entry.get("text", "")))
+            await _play_cells_and_close(str(entry.get("text", "")), note=True)
+            owed = []
+            inbox.mark_delivered(entry)
+            # The channel is still ours: release it and play whatever queued
+            # behind this delivery, so nothing cues and then goes quiet.
+            released = True
+            await _play_drained(gate.close_event(), owed)
+        except BaseException:
+            # The band vanished mid-delivery. The entry is still pending (the
+            # mark never landed) and so is everything that cued behind it —
+            # the gate is the only place those texts were held, and nobody is
+            # left to play them. Hand them to the inbox, where they are kept
+            # for days instead of for the life of the process. Once released,
+            # though, the queue belongs to whichever arrival took the channel
+            # over and it will drain it itself.
+            for stranded in (owed if released else [*owed, *gate.abort()]):
+                inbox.offer(stranded, source="queued")
+            raise
     return entry
 
 
@@ -822,6 +943,11 @@ async def run_message_turn(
     (``_play_prefix_mark``) inside the same turn lock — the scheduler's
     reminders pass ``"reminder"`` so the wrist feels who is calling before
     the reminder's content arrives.
+
+    A turn that dies part-way through (the band vanishing mid-content, or a
+    cancellation) releases the gate and hands every undelivered text to the
+    inbox before re-raising: the channel is freed for the next arrival and
+    nothing the wearer never felt is lost. Redelivery, never a silent drop.
     """
     # No band attached: the message is stored, not dropped — the inbox is
     # what the gate is for a turn, for days. It is offered on the next
@@ -860,86 +986,141 @@ async def run_message_turn(
             "queue_len": len(gate),
         }
 
-    async with _turn_lock:
-        # An unsolicited turn names itself first (plan §4 invariant 1):
-        # the mark plays inside this lock, so no message can interleave
-        # between the name and the content it announces.
-        if prefix_mark is not None:
-            await _play_prefix_mark(prefix_mark, text)
+    # Everything this turn still owes the wearer, oldest first: the
+    # in-flight text, then whatever the close drains, then anything that
+    # arrives while the replays play. An entry leaves the list only when
+    # its OWN close has been pushed, so a failure part-way through hands
+    # the remainder to the inbox — redelivery (the wrist may hear a message
+    # twice), never a silent loss.
+    owed: list[str] = [text]
+    turn: TurnTimeline | None = None
+    # Whether the gate is still OURS. finish_playback() releases it at the
+    # close, and this turn keeps playing drained replays long after that —
+    # so a failure during the replay loop must NOT abort the gate: by then
+    # the next arrival may already hold the channel, and aborting would
+    # release *its* reservation and pull *its* queue into our inbox. Set at
+    # the release, with no await in between, so the two are simultaneous as
+    # far as the event loop is concerned.
+    released = False
+    try:
+        async with _turn_lock:
+            # An unsolicited turn names itself first (plan §4 invariant 1):
+            # the mark plays inside this lock, so no message can interleave
+            # between the name and the content it announces.
+            if prefix_mark is not None:
+                await _play_prefix_mark(prefix_mark, text)
 
-        turn = TurnTimeline(gate, text=text)
+            turn = TurnTimeline(gate, text=text)
 
-        def frame_for(ev: Any) -> dict[str, Any]:
-            et = ev.event_type
-            if et == "message:play":
-                return haptic_frame(PATTERN_MESSAGE_CUE, why="kind cue")
-            if et == f"attention:{PATTERN_PROCESSING}":
-                return haptic_frame(PATTERN_PROCESSING, why="working")
-            if et == f"attention:{PATTERN_ERROR}":
-                return haptic_frame(PATTERN_ERROR, why="error")
-            if et == "lifecycle:playback_done":
-                return haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
-            return {"type": "text", "text": et}
+            def frame_for(ev: Any) -> dict[str, Any]:
+                et = ev.event_type
+                if et == "message:play":
+                    return haptic_frame(PATTERN_MESSAGE_CUE, why="kind cue")
+                if et == f"attention:{PATTERN_PROCESSING}":
+                    return haptic_frame(PATTERN_PROCESSING, why="working")
+                if et == f"attention:{PATTERN_ERROR}":
+                    return haptic_frame(PATTERN_ERROR, why="error")
+                if et == "lifecycle:playback_done":
+                    return haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
+                return {"type": "text", "text": et}
 
-        t0 = time.monotonic()
+            t0 = time.monotonic()
 
-        # The opening kind cue (invariant 1) — the turn exists.
-        await _push(frame_for(turn.events[0]))
+            # The opening kind cue (invariant 1) — the turn exists.
+            await _push(frame_for(turn.events[0]))
 
-        # The model round-trip: the fake model sleeps, the timeline's clock
-        # runs — waiting stays legible (invariant 3) without a timer thread.
-        turn.begin_processing(now_s=0.0)
-        await _push(frame_for(turn.events[-1]))
-        tick = 0.05
-        waited = 0.0
-        while waited < FAKE_MODEL_SECONDS:
-            await asyncio.sleep(tick)
-            waited += tick
-            ev = turn.poll(now_s=waited)
-            if ev is not None:
-                await _push(frame_for(ev))
+            # The model round-trip: the fake model sleeps, the timeline's
+            # clock runs — waiting stays legible (invariant 3) without a
+            # timer thread. The channel is already held for all of this
+            # (gate.admit reserved it above), so a message arriving during
+            # the wait cues and queues instead of barging into the turn.
+            turn.begin_processing(now_s=0.0)
+            await _push(frame_for(turn.events[-1]))
+            tick = 0.05
+            waited = 0.0
+            while waited < FAKE_MODEL_SECONDS:
+                await _dwell(tick)
+                waited += tick
+                ev = turn.poll(now_s=waited)
+                if ev is not None:
+                    await _push(frame_for(ev))
 
-        # Content on the motors: the cue re-announced (invariant 1), then the
-        # message spelled as vibro-braille cells at the wearer's pace — the
-        # phone literally renders the firmware's playback loop.
-        turn.begin_playback()
-        await _push(frame_for(turn.events[-1]))
+            # Content on the motors: the cue re-announced (invariant 1),
+            # then the message spelled as vibro-braille cells at the
+            # wearer's pace — the phone literally renders the firmware's
+            # playback loop.
+            turn.begin_playback()
+            await _push(frame_for(turn.events[-1]))
 
-        # Content on the motors (the gate stays "playing" through every
-        # cell dwell — a message arriving mid-content queues, invariant 4).
-        # The wrist is freed by the LAST close of the sequence: the main
-        # close when the queue holds nothing AT THE CLOSE PUSH, else the
-        # final replay's close below. The flag is evaluated lazily (see
-        # _play_cells_and_close) — after the dwells, where fills land.
-        await _play_cells_and_close(text, free_fn=lambda: len(gate) == 0)
+            # Content on the motors (the channel stays held through every
+            # cell dwell — a message arriving mid-content queues,
+            # invariant 4). The wrist is freed by the LAST close of the
+            # sequence: the main close when the queue holds nothing AT THE
+            # CLOSE PUSH, else the final replay's close below. The flag is
+            # evaluated lazily (see _play_cells_and_close) — after the
+            # dwells, where fills land.
+            await _play_cells_and_close(text, free_fn=lambda: len(gate) == 0)
+            owed.pop(0)  # this text's own close played — the wearer has it
 
-        # The close has played; the gate releases (invariants 2 + 4) and the
-        # drained messages replay as their own full events (cue → cells →
-        # close), the last one carrying the ``free`` marker the dev band
-        # fires its armed redial on.
-        replay = turn.finish_playback(now_s=round(time.monotonic() - t0, 1))
-        drained = replay[1:]
-        for idx, ev in enumerate(drained):
-            replay_text = str(ev.payload.get("text", ""))
-            await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="queued replay cue"))
-            await _play_cells_and_close(
-                replay_text, note=True,
-                free_fn=lambda idx=idx, n=len(drained): idx == n - 1,
+            # The close has played; the gate releases (invariants 2 + 4)
+            # and the drained messages replay as their own full events (cue
+            # → cells → close), the last one carrying the ``free`` marker
+            # the dev band fires its armed redial on.
+            replay = turn.finish_playback(now_s=round(time.monotonic() - t0, 1))
+            drained = replay[1:]
+            released = True  # the gate is the next arrival's now
+            await _play_drained(drained, owed)
+
+            _telemetry.record(
+                label="message_turn",
+                seconds=turn.seconds,
+                retries=turn.retries,
+                source=source,
+                queued=len(drained),
             )
-
+            return {
+                "event": "turn_complete",
+                "seconds": turn.seconds,
+                "events": [ev.event_type for ev in turn.events],
+                "drained": len(drained),
+            }
+    except BaseException as exc:
+        # The turn died part-way through (the real case: the band vanished
+        # and _push raised _NoDevices; also a cancellation while queued for
+        # the turn lock). Two promises hold here, and both are about what
+        # the NEXT message finds:
+        #
+        #   1. the channel is released. gate.admit() holds it for this
+        #      whole turn and only finish_playback() clears it — a turn
+        #      that raises in between leaves _playing True forever, every
+        #      later arrival queues against a wrist that is not reading,
+        #      and after MAX_QUEUED the relay refuses everything until
+        #      restart. abort() clears it.
+        #   2. nothing the wearer never felt is dropped. The in-flight
+        #      text and every unplayed replay go to the inbox, which
+        #      delivers them as full events on the next attach. The
+        #      still-queued texts come back from abort() for the same
+        #      reason — the gate no longer holds them. Only while the
+        #      channel is still ours: past ``released`` the queue belongs to
+        #      another turn, and touching it would corrupt their state.
+        if not released:
+            owed.extend(gate.abort())
+        for pending_text in owed:
+            inbox.offer(pending_text, source=source)
         _telemetry.record(
-            label="message_turn",
-            seconds=turn.seconds,
-            retries=turn.retries,
+            label="message_turn_aborted",
+            seconds=0.0,
+            retries=turn.retries if turn is not None else 0,
             source=source,
-            queued=len(drained),
+            reason=type(exc).__name__,
+            stranded=len(owed),
         )
-        return {
-            "event": "turn_complete",
-            "seconds": turn.seconds,
-            "events": [ev.event_type for ev in turn.events],
-            "drained": len(drained),
-        }
+        LOGGER.warning(
+            "turn_aborted source=%s reason=%s stranded=%d — "
+            "gate released, undelivered texts stored in the inbox",
+            source, type(exc).__name__, len(owed),
+        )
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1066,7 +1247,7 @@ async def inject_audio(
     return JSONResponse({"source": source, **result})
 
 
-@app.get("/api/ziv/inbox")
+@app.get("/api/ziv/inbox", dependencies=AUTHENTICATED)
 def get_inbox() -> dict[str, Any]:
     """The wearer's inbox: pending messages, oldest first (the wrist shows
     them as pending until the wearer's band takes them)."""
@@ -1077,13 +1258,13 @@ def get_inbox() -> dict[str, Any]:
     }
 
 
-@app.delete("/api/ziv/inbox")
+@app.delete("/api/ziv/inbox", dependencies=AUTHENTICATED)
 def clear_inbox() -> dict[str, Any]:
     """The wearer discards everything pending — the inbox answers to them."""
     return {"cleared": inbox.clear()}
 
 
-@app.get("/api/ziv/prefs")
+@app.get("/api/ziv/prefs", dependencies=AUTHENTICATED)
 def get_prefs() -> dict[str, Any]:
     """The wearer's playback-pace preference, clamped into the spec envelope."""
     return {
@@ -1094,7 +1275,7 @@ def get_prefs() -> dict[str, Any]:
     }
 
 
-@app.post("/api/ziv/prefs")
+@app.post("/api/ziv/prefs", dependencies=AUTHENTICATED)
 def set_prefs(body: dict[str, Any]) -> dict[str, Any]:
     """Store the playback-pace preference (parameters are personal; the
     envelope is the spec's — values outside it are clamped, not rejected)."""
@@ -1129,6 +1310,14 @@ def get_timing() -> dict[str, Any]:
 
 @app.get("/api/ziv/health")
 def health() -> dict[str, Any]:
+    """Operator view — deliberately public, and deliberately content-free.
+
+    The PWA's queue badge polls this before it has any credential, so it is
+    not bearer-gated. It answers counts, caps, model wiring, turn telemetry
+    and corrupt-store flags — never a message's text, a reminder's line, or
+    a preference value. Anything added here must keep that property; the
+    routes that DO carry content are the ``AUTHENTICATED`` ones.
+    """
     # Every load that can DISCOVER corruption runs BEFORE the single drain:
     # a corrupt file is found (and reported) by the depth/count/prefs reads,
     # so the drain below captures all of it — one snapshot, the flag and

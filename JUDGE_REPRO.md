@@ -19,8 +19,15 @@ Quick index — claim → where it's proven:
 | Live fire loop fires reminders | `test_scheduled_reminder_fires_with_name_mark_over_the_wire` |
 | Schedule survives restarts (durable) | `tests/test_ziv_store.py::test_schedule_roundtrip_across_instances` |
 | Schedule: claim-before-play, one clock, corrupt recovery | `test_schedule_take_due_claims_then_releases`, `test_schedule_take_due_uses_one_now`, `test_schedule_clear_and_corrupt_recovery` |
-| Concurrent arrivals: no loss, no dup, loud refusals | `tests/test_gate_concurrency.py` (3 tests) |
+| Concurrent arrivals: no loss, no dup, loud refusals | `tests/test_gate_concurrency.py` (8 tests) |
+| The channel is held for the WHOLE turn, so a burst plays once | `test_burst_of_arrivals_plays_one_and_bounds_the_rest`, `test_a_stampede_on_an_idle_gate_produces_exactly_one_winner`, `test_seam_is_proven_a_play_decision_reserves_the_channel` |
+| An arrival during the model wait queues instead of barging | `test_arrival_during_the_model_wait_queues_instead_of_barging` |
+| A band vanishing mid-turn frees the channel and keeps the text | `test_band_vanishing_mid_turn_releases_the_gate`, `test_band_vanishing_mid_turn_stores_the_in_flight_text`, `test_band_vanishing_mid_turn_strands_queued_messages_not_drops_them` |
+| A dying turn cannot release the *next* arrival's channel | `test_an_aborting_turn_does_not_release_the_next_arrival_s_channel` |
 | Inbox replay is a self-naming turn | `test_reminder_stored_offline_replays_with_name_mark` |
+| A stored backlog never strands what cued behind it | `test_inbox_delivery_drains_what_arrived_behind_it`, `test_inbox_delivery_strands_what_it_could_not_play`, `test_inbox_delivery_declines_while_a_turn_holds_the_channel` |
+| The wearer's pace is a real dwell, not a stored number | `test_the_wearer_pace_lands_on_the_wire_as_real_dwells`, `test_moving_the_pace_moves_every_dwell_by_exactly_that_much` |
+| Auth covers every route that carries or reveals content | `test_auth_covers_every_route_that_carries_or_reveals_content` (8 routes), `test_auth_leaves_the_bootstrap_routes_open` |
 | PWA badge contract (both sides pinned) | `tests/test_client_badge_contract.py` + `test_health_payload_serves_the_pwa_badge_contract` |
 | Health surfaces the schedule (depth/cap/corrupt) | `test_health_payload_surfaces_the_schedule` |
 | Redial give-up is a loud dead end | `tests/test_client_redial_contract.py` (+ browser proof in `test_redial_giveup_e2e.py`, marked `e2e`) |
@@ -38,7 +45,7 @@ cd agent
 python -m pytest -m "not e2e"
 ```
 
-**Expect: `126 passed`** (the 3 e2e browser tests are marker-deselected;
+**Expect: `159 passed`** (the 3 e2e browser tests are marker-deselected;
 without Playwright installed they skip cleanly instead). ~2 minutes on a
 laptop. This one command proves every agent row of the table above — each
 named test is in the output.

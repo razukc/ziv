@@ -128,7 +128,7 @@
   </div>
 
   <div class="panel">
-    <div class="cap" style="margin:0 0 6px">Wire log (server frames)</div>
+    <div class="cap" style="margin:0 0 6px">Wire log (server frames, oldest first)</div>
     <div id="log"></div>
   </div>
 </main>
@@ -157,8 +157,16 @@ function log(kind, text) {
   const mm = String(now.getMinutes()).padStart(2, "0");
   const ss = String(now.getSeconds()).padStart(2, "0");
   d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
-  S.logEl.prepend(d);
-  while (S.logEl.children.length > 60) S.logEl.removeChild(S.logEl.lastChild);
+  // Chronological order: oldest first, newest appended at the bottom — the
+  // wire log reads top-down exactly like the story is told (cue → ticks →
+  // cells → close), instead of newest-first reversed reading.
+  S.logEl.appendChild(d);
+  while (S.logEl.children.length > 60) S.logEl.removeChild(S.logEl.firstChild);
+  // Stick to the bottom so the newest line stays in view — unless the
+  // reader scrolled up deliberately (then leave their place alone).
+  const nearBottom =
+    S.logEl.scrollHeight - S.logEl.scrollTop - S.logEl.clientHeight < 48;
+  if (nearBottom) S.logEl.scrollTop = S.logEl.scrollHeight;
 }
 
 function setState(text, cls) {

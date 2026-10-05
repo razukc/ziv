@@ -8,9 +8,13 @@ handover. It references no compose scaffold and no other backend imports
 it: the Ziv seam builds, tests, and runs independently. The Ziv seam is:
 
 * MessageGate — the queue-don't-interrupt policy (plan §4 invariant 4).
-  The haptic channel is serial: when content is playing, an incoming message
-  may announce itself (attention cue only) and queues its text; the wearer —
-  not the sender — releases the queue after the end-of-message close.
+  The haptic channel is serial and *held by a turn for the turn's whole
+  lifetime*: answering ``message:play`` reserves it, so an incoming message
+  while a turn is in flight — waiting on the model, spelling cells, draining
+  the queue — announces itself (attention cue only) and queues its text; the
+  wearer — not the sender — releases the queue after the end-of-message close.
+  A turn that raises instead of closing hands the channel back with
+  ``abort()``, along with every text it never played.
   Concurrency (harden-against-concurrent-transports): one wrist, one playback
   loop, but transports call admit/close_event from concurrent tasks and
   threads, so the gate serializes its decisions internally with a lock and
@@ -265,23 +269,47 @@ class MessageGate:
     wearer is already reading, and the wearer — not the sender — releases the
     queue. Policy:
 
-    * idle + message      → ``message:play`` (mark → attention tail → content)
-    * playing + message   → ``attention:double-tap`` now; text queued
-    * playing + full queue → ``message:rejected`` — the sender is told no,
+    * idle + message      → ``message:play``, AND the channel is now HELD:
+      the decision is the reservation (see below)
+    * held + message      → ``attention:double-tap`` now; text queued
+    * held + full queue   → ``message:rejected`` — the sender is told no,
       loudly (the dev-band server maps it to HTTP 429); the wearer feels
       nothing, and nothing is dropped silently or queued without bound
     * ``close_event()``   → playback is over (the end-of-message close has
-      played, or the wearer resumed): the queue drains oldest-first as
-      ``message:play`` results
+      played, or the wearer resumed): the channel is released and the queue
+      drains oldest-first as ``message:play`` results
+    * ``abort()``         → playback was *interrupted*: the channel is
+      released and the still-queued texts come back for the caller to
+      re-offer somewhere durable
+
+    **The decision is the reservation.** Answering ``message:play`` holds
+    the channel — not "once the motors start", but from the moment the
+    relay commits to playing. That is the whole point: a turn owns the
+    haptic channel for its *entire* lifetime, and the relay spends most of
+    a turn NOT vibrating. It waits for the model (``processing`` repeats
+    every ``PROCESSING_EVERY_S`` — seconds, or 30 of them against a real
+    provider), it spells cells with a dwell between each, it plays the
+    close, it drains the queue. If the gate only went busy at the first
+    cell, every one of those windows would be an idle channel: an
+    arriving message would be answered ``message:play``, would wait
+    behind the turn's own lock, and then play — so N simultaneous
+    arrivals would all play instead of one playing and the rest queueing,
+    and ``MAX_QUEUED`` would be unreachable exactly when it mattered.
+    Reserving at admit makes the policy cover the turn, not just its
+    noisiest millisecond.
+
+    The caller must therefore give the channel back: ``close_event()`` on
+    a turn that played, ``abort()`` on one that raised. That pairing is
+    the whole contract; the server holds both ends of it.
 
     Thread discipline: one wrist, one playback loop, but concurrent
-    transports (websocket + HTTP + audio) call ``admit``/``begin_playback``/
+    transports (websocket + HTTP + audio) call ``admit``/``reserve``/
     ``close_event`` from different tasks and threads. The gate is the seam's
     serialization point: every decision is atomic under its reentrant lock,
     so a racing admit either queues, plays, or is rejected — it never
     corrupts the queue, vanishes, or doubles. The lock serializes
-    *decisions*, not turns: the caller still drives one turn at a time (the
-    server's turn lock does that).
+    *decisions*, not turns: the winner of a ``message:play`` drives one
+    turn at a time.
     """
 
     #: Bound on the replay queue (plan §9: bounded memory everywhere). A
@@ -309,9 +337,36 @@ class MessageGate:
             return len(self._queue)
 
     def begin_playback(self) -> None:
-        """The playback loop reports that content is now on the motors."""
+        """The playback loop reports that content is now on the motors.
+
+        Usually redundant — ``admit`` already holds the channel for the turn
+        this call belongs to — and kept because a caller may drive the gate
+        without going through ``admit`` (the seam's own tests do). Idempotent.
+        """
         with self._lock:
             self._playing = True
+
+    def reserve(self) -> bool:
+        """Claim the idle channel for a caller that has nothing to queue.
+
+        ``admit`` already reserves when it answers ``message:play``; this is
+        the same claim for the caller that arrives with its content already
+        durable — an inbox entry being delivered. Such a caller must not sit
+        behind a *turn* queue (the text is not new information; it has been
+        waiting for days) and must not interleave with a turn in flight.
+
+        Returns False when the channel is already held. A caller that gets
+        False must leave its work pending rather than play anyway — the entry
+        is durable, so a later attempt loses nothing.
+
+        Atomic under the same lock as every other decision here, so it can
+        never interleave with a racing admit.
+        """
+        with self._lock:
+            if self._playing:
+                return False
+            self._playing = True
+            return True
 
     def admit(self, text: str) -> TurnEvent:
         """Route one incoming message: play now, announce + queue, or reject.
@@ -319,11 +374,16 @@ class MessageGate:
         A queued message still gets its attention cue immediately — the
         wearer feels that something arrived (double-tap) — only its *content*
         waits. The decision, not the text, is what the shared layer renders.
-        Atomic under the gate's lock: a concurrent admit either queues, plays,
-        or is rejected; it never corrupts the queue or vanishes.
+
+        ``message:play`` **holds the channel** for the caller (the class
+        docstring explains why), so the caller owes it a ``close_event()``
+        or an ``abort()``. Atomic under the gate's lock: a concurrent admit
+        either queues, plays, or is rejected; it never corrupts the queue,
+        vanishes, or lets a second arrival take a channel that is in use.
         """
         with self._lock:
             if not self._playing:
+                self._playing = True
                 return TurnEvent(
                     event_type="message:play",
                     payload={"text": text, "queued": False, "prefix": True},
@@ -348,6 +408,39 @@ class MessageGate:
                 event_type="attention:double-tap",
                 payload={"text": text, "queued": True, "prefix": True},
             )
+
+    def abort(self) -> list[str]:
+        """The turn died mid-playback: release the channel, hand back the queue.
+
+        ``close_event`` is the *planned* ending — the close played, so the
+        queue drains as full replay events on the same channel. ``abort``
+        is the unplanned one: the caller raised before the close landed (a
+        band vanishing mid-turn is the real case), so there is nothing to
+        replay *through this gate* and no one to feel it.
+
+        Two guarantees, both load-bearing:
+
+        * the channel is released — exactly as on a normal close, so the
+          next arrival is admitted and played instead of queueing against a
+          wrist that is not reading. Without this the relay wedges: after
+          MAX_QUEUED further arrivals are refused forever, and only a
+          restart frees the wrist.
+        * nothing is dropped — every still-queued text comes back to the
+          caller in FIFO order so it can be re-offered somewhere durable
+          (the relay stores it in the inbox). Silence is never the answer
+          for a message the wearer never got to feel.
+
+        Since ``admit`` reserves the channel for the whole turn, this is
+        the only thing standing between a mid-turn failure and that wedge.
+        Atomic under the gate's lock, like every other decision here: an
+        abort never interleaves with a racing admit, and an abort on an
+        idle gate is a no-op that still returns whatever was queued.
+        """
+        with self._lock:
+            self._playing = False
+            stranded = list(self._queue)
+            self._queue.clear()
+            return stranded
 
     def close_event(self) -> list[TurnEvent]:
         """The event closed: end-of-message has played (or the wearer resumed).
