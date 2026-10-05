@@ -8,11 +8,16 @@ on:
 
 jobs:
   ziv:
-    name: Ziv — hermetic suite + timing drift guard
+    name: Ziv — proof block (4 suites)
     # Pinned image: `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19 —
     # bump deliberately, not by surprise (see actions/runner-images#14748).
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # prove.py runs pytest as a child interpreter and carries no -X utf8 of
+    # its own, so the encoding guarantee the old pytest step held lives here
+    # instead — the suite fails on a non-UTF-8 locale (see bea6b49).
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -30,19 +35,15 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Hermetic Ziv test suite (bare pytest, e2e deselected)
-        working-directory: agent
+      # One command, one block: the hermetic relay suite, the 274-check
+      # haptic bench, the QEMU host suite, and the timing drift guard.
+      # These steps used to be hand-written copies of prove.py's CHECKS
+      # list — the same hand-duplication prove.py exists to end, and how the
+      # haptic bench fell out of CI entirely while remaining the largest
+      # number the README prints. prove.py is the single source now.
+      - name: Proof block (4 suites)
         run: |
-          python -X utf8 -m pytest -m "not e2e" -q
-
-      - name: Haptic timing drift guard (all 7 generated consumers)
-        run: |
-          python tools/haptic_timing.py
-
-      - name: QEMU rung-2 bench (host demo vs derived fixture)
-        working-directory: firmware/app/ziv_qemu
-        run: |
-          python run_ziv_tests.py
+          python tools/prove.py
 
   qemu-boot:
     name: QEMU boot — ESP32-S3 app boots the demo (non-blocking)

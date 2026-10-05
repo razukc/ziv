@@ -14,6 +14,22 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only
 
+- **CI runs `prove.py`, so the haptic bench is enforced on the runner at last** —
+  the `ziv` job's three verification steps (hermetic suite, timing drift guard,
+  QEMU rung-2 bench) were hand-written copies of `tools/prove.py`'s `CHECKS`
+  list, and the copy had drifted: the 274-check `haptic_out` bench — the largest
+  suite in the repo, and the largest number the README prints — was in
+  `prove.py` and in `hooks/pre-commit` but never in CI, so no run on the runner
+  ever compiled the sequencer. One `python tools/prove.py` step replaces all
+  three, making CI and the local proof block one source; `PYTHONUTF8=1` moves to
+  the job level because `prove.py` spawns pytest without `-X utf8` of its own
+  (`bea6b49`). Four suites now gate every push instead of three — a strict
+  superset, nothing dropped. `pytest.ini`'s `e2e` marker description corrected
+  too: it claimed a `:8000` backend, a `:3000` frontend (SkillForge's, gone since
+  the handover) and system Chrome/Edge, where the suite actually boots the real
+  relay in-process on an ephemeral port and drives the served PWA with
+  Playwright's bundled headless chromium.
+
 - **SkillForge handed over; this repository is Ziv-only from here on** — the
   full SkillForge tree (agent server/registries/compose, its test suite,
   the Next.js frontend, its docs, DEVPOST) moved to the sibling `../SkillForge`
