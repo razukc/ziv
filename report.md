@@ -16,46 +16,55 @@
 
 ## Current repo state
 
-Two local commits on `ziv-local-recovery`:
+Three local commits on `ziv-local-recovery`:
 
 - `6314a4c chore: land the full working tree as a clean baseline`
 - `f2abda3 Add a standalone judge/repro walkthrough script`
+- `2b530e9 Self-note: record that the repo was recovered and pushed from scratch`
 
 Branch: `ziv-local-recovery`
-Remote tracking branch: `origin/main` still points upstream to the stale remote;
-the new branch has not been pushed yet.
+Remote branch: `origin/ziv-local-recovery`, latest commit `2b530e960d83524429ada85b4ed948b827600c7c`.
+Remote tracking branch `origin/main` still points upstream to the stale remote and
+was not changed by this session.
 
-## What I kept on disk intentionally (not committed yet)
+## What I kept on disk intentionally (in the repo tree, not removed this session)
 
-A few runtime artifacts are still sitting on disk by choice, not because I
-forgot them:
+A few runtime artifacts are still present because earlier notes flagged them as
+possibly relevant or still-in-use:
 
 - `tools/pin_adk_refs_to_main.py`
 - `tools/report_pinned_adk_env.py`
 - `ziv_server_tail_dump.txt`
 
-Those were left in place because earlier work flagged them as possibly relevant
-or still-in-use. They are already in the baseline commit’s tree. If you want
-them gone later, we can do that in a cleanup commit without touching the
-project source.
+They are already in the repo’s tree now. If you want them gone later, that can
+be a cleanup commit without touching the project source.
 
 I also did not touch the other duplicate public surfaces (`public/index.html`,
 `public/probe.html`, `agent/public/index.html`, `agent/public/probe.html`,
 `agent/ziv_client/index.html`, etc.). You said to hold cleanup for later if
 duplicates exist, so I left those as-is.
 
-## What I still do not know yet
+## Verification done
 
-- I still have not verified whether the remaining on-disk source files match the
-  same content I saw earlier for the key files. The repo now has a coherent
-  snapshot, but I have not re-run a file-by-file SHA cross-check for the whole
-  tree in this turn.
-- I have not attempted `git push` yet. You said to build meaningful local
-  commits first and push at the end, so I held it.
+- `.git` is present locally; `HEAD` resolves to `ziv-local-recovery`.
+- Local status is clean except for untracked `FINAL_SUMMARY.md`.
+- 3 local commits match 3 remote commits on `origin/ziv-local-recovery`.
+- `origin/main` does not contain the recovery commits.
+- Remote recursive tree listing was checked and contains `agent/prove.py` plus
+  the other tracked deliverables.
+- No other untracked scratch remains on disk besides `FINAL_SUMMARY.md`.
+
+## What was not re-verified this session
+
+- I did not do a full file-by-file SHA audit against an earlier known-good
+  snapshot. The repo now has a coherent snapshot, but that stricter audit was not
+  completed here.
+- I did not merge or rebase this branch onto `main`. That is still a deliberate
+  next step, not something done automatically.
 
 ## Next step if you want it
 
-If you are happy with two commits and the branch name, I can try pushing
-`ziv-local-recovery` up to `origin` so the recovery baseline is not only local.
-Before that, I can also re-verify the important files’ contents if you want a
-stronger “this matches what was on disk before I touched anything” check.
+If you want this branch to become the mainline, the next move is a deliberate
+merge or rebase onto `main` on your terms. If you want any of the intentionally
+kept runtime artifacts or duplicate public surfaces cleaned up, that can be a
+separate commit.

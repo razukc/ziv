@@ -1,0 +1,4 @@
+ziv-local-recovery (3 commits, pushed)
+6314a4c chore: land the full working tree as a clean baseline
+f2abda3 Add a standalone judge/repro walkthrough script
+2b530e9 Self-note: record that the repo was recovered and pushed from scratch
