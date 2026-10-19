@@ -1,0 +1,392 @@
+"""agent/ziv_store.py — the wearer's own memory, persistent across restarts.
+
+Relay v0 kept everything in process memory: a message that arrived while no
+phone was attached vanished, and the wearer's playback-pace preference reset
+on every restart. Relay v1 gives the wearer three durable things:
+
+* ``WearerMemory`` — per-wearer key/value memory (profile facts, preferences),
+  atomic JSON, never crashes on a corrupt file: a corrupt file is discarded
+  and reported through ``take_corrupt_files()``, not silently swallowed.
+* ``MessageInbox`` — a capped, persistent message inbox: what the queue gate
+  is for a turn, the inbox is for days. An inbound message with no band
+  attached is *stored*, not dropped — and offered on the next attach, under
+  the wearer's control, like the queue.
+* ``ScheduledReminders`` — the reminder schedule, durable like the inbox:
+  a reminder promised for tomorrow survives a relay restart tonight.
+
+One JSON file per key under ``agent/ziv_data/`` (gitignored — it is the
+wearer's data, not repo state).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+DATA_DIR = Path(__file__).resolve().parent / "ziv_data"
+
+# Inbox discipline (plan §9: bounded memory everywhere; the inbox is capped).
+INBOX_CAP = 20
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    """Atomic JSON write: temp file + os.replace, the same discipline as
+    agent/pipeline_store.py — a crash mid-write never corrupts the file."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _load_json(path: Path) -> tuple[Any | None, bool]:
+    """Load one JSON file; returns ``(payload, corrupt)``. A missing file is
+    not corrupt — that is just a fresh wearer."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), False
+    except FileNotFoundError:
+        return None, False
+    except Exception:
+        return None, True
+
+
+class WearerMemory:
+    """Per-wearer key/value memory (profile facts, preferences).
+
+    Each key is one JSON file; every write is atomic; every read tolerates a
+    corrupt file by returning the caller's default and remembering the key
+    in ``take_corrupt_files()`` so the relay's health can surface it.
+    """
+
+    #: The playback-pace preference key (value: ms inside the spec's
+    #: cell-gap envelope — the server clamps, the spec owns the envelope).
+    PREF_CELL_GAP = "cell_gap_ms"
+
+    def __init__(self, wearer_id: str = "wearer") -> None:
+        self.wearer_id = wearer_id
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._corrupt_keys: list[str] = []
+
+    def _path(self, key: str) -> Path:
+        # Keys are slugs the relay controls; keep them file-safe anyway.
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in key)
+        return DATA_DIR / f"{self.wearer_id}.{safe}.json"
+
+    def get(self, key: str, default: Any = None) -> Any:
+        payload, corrupt = _load_json(self._path(key))
+        if corrupt:
+            with self._lock:
+                self._corrupt_keys.append(key)
+            return default
+        return default if payload is None else payload
+
+    def set(self, key: str, value: Any) -> None:
+        _atomic_write_json(self._path(key), value)
+
+    def take_corrupt_files(self) -> list[str]:
+        """Report (and forget) keys whose files failed to parse, for health."""
+        with self._lock:
+            out, self._corrupt_keys = self._corrupt_keys, []
+        return out
+
+
+class MessageInbox:
+    """Capped, persistent message inbox with gated delivery.
+
+    Storage: one JSON list under ``<wearer>.inbox.json`` — dicts of
+    ``{"text", "at", "source", "delivered"}``, oldest first, capped at
+    ``INBOX_CAP`` (oldest dropped when full). ``offer()`` stores; ``take()``
+    hands the wearer control of delivery, like the queue gate does for a
+    single turn.
+    """
+
+    def __init__(self, wearer_id: str = "wearer") -> None:
+        self.wearer_id = wearer_id
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # RLock: public methods hold it while calling _load/_save, which
+        # re-acquire — reentrant makes the nesting harmless.
+        self._lock = threading.RLock()
+        self._corrupt_keys: list[str] = []
+        self._evicted = 0
+        self._path = DATA_DIR / f"{self.wearer_id}.inbox.json"
+
+    def _load(self) -> list[dict[str, Any]]:
+        payload, corrupt = _load_json(self._path)
+        if corrupt or (payload is not None and not isinstance(payload, list)):
+            with self._lock:
+                if "inbox" not in self._corrupt_keys:
+                    self._corrupt_keys.append("inbox")
+            return []
+        return [e for e in (payload or []) if isinstance(e, dict)]
+
+    def _save(self, entries: list[dict[str, Any]]) -> None:
+        _atomic_write_json(self._path, entries)
+
+    def take_corrupt_files(self) -> list[str]:
+        """Report (and forget) corrupt-file keys, for health."""
+        with self._lock:
+            out, self._corrupt_keys = self._corrupt_keys, []
+        return out
+
+    def evictions(self) -> int:
+        """How many messages the cap has dropped since this relay started.
+
+        Cumulative on purpose (like the relay's queue-rejection telemetry): the
+        operator wants "how much has this cost me over the server's life", not
+        a report that a single poll can miss. The cap still bounds memory —
+        what changed is that losing a message is no longer silent.
+        """
+        with self._lock:
+            return self._evicted
+
+    def offer(self, text: str, *, source: str = "message") -> dict[str, Any]:
+        """Store one inbound message (oldest dropped when the cap is hit).
+
+        The drop is counted and logged rather than performed quietly: a channel
+        whose rule is "never a silent drop" must not lose one at its own cap.
+        """
+        entry = {"text": text, "at": _now_iso(), "source": source,
+                 "delivered": False}
+        with self._lock:
+            entries = self._load()
+            entries.append(entry)
+            if len(entries) > INBOX_CAP:
+                dropped = len(entries) - INBOX_CAP
+                entries = entries[-INBOX_CAP:]
+                self._evicted += dropped
+                # The message text stays out of the log line; only the count
+                # and the cap, matching the content-free rule health follows.
+                logging.getLogger("ziv").warning(
+                    "inbox at cap (%d): dropped %d oldest message(s); "
+                    "%d evictions total", INBOX_CAP, dropped, self._evicted,
+                )
+            self._save(entries)
+        return entry
+
+    def take(self) -> list[dict[str, Any]]:
+        """All undelivered messages, oldest first — and mark them delivered.
+
+        Marking happens at take time so a crash between take and playback
+        cannot silently drop a message: a redelivery is the failure mode,
+        not a loss (the wrist says everything twice, never nothing).
+        """
+        with self._lock:
+            entries = self._load()
+            out = [e for e in entries if not e.get("delivered")]
+            for e in out:
+                e["delivered"] = True
+            if out:
+                self._save(entries)
+            return out
+
+    def count(self) -> int:
+        """Undelivered count — what the server shows as pending."""
+        with self._lock:
+            return sum(1 for e in self._load() if not e.get("delivered"))
+
+    def pending(self) -> list[dict[str, Any]]:
+        """Undelivered entries without marking them (health/preview)."""
+        with self._lock:
+            return [e for e in self._load() if not e.get("delivered")]
+
+    def peek_one(self) -> dict[str, Any] | None:
+        """The oldest undelivered entry, without marking it.
+
+        The delivery loop peeks, plays, and *then* marks (``mark_delivered``)
+        — so a band vanishing mid-delivery leaves the message pending:
+        redelivery is the failure mode, never a silent loss.
+        """
+        with self._lock:
+            for e in self._load():
+                if not e.get("delivered"):
+                    return e
+            return None
+
+    def mark_delivered(self, entry: dict[str, Any]) -> None:
+        """Mark one offered entry delivered (matched by text + timestamp)."""
+        with self._lock:
+            entries = self._load()
+            for i, e in enumerate(entries):
+                if (e.get("text") == entry.get("text")
+                        and e.get("at") == entry.get("at")
+                        and not e.get("delivered")):
+                    entries[i] = {**e, "delivered": True}
+                    self._save(entries)
+                    return
+
+    def clear(self) -> int:
+        """The wearer discards everything pending; returns how many."""
+        with self._lock:
+            entries = self._load()
+            n = sum(1 for e in entries if not e.get("delivered"))
+            if n:
+                self._save([{**e, "delivered": True} for e in entries])
+            return n
+
+
+# Schedule discipline (plan §9: bounded memory everywhere — same rule the
+# inbox obeys; the cap drops the OLDEST pending reminder when full).
+SCHEDULE_CAP = 64
+
+
+class ScheduledReminders:
+    """The reminder schedule, durable like the inbox.
+
+    Storage: one JSON list under ``<wearer>.schedule.json`` — dicts of
+    ``{"id", "fire_at", "text", "source"}``, soonest first, capped at
+    ``SCHEDULE_CAP`` (oldest dropped when full). Every mutation (add,
+    clear, take_due) is an atomic rewrite, so a relay restart keeps its
+    pending reminders: the "acts while you're away" beat survives the
+    process that promised it.
+
+    A corrupt file is discarded and reported through ``take_corrupt_files()``
+    (health surfaces it), never silently swallowed — and the next write
+    rebuilds a working file.
+    """
+
+    def __init__(self, wearer_id: str = "wearer") -> None:
+        self.wearer_id = wearer_id
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # RLock: public methods hold it while calling _load/_save, which
+        # re-acquire — reentrant makes the nesting harmless.
+        self._lock = threading.RLock()
+        self._corrupt_keys: list[str] = []
+        self._evicted = 0
+        self._path = DATA_DIR / f"{self.wearer_id}.schedule.json"
+        # Ids never repeat across restarts: they continue from the file.
+        # (_next_id exists before the first load — the load itself bumps it.)
+        self._next_id = 0
+        self._next_id = self._load_next_id()
+
+    # -- storage ------------------------------------------------------------
+
+    @staticmethod
+    def _is_row(e: Any) -> bool:
+        """One stored reminder, shape-checked — malformed rows are dropped
+        at load (a hand-edited or truncated file cannot crash the loop)."""
+        return (
+            isinstance(e, dict)
+            and isinstance(e.get("id"), int)
+            and isinstance(e.get("fire_at"), (int, float))
+            and isinstance(e.get("text"), str)
+        )
+
+    def _load(self) -> list[dict[str, Any]]:
+        payload, corrupt = _load_json(self._path)
+        if corrupt or (payload is not None and not isinstance(payload, list)):
+            with self._lock:
+                if "schedule" not in self._corrupt_keys:
+                    self._corrupt_keys.append("schedule")
+            return []
+        rows = [e for e in (payload or []) if self._is_row(e)]
+        # Ids never repeat under ANY interleaving: every load — including
+        # one whose rows take_due is about to remove — advances the high-
+        # water mark past the largest id seen (another instance may have
+        # written the file since construction; the restart simulation in
+        # the tests does exactly that).
+        if rows:
+            with self._lock:
+                self._next_id = max(
+                    self._next_id, max(r["id"] for r in rows) + 1
+                )
+        return rows
+
+    def _save(self, rows: list[dict[str, Any]]) -> None:
+        _atomic_write_json(self._path, rows)
+
+    def _load_next_id(self) -> int:
+        return max((e["id"] for e in self._load()), default=0) + 1
+
+    def take_corrupt_files(self) -> list[str]:
+        """Report (and forget) corrupt-file keys, for health."""
+        with self._lock:
+            out, self._corrupt_keys = self._corrupt_keys, []
+        return out
+
+    # -- the schedule API ---------------------------------------------------
+
+    def add(self, fire_at: float, text: str,
+            *, source: str = "scheduled") -> dict[str, Any]:
+        """Add one reminder (soonest-first, capped — oldest dropped).
+
+        As with the inbox, the drop is counted and logged, never silent.
+        """
+        with self._lock:
+            rows = self._load()
+            rem = {
+                "id": self._next_id,
+                "fire_at": float(fire_at),
+                "text": text,
+                "source": source,
+            }
+            self._next_id += 1
+            rows.append(rem)
+            rows.sort(key=lambda r: r["fire_at"])
+            if len(rows) > SCHEDULE_CAP:
+                dropped = len(rows) - SCHEDULE_CAP
+                rows = rows[-SCHEDULE_CAP:]
+                self._evicted += dropped
+                logging.getLogger("ziv").warning(
+                    "schedule at cap (%d): dropped %d oldest reminder(s); "
+                    "%d evictions total", SCHEDULE_CAP, dropped, self._evicted,
+                )
+            self._save(rows)
+            return rem
+
+    def evictions(self) -> int:
+        """Reminders the cap has dropped since this relay started (cumulative)."""
+        with self._lock:
+            return self._evicted
+
+    def count(self) -> int:
+        """Pending reminder count (what health shows as depth)."""
+        with self._lock:
+            return len(self._load())
+
+    def list_all(self) -> list[dict[str, Any]]:
+        """Pending reminders, soonest first (the wire/health shape)."""
+        with self._lock:
+            return [
+                {
+                    **r,
+                    "fire_at_iso": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(r["fire_at"])
+                    ),
+                    "fired": False,
+                }
+                for r in self._load()
+            ]
+
+    def clear(self) -> int:
+        """The wearer cancels everything pending; returns how many."""
+        with self._lock:
+            n = len(self._load())
+            if n:
+                self._save([])
+            return n
+
+    def take_due(self) -> list[dict[str, Any]]:
+        """Reminders whose fire_at has passed — removed, then handed out.
+
+        Removal happens BEFORE any turn plays (the inbox's take discipline):
+        a crash between take and playback means a reminder fires again on
+        the next start — redelivery is the failure mode, never a double
+        file state, never a silent loss.
+        """
+        with self._lock:
+            rows = self._load()
+            # ONE now: two clock reads could move a reminder into both
+            # lists (fired AND kept) at the moment its fire_at passes.
+            now = time.time()
+            due = [r for r in rows if r["fire_at"] <= now]
+            if due:
+                self._save([r for r in rows if r["fire_at"] > now])
+            return due

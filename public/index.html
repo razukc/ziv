@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ziv — a haptic phone companion</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #141821;
+    --line: #232a37;
+    --on: #e7edf6;
+    --dim: #8a94a6;
+    --hot: #ff7a59;
+    --cool: #76bbfa;
+    --ok: #7ee787;
+    --warn: #ffcb6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--on);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+  .wrap { max-width: 680px; width: 100%; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: 0.2px; }
+  .sub { color: var(--dim); margin: 0 0 18px; font-size: 14px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .chip {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #0b0d10;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 8px;
+    color: var(--dim);
+  }
+  button {
+    background: var(--cool);
+    color: #06121a;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font: 600 14px/1 inherit;
+    cursor: pointer;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  button:active { transform: translateY(1px); }
+  button.ghost { background: transparent; color: var(--on); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #0b0d10; border: 1px solid var(--line);
+    border-radius: 999px; padding: 4px 10px; font-size: 13px;
+  }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .pulse.busy { background: var(--warn); }
+  .pulse.refuse { background: var(--hot); }
+  .pulse.disconnected { background: var(--dim); }
+  .note { color: var(--dim); font-size: 13px; margin-top: 8px; }
+  .log {
+    background: #07090c; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    max-height: 240px; overflow: auto; color: var(--on);
+  }
+  .log .tick { color: var(--dim); }
+  .log .ok { color: var(--ok); }
+  .log .hot { color: var(--hot); }
+  .log .info { color: var(--cool); }
+  .grid { display: grid; gap: 8px; }
+  kbd {
+    background: #0b0d10; border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px;
+    padding: 1px 5px; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  footer { color: var(--dim); font-size: 12px; margin-top: 14px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Ziv</h1>
+    <p class="sub">a haptic phone companion — dev band</p>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div class="badge"><span class="pulse disconnected" id="pulse"></span><span id="badgeText">connecting…</span></div>
+        <div class="chip" id="connectChip">ws pending</div>
+      </div>
+      <p class="note" id="badgeNote">Connecting to the relay…</p>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="unlockBtn" disabled>Unlock vibration</button>
+          <button id="sendBtn" class="ghost" disabled>Send message</button>
+          <button id="injectBtn" class="ghost" disabled>Inject audio (simulate)</button>
+        </div>
+      </div>
+      <p class="note" id="unlockNote">Tap <b>Unlock vibration</b> to enable the haptic channel on Android.</p>
+      <p class="note" id="sendNote">Type a line; it plays letter-by-letter on the wire log and, on Android, as vibration.</p>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2 style="margin:0;font-size:14px;color:var(--dim)">Wire log</h2>
+        <span class="chip" id="wireCount">0 frames</span>
+      </div>
+      <div class="log" id="wireLog"><span class="tick">—</span></div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2 style="margin:0;font-size:14px;color:var(--dim)">Cells</h2>
+        <span class="chip" id="cellCount">0</span>
+      </div>
+      <div class="grid" id="cells"></div>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin:0 0 6px;font-size:14px;color:var(--dim)">Redial note</h2>
+      <p class="note" id="redialNote">A refused typed message will redial itself when the channel frees.</p>
+    </div>
+
+    <footer>
+      dev band only — for the real wrist-ish device, open this same file on Android Chrome on the same WiFi as the relay,
+      using the relay's LAN address (not <code>127.0.0.1</code>).
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var state = {
+    ws: null,
+    locked: false,
+    schedule: null,
+    health: null,
+    redial: null,
+    reconnectTimer: null,
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var wireLog = $("wireLog");
+  var wireCount = $("wireCount");
+  var cells = $("cells");
+  var cellCount = $("cellCount");
+  var pulse = $("pulse");
+  var badgeText = $("badgeText");
+  var badgeNote = $("badgeNote");
+  var connectChip = $("connectChip");
+  var unlockNote = $("unlockNote");
+  var sendNote = $("sendNote");
+  var redialNote = $("redialNote");
+  var unlockBtn = $("unlockBtn");
+  var sendBtn = $("sendBtn");
+  var injectBtn = $("injectBtn");
+
+  function now() { return new Date().toLocaleTimeString(); }
+
+  function appendWire(kind, msg) {
+    var line = document.createElement("div");
+    line.className = "tick";
+    if (kind === "ok") line.className = "ok";
+    else if (kind === "hot") line.className = "hot";
+    else if (kind === "info") line.className = "info";
+    line.textContent = "[" + now() + "] " + msg;
+    wireLog.appendChild(line);
+    wireLog.scrollTop = wireLog.scrollHeight;
+    var n = parseInt(wireCount.textContent, 10) || 0;
+    wireCount.textContent = (n + 1) + " frames";
+  }
+
+  function renderCells(frames) {
+    cells.innerHTML = "";
+    var n = 0;
+    frames.forEach(function (f) {
+      var d = document.createElement("div");
+      d.style.cssText = "grid-column:1/2; min-width:64px; text-align:center;";
+      var mark = document.createElement("div");
+      mark.style.cssText = "font-size:20px; line-height:1; margin-bottom:4px;";
+      mark.textContent = f.mark || "·";
+      var meta = document.createElement("div");
+      meta.style.cssText = "font:10px/1 ui-monospace,monospace; color:var(--dim);";
+      meta.textContent = (f.letter || "?") + "  " + (f.kind || "");
+      d.appendChild(mark);
+      d.appendChild(meta);
+      cells.appendChild(d);
+      n++;
+    });
+    cellCount.textContent = n;
+  }
+
+  function setBadge(kind, text, note) {
+    state.badge = kind;
+    pulse.className = "pulse";
+    if (kind === "busy") pulse.className = "pulse busy";
+    else if (kind === "refuse") pulse.className = "pulse refuse";
+    else if (kind === "disconnected") pulse.className = "pulse disconnected";
+    badgeText.textContent = text;
+    badgeNote.textContent = note || "";
+  }
+
+  function scheduleReconnect() {
+    if (state.reconnectTimer) return;
+    state.reconnectTimer = setTimeout(function () {
+      state.reconnectTimer = null;
+      connect();
+    }, 2000);
+  }
+
+  function connect() {
+    var proto = location.protocol === "https:" ? "wss" : "ws";
+    var url = proto + "://" + location.host + "/api/ziv/ws";
+    appendWire("info", "connecting to " + url);
+    setBadge("disconnected", "connecting…", "band not attached");
+    unlockBtn.disabled = true;
+    sendBtn.disabled = true;
+    injectBtn.disabled = true;
+    connectChip.textContent = "ws pending";
+    var ws = new WebSocket(url);
+    ws.onopen = function () {
+      connectChip.textContent = "ws open";
+      appendWire("ok", "ws open");
+      setBadge("ok", "connected", "band attached");
+      state.locked = false;
+      unlockBtn.disabled = false;
+      injectBtn.disabled = false;
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+      }
+      pollHealth();
+    };
+    ws.onmessage = function (ev) {
+      try {
+        var m = JSON.parse(ev.data);
+      } catch (e) {
+        appendWire("hot", "malformed ws frame: " + ev.data.slice(0, 120));
+        return;
+      }
+      onMessage(m);
+    };
+    ws.onerror = function () {
+      appendWire("hot", "ws error");
+      setBadge("disconnected", "ws error", "relay may be down");
+    };
+    ws.onclose = function (ev) {
+      connectChip.textContent = "ws closed " + (ev.code ? ev.code : "");
+      appendWire("info", "ws closed " + (ev.code ? ev.code : ""));
+      state.locked = false;
+      unlockBtn.disabled = true;
+      sendBtn.disabled = true;
+      injectBtn.disabled = true;
+      setBadge("disconnected", "disconnected", "reconnecting in 2 s");
+      scheduleReconnect();
+    };
+    state.ws = ws;
+  }
+
+  function onMessage(m) {
+    if (m.event === "hello" && m.unlockSupported) {
+      appendWire("info", "hello: unlockSupported=true");
+      unlockBtn.disabled = false;
+    }
+    if (m.event === "unlocked") {
+      appendWire("ok", "unlocked");
+      state.locked = true;
+      unlockNote.textContent = "Vibration channel unlocked.";
+      sendBtn.disabled = false;
+      setBadge("ok", "unlocked", "haptic channel ready");
+    }
+    if (m.event === "inbox:stored") {
+      appendWire("info", "inbox stored: " + (m.text || m.payload || "?"));
+      setBadge("ok", "stored while away", "band not attached — stored, will replay on reconnect");
+    }
+    if (m.event === "schedule:scheduled") {
+      appendWire("info", "scheduled: " + (m.text || "?") + " at " + new Date(m.fire_at * 1000).toISOString());
+      if (m.id !== undefined) state.schedule = m;
+    }
+    if (m.event === "message:cued") {
+      appendWire("info", "cued: " + (m.text || "?"));
+    }
+    if (m.event === "message:processing") {
+      appendWire("info", "processing turn…");
+    }
+    if (m.event === "frame") {
+      appendWire("ok", "frame: " + (m.kind || "?") + (m.letter ? " " + m.letter : ""));
+      renderCells(m.frames || []);
+    }
+    if (m.event === "message:close") {
+      appendWire("ok", "close: free=" + (m.free ? "true" : "false"));
+      if (m.free) {
+        appendWire("info", "channel freed — redial window open");
+        if (state.redial) {
+          appendWire("info", "redial: retrying queued message");
+          state.redial = null;
+        }
+      }
+    }
+    if (m.event === "message:refused" || m.error === 429) {
+      appendWire("hot", "refused / 429");
+      setBadge("refuse", "refusing", "queue full — message will redial");
+      redialNote.textContent = "Refused message is redialing itself; if 3 frees pass with no luck, a red dead-end stays until you act.";
+      state.redial = m;
+    }
+    if (m.event === "health") {
+      state.health = m;
+      if (m.gate_queued > 0) setBadge("busy", "q " + m.gate_queued + "/" + (m.gate_queue_cap || "?"), "queue not empty");
+      else if (m.refusing) setBadge("refuse", "refusing", "queue full");
+      else setBadge("ok", "q 0/" + (m.gate_queue_cap || "?"), "badge numbers");
+      appendWire("info", "health: gate_queued=" + m.gate_queued + " cap=" + (m.gate_queue_cap || "?") + " inbox=" + (m.inbox_pending || 0) + " schedule=" + (m.schedule_pending || 0));
+    }
+  }
+
+  function pollHealth() {
+    fetch("/api/ziv/health")
+      .then(function (r) { return r.json(); })
+      .then(function (h) {
+        state.health = h;
+        if (h.gate_queued > 0) setBadge("busy", "q " + h.gate_queued + "/" + (h.gate_queue_cap || "?"), "queue not empty");
+        else if (h.refusing) setBadge("refuse", "refusing", "queue full");
+        else setBadge("ok", "q 0/" + (h.gate_queue_cap || "?"), "badge numbers");
+        appendWire("info", "health: gate_queued=" + h.gate_queued + " cap=" + (h.gate_queue_cap || "?") + " inbox=" + (h.inbox_pending || 0) + " schedule=" + (h.schedule_pending || 0));
+      })
+      .catch(function () {})
+    ;
+    setTimeout(pollHealth, 2000);
+  }
+
+  unlockBtn.addEventListener("click", function () {
+    if (!state.ws || state.ws.readyState !== 1) {
+      appendWire("hot", "cannot unlock: ws not open");
+      return;
+    }
+    state.ws.send(JSON.stringify({ event: "unlock" }));
+    appendWire("info", "unlock requested");
+  });
+
+  sendBtn.addEventListener("click", function () {
+    if (!state.locked) {
+      appendWire("hot", "send blocked: vibration not unlocked");
+      sendNote.textContent = "Unlock vibration first.";
+      return;
+    }
+    var text = prompt("Message to send:", "hello");
+    if (text == null) return;
+    if (!state.ws || state.ws.readyState !== 1) {
+      appendWire("hot", "cannot send: ws not open");
+      return;
+    }
+    state.ws.send(JSON.stringify({ event: "message", text: text }));
+    appendWire("info", "sent message: " + text);
+  });
+
+  injectBtn.addEventListener("click", function () {
+    if (!state.ws || state.ws.readyState !== 1) {
+      appendWire("hot", "cannot inject: ws not open");
+      return;
+    }
+    state.ws.send(JSON.stringify({ event: "inject", simulate: "who is calling" }));
+    appendWire("info", "inject/audio simulated");
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

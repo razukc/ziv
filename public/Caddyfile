@@ -1,0 +1,19 @@
+{
+    admin off
+    http_port 8788
+    https_port 8443
+    log {
+        level info
+        output file C:\code\playground\nebius\caddy_foreground.log
+    }
+}
+
+:8788 {
+    log {
+        output file C:\code\playground\nebius\public\access.log
+        format json
+    }
+    file_server {
+        root C:\code\playground\nebius\public
+    }
+}

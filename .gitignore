@@ -1,0 +1,59 @@
+# Secrets
+agent/.env
+
+# Runtime data
+agent/pipeline_store.json
+
+# Logs and build artifacts
+*.log
+*.tsbuildinfo
+
+# Bench-test build artifacts (haptic_out)
+firmware/haptic_out/test_haptic_out
+firmware/haptic_out/test_haptic_out.exe
+firmware/haptic_out/test_haptic_out.pdb
+firmware/haptic_out/test_haptic_out.obj
+
+# QEMU-app host-test build artifacts (ziv_qemu rung 1)
+firmware/app/ziv_qemu/host_demo
+firmware/app/ziv_qemu/host_demo.exe
+firmware/app/ziv_qemu/host_demo.pdb
+firmware/app/ziv_qemu/.zig-cache/
+firmware/app/ziv_qemu/.zig-cache-global/
+
+# zig cc caches created by env-var experiments at the repo root
+.zig-cache/
+.zig-cache-global/
+
+# Python
+agent/venv/
+agent/__pycache__/
+__pycache__/
+*.pyc
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent session state
+.freebuff/
+.codebuff/
+
+# The wearer's own data (relay v1: memory files + persistent inbox) and
+# local demo recordings (regenerate with agent/record_beat.py) — never
+# repo state.
+agent/ziv_data/
+agent/demo_beat.webm
+agent/demo_beat_narrated.mp4
+agent/demo_beat_trace.zip
+agent/narration/
+agent/demo_full.webm
+agent/demo_full_narrated.mp4
+agent/narration_full/
+agent/ziv_data_gallery_tmp/
+agent/gallery_shots/
