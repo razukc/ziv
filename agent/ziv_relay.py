@@ -349,6 +349,37 @@ class MessageGate:
                 payload={"text": text, "queued": True, "prefix": True},
             )
 
+    def reserve(self) -> bool:
+        """Try to hold the channel for a non-turn caller (e.g. an inbox replay).
+
+        Returns True if the caller now owns the channel, False if a turn or
+        another replay already holds it. The owner reserves the channel the instant it
+        decides to play stored content, before any await — so a later arrival
+        cannot slip a message:play between the decision and the claim (the same
+        window the burst test guards). The owner later releases with close_event()
+        when it is done, or with abort() if it dies first.
+        """
+        with self._lock:
+            if self._playing:
+                return False
+            self._playing = True
+            return True
+
+    def abort(self) -> list[str]:
+        """Release the channel and return any queued texts the owner was holding.
+
+        Only the current owner may call this: it clears ``playing`` and drains the
+        queue, so a turn that dies mid-replay hands back every text it had queued
+        rather than leaving them stuck until restart. If the channel is already
+        idle there is nothing to abort and the returned list is empty.
+        """
+        with self._lock:
+            self._playing = False
+            drained: list[str] = []
+            while self._queue:
+                drained.append(self._queue.popleft())
+            return drained
+
     def close_event(self) -> list[TurnEvent]:
         """The event closed: end-of-message has played (or the wearer resumed).
 
