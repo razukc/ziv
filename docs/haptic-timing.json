@@ -1,0 +1,62 @@
+{
+  "version": 3,
+  "constants": {
+    "cell_base_ms": 50,
+    "cell_per_dot_ms": 60,
+    "cell_gap_default_ms": 420,
+    "cell_gap_min_ms": 250,
+    "cell_gap_max_ms": 700,
+    "tick_ms": 70,
+    "tick_gap_ms": 160,
+    "long_buzz_ms": 600,
+    "tail_gap_ms": 420,
+    "prefix_breath_ms": 550
+  },
+  "ui": {
+    "play_lead_ms": 500,
+    "loop_restart_ms": 700,
+    "cell_gap_step_ms": 10,
+    "spell_max_letters": 12
+  },
+  "letters": {
+    "a": 1, "b": 2, "c": 2, "d": 3, "e": 2, "f": 3, "g": 4, "h": 3, "i": 2, "j": 3, "k": 2, "l": 3, "m": 3, "n": 4, "o": 3, "p": 4, "q": 5, "r": 4, "s": 3, "t": 4, "u": 3, "v": 4, "w": 4, "x": 4, "y": 5, "z": 4
+  },
+  "letter_patterns": {
+    "a": [1], "b": [1,2], "c": [1,4], "d": [1,4,5], "e": [1,5], "f": [1,2,4], "g": [1,2,4,5], "h": [1,2,5], "i": [2,4], "j": [2,4,5], "k": [1,3], "l": [1,2,3], "m": [1,3,4], "n": [1,3,4,5], "o": [1,3,5], "p": [1,2,3,4], "q": [1,2,3,4,5], "r": [1,2,3,5], "s": [2,3,4], "t": [2,3,4,5], "u": [1,3,6], "v": [1,2,3,6], "w": [2,4,5,6], "x": [1,3,4,6], "y": [1,3,4,5,6], "z": [1,3,5,6]
+  },
+  "attention_patterns": [
+    { "id": "double-tap", "word": "double tap", "meaning": "acknowledge / you go", "beats": [ { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "two short ticks, spaced; the second gap ends the pattern." },
+    { "id": "triple-pulse", "word": "triple pulse", "meaning": "reminder / look again", "beats": [ { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "three short ticks; the last silence is the tail." },
+    { "id": "long-buzz", "word": "long buzz", "meaning": "error / stop", "beats": [ { "buzz_ms": 600, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "one long buzz; the following silence is the tail." },
+    { "id": "ramp-up", "word": "ramp up", "meaning": "attention building", "beats": [ { "buzz_ms": 50, "gap_after_ms": 90 }, { "buzz_ms": 90, "gap_after_ms": 120 }, { "buzz_ms": 140, "gap_after_ms": 160 }, { "buzz_ms": 200, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "each buzz grows; the final silence is the tail." },
+    { "id": "heartbeat", "word": "heartbeat", "meaning": "keep alive / I'm here", "beats": [ { "buzz_ms": 70, "gap_after_ms": 120 }, { "buzz_ms": 70, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "two beats, closer first gap; the second silence is the tail." },
+    { "id": "processing", "word": "processing", "meaning": "thinking / working", "beats": [ { "buzz_ms": 70, "gap_after_ms": 350 }, { "buzz_ms": 70, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "two beats with a long first gap; the second silence is the tail." },
+    { "id": "end-of-message", "word": "end of message", "meaning": "done / return", "beats": [ { "buzz_ms": 200, "gap_after_ms": 120 }, { "buzz_ms": 140, "gap_after_ms": 120 }, { "buzz_ms": 90, "gap_after_ms": 120 }, { "buzz_ms": 50, "gap_after_ms": 420, "gap_ref": "tail" } ], "note": "a declining run that ends on the tail silence." }
+  ],
+  "marks": {
+    "ziv": ["z","i","v"],
+    "raz": ["r","a","z"],
+    "boaz": ["b","o","a","z"],
+    "razu": ["r","a","z","u"],
+    "buz": ["b","u","z"]
+  },
+  "rename_examples": {
+      "same_arc_as": "raz",
+      "words": ["zar"],
+      "note": "Same dot-count arc as raz."
+    },
+    "prefix": {
+    "mark": "ziv",
+    "breath_after_mark_ms_ref": "prefix_breath_ms",
+    "tails": {
+      "message": "double-tap",
+      "reminder": "triple-pulse",
+      "error": "long-buzz"
+    }
+  },
+"play_lead_ms": 500,
+  "loop_restart_ms": 700,
+  "cell_gap_step_ms": 10,
+  "spell_max_letters": 12,
+  "note": "Feel-tool page affordances only - the band fires patterns immediately, does not loop them, and tunes cell gap in its own config within the same envelope. spell_max_letters caps the page's spell box; the firmware accepts up to 16 (HAPTIC_OUT_MAX_WORD_LEN) so the band is never the weaker player. These two numbers are intentionally different and are NOT the same setting: spell_max_letters (12) is a page affordance that limits what the spell box headlines for the wearer, while HAPTIC_OUT_MAX_WORD_LEN (16) is the firmware's hard ceiling on word length the band will actually play. Do not unify them - the asymmetry is deliberate, and the drift guard (tools/haptic_timing.py --verify) treats the generated feel-tool JS block and the firmware header as separate consumers of the same spec, each free to use different UI vs. runtime limits."
+}
