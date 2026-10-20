@@ -476,9 +476,11 @@ class TurnTimeline:
 
       slow-but-never-silent without the caller wiring a timer;
 
-    * the gate — ``PLAYING`` opens ``MessageGate``; ``finish_playback()``
+    * the gate — ``PLAYING`` opens ``MessageGate``; the turn's own
 
-      plays the close and releases the queue, returning the drained replays.
+      ``finish_playback()`` plays the close and releases the queue, returning
+
+      the drained replays.
 
     Not thread-safe on purpose (one wrist, one turn — a turn object has a
     single driver, the pump that holds the server's turn lock). Concurrent
