@@ -1041,13 +1041,13 @@ async def run_message_turn(
     # twice), never a silent loss.
     owed: list[str] = [text]
     turn: TurnTimeline | None = None
-    # Whether the gate is still OURS. finish_playback() releases it at the
-    # close, and this turn keeps playing drained replays long after that —
-    # so a failure during the replay loop must NOT abort the gate: by then
-    # the next arrival may already hold the channel, and aborting would
-    # release *its* reservation and pull *its* queue into our inbox. Set at
-    # the release, with no await in between, so the two are simultaneous as
-    # far as the event loop is concerned.
+    # Whether the gate is still OURS. The turn's own finish_playback()
+    # releases it at the close, and this turn keeps playing drained replays
+    # long after that — so a failure during the replay loop must NOT abort
+    # the gate: by then the next arrival may already hold the channel, and
+    # aborting would release *its* reservation and pull *its* queue into our
+    # inbox. Set at the release, with no await in between, so the two are
+    # simultaneous as far as the event loop is concerned.
     released = False
     try:
         async with _turn_lock:
@@ -1138,10 +1138,10 @@ async def run_message_turn(
         # the NEXT message finds:
         #
         #   1. the channel is released. gate.admit() holds it for this
-        #      whole turn and only finish_playback() clears it — a turn
-        #      that raises in between leaves _playing True forever, every
-        #      later arrival queues against a wrist that is not reading,
-        #      and after MAX_QUEUED the relay refuses everything until
+        #      whole turn and only the turn's own finish_playback() clears
+        #      it — a turn that raises in between leaves _playing True
+        #      forever, every later arrival queues against a wrist that is not
+        #      reading, and after MAX_QUEUED the relay refuses everything until
         #      restart. abort() clears it.
         #   2. nothing the wearer never felt is dropped. The in-flight
         #      text and every unplayed replay go to the inbox, which
