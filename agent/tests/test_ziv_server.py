@@ -1915,3 +1915,382 @@ def test_reminder_stored_offline_replays_with_name_mark(client):
 
 # ---------------------------------------------------------------------------
 # The felt sequence: spec-defined patterns over the wire
+
+
+# ---------------------------------------------------------------------------
+# Control-plane tests — the always-on loop's life cycle and the bearer gate.
+# ---------------------------------------------------------------------------
+
+
+_schedule_loop_event: asyncio.Event | None = None
+
+
+def _reset_schedule_state() -> None:
+    """Reset the module-level always-on loop state so a test starts with a
+    known, clean slate.
+
+    The ``client`` fixture's lifespan starts the loop for every test, so the
+    module-level flag/iface/task reflect *that* loop when the test body runs.
+    Tests that want a quiet relay (loop not started, no iface) call this first;
+    tests that want to drive the loop themselves re-set the flag/iface after.
+    """
+    global _schedule_loop_event
+    import asyncio as _asyncio
+
+    task = zs._schedule_task
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            _asyncio.get_event_loop().run_until_complete(task)
+        except (_asyncio.CancelledError, RuntimeError):
+            pass
+
+    zs._schedule_loop_started = False
+    zs._schedule_loop_iface = None
+    zs._schedule_stop.clear()
+    zs._schedule_pause.clear()
+    _schedule_loop_event = _asyncio.Event()
+
+
+class _LiveTask:
+    """Stand-in for an incomplete asyncio.Task: ``done()`` is False so the WS
+    layer reads ``loop_running is True`` without needing a live event loop at
+    test-setup time (when ``asyncio.ensure_future`` would require a running
+    loop in Python 3.14).
+
+    The fixture's cleanup tries to cancel ``zs._schedule_task`` if it is not
+    done. To let that path run without raising on a non-task object, carry the
+    same cancel/not-done surface a real task has.
+    """
+
+    def done(self) -> bool:
+        return False
+
+    def cancel(self) -> None:
+        pass
+
+
+def _make_loop_alive() -> None:
+    """Re-asserts the loop-is-alive state the WS layer reads — so the hello
+    ack and the heartbeat carry the control fields.
+
+    Must only be called while the fixture's event loop is running (i.e. inside
+    a ``client.websocket_connect`` or an ``asyncio.run`` block), because the
+    real ``schedule_loop`` would set these the moment it reaches its first
+    event-loop call.
+    """
+    global _schedule_loop_event
+    import asyncio as _asyncio
+
+    if _schedule_loop_event is None:
+        _schedule_loop_event = _asyncio.Event()
+    zs._schedule_loop_started = True
+    zs._schedule_loop_iface = zs.ScheduleLoopIface(
+        pause=lambda: None,
+        resume=lambda: None,
+        quit=lambda: None,
+    )
+    zs._schedule_task = _LiveTask()
+
+
+def test_ws_hello_ack_carries_control_state_when_the_loop_has_started(
+    client, monkeypatch
+):
+    """Once the always-on loop is running, the device sees it in the hello
+    ack — so the phone can show "the relay will act while you're away" vs
+    "the relay is quiet" without a separate health poll.
+
+    The ack is the one place the control state rides for free with the
+    attach; the heartbeat repeats it, but the hello is the first tell.
+
+    The test wires the iface so the WS layer's guard lets the field through,
+    then asserts the shape/values the phone would read.
+    """
+    monkeypatch.setattr(zs, "_schedule_loop_started", True)
+    monkeypatch.setattr(zs, "_schedule_task", _LiveTask())
+    monkeypatch.setattr(
+        zs,
+        "_schedule_loop_iface",
+        zs.ScheduleLoopIface(
+            pause=lambda: None, resume=lambda: None, quit=lambda: None
+        ),
+    )
+    with client.websocket_connect("/ws") as ws:
+        hello = ws.receive_json()
+        assert hello["type"] == "hello"
+        ctrl = hello["control"]
+        assert ctrl["loop_running"] is True
+        assert ctrl["loop_started"] is True
+        assert ctrl["iface"] is True
+
+
+def test_ws_hello_ack_shows_a_quiet_relay_when_the_loop_has_not_started(
+    client
+):
+    """Before the loop has started, the device reads a quiet relay — the
+    phone shows "the relay is not acting yet" rather than baking in a truth
+    it cannot know.
+    """
+    _reset_schedule_state()
+    with client.websocket_connect("/ws") as ws:
+        hello = ws.receive_json()
+        assert hello["type"] == "hello"
+        ctrl = hello["control"]
+        assert ctrl["loop_running"] is False
+        assert ctrl["loop_started"] is False
+        assert ctrl["iface"] is False
+
+
+def test_ws_heartbeat_reaches_the_phone_while_the_channel_is_active(
+    client, monkeypatch
+):
+    """A channel that is doing a turn still pings: the phone can tell a live
+    relay from a dead one mid-turn, not just when it attached.
+    """
+    prev = zs.WS_HEARTBEAT_S
+    zs.WS_HEARTBEAT_S = 0.25
+    _make_loop_alive()  # may leave loop state dirty; cleanup is in client teardown
+    try:
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()  # hello
+            deadline = time.time() + 5.0
+            frame = None
+            while time.time() < deadline:
+                try:
+                    frame = ws.receive_json(timeout=1.0)
+                    break
+                except Exception:
+                    continue
+            assert frame is not None, "no heartbeat arrived within 5 s"
+            assert frame["type"] == "heartbeat"
+            assert set(frame) == {"type", "control"}
+            assert isinstance(frame["control"], dict)
+    finally:
+        zs.WS_HEARTBEAT_S = prev
+
+
+def test_ws_heartbeat_reaches_the_phone_while_the_channel_is_idle(
+    client, monkeypatch
+):
+    """Even with no turn in flight the relay still pings: a phone that attached
+    and then went silent can still tell a live relay from a dead one.
+    """
+    prev = zs.WS_HEARTBEAT_S
+    zs.WS_HEARTBEAT_S = 0.25
+    monkeypatch.setattr(zs, "_schedule_loop_started", True)
+    monkeypatch.setattr(zs, "_schedule_task", _LiveTask())
+    monkeypatch.setattr(
+        zs,
+        "_schedule_loop_iface",
+        zs.ScheduleLoopIface(
+            pause=lambda: None, resume=lambda: None, quit=lambda: None
+        ),
+    )
+    try:
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()  # hello
+            deadline = time.time() + 5.0
+            frame = None
+            while time.time() < deadline:
+                try:
+                    frame = ws.receive_json(timeout=1.0)
+                    break
+                except Exception:
+                    continue
+            assert frame is not None, "no idle heartbeat arrived within 5 s"
+            assert frame["type"] == "heartbeat"
+    finally:
+        zs.WS_HEARTBEAT_S = prev
+
+
+def test_ws_heartbeat_carries_control_state(client, monkeypatch):
+    """The heartbeat repeats the control state so a phone that attached after
+    the hello can still read the loop's liveness without an HTTP call.
+
+    Shortened timeout so the suite stays minutes. The iface is wired so the
+    WS layer's guard lets the field through; the test asserts the values the
+    phone would read.
+    """
+    prev = zs.WS_HEARTBEAT_S
+    zs.WS_HEARTBEAT_S = 0.25
+    monkeypatch.setattr(zs, "_schedule_loop_started", True)
+    monkeypatch.setattr(zs, "_schedule_task", _LiveTask())
+    monkeypatch.setattr(
+        zs,
+        "_schedule_loop_iface",
+        zs.ScheduleLoopIface(
+            pause=lambda: None, resume=lambda: None, quit=lambda: None
+        ),
+    )
+    try:
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()  # hello
+            deadline = time.time() + 5.0
+            frame = None
+            while time.time() < deadline:
+                try:
+                    frame = ws.receive_json(timeout=1.0)
+                    break
+                except Exception:
+                    continue
+            assert frame is not None, "no heartbeat arrived within 5 s"
+            assert frame["type"] == "heartbeat"
+            ctrl = frame["control"]
+            assert ctrl["loop_running"] is True
+            assert ctrl["loop_started"] is True
+            assert ctrl["iface"] is True
+    finally:
+        zs.WS_HEARTBEAT_S = prev
+
+
+def test_control_status_reports_loop_and_actions(client, monkeypatch):
+    """The control endpoint tells a client what it can ask the loop to do and
+    whether the loop is currently up — the piece a phone renders as the
+    control strip.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    headers = {"Authorization": "Bearer sekrit"}
+    # No loop yet: actions report held_as_asset.
+    _reset_schedule_state()
+    body = client.get("/api/ziv/control", headers=headers).json()
+    assert body["loop"]["running"] is False
+    assert body["loop"]["started"] is False
+    assert body["loop"]["iface"] is False
+    for action in ("pause", "resume", "quit"):
+        assert body["actions"][action]["held_as_asset"] is True
+        assert body["actions"][action]["wired"] is False
+
+
+def test_control_endpoints_are_behind_the_bearer_token(client, monkeypatch):
+    """pause / resume / quit / control are content-adjacent: they talk about
+    the wearer's always-on activity, so they share the bearer gate with the
+    rest of the control plane.
+
+    Open by default (no token) is fine — the LAN dev relay is open — but
+    once ``ZIV_RELAY_TOKEN`` is set, they must not be reachable without it.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    for path, method in (
+        ("/api/ziv/control/pause", client.post),
+        ("/api/ziv/control/resume", client.post),
+        ("/api/ziv/control/quit", client.post),
+        ("/api/ziv/control", client.get),
+    ):
+        assert method(path).status_code == 401, f"{path} is open to anyone"
+        assert (
+            method(path, headers={"Authorization": "Bearer wrong"}).status_code
+            == 401
+        )
+        assert (
+            method(path, headers={"Authorization": "Bearer sekrit"}).status_code
+            == 200
+        )
+
+
+def test_control_quit_ends_the_loop(client, monkeypatch):
+    """``quit`` asks the always-on loop to exit and returns once it has —
+    so a caller can tell the loop actually stopped, not just that the request was
+    accepted.
+
+    The life-cycle edge under test: ``quit`` sets the stop flag and wakes the
+    loop; the loop sees it and breaks. A call before the loop has started is a
+    503, not a silent no-op.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    headers = {"Authorization": "Bearer sekrit"}
+
+    # Before the loop has started, the endpoint refuses rather than pretending.
+    _reset_schedule_state()
+    assert client.post("/api/ziv/control/quit", headers=headers).status_code == 503
+
+    # Start the loop and quit it through the iface the loop installed — the
+    # same shape the control endpoint uses, so this is the loop's real
+    # life-cycle, not a manually groomed state.
+    async def start_and_quit_real():
+        task = asyncio.create_task(
+            zs.schedule_loop(poll_s=1.0, iface=zs.ScheduleLoopIface(
+                pause=zs._pause_schedule, resume=zs._resume_schedule, quit=zs._quit_schedule
+            ))
+        )
+        await asyncio.sleep(0.05)  # let it install the real iface
+        r = await zs._schedule_loop_iface.quit()
+        # r is the iface the loop held; it should not be None (the loop reached
+        # poll) and the loop's own iface should already be None (quit tore it down).
+        assert r is not None, "the loop never reached poll — quit should have 503'd"
+        return task
+
+    task = asyncio.run(start_and_quit_real())
+    assert task.done(), f"task not done: {task}"
+    assert zs._schedule_loop_started is True, (
+        f"started is {zs._schedule_loop_started}"
+    )
+    assert zs._schedule_loop_iface is None, (
+        f"iface is {zs._schedule_loop_iface}"
+    )
+
+
+def test_control_pause_yields_the_loop(client, monkeypatch):
+    """``pause`` sets the pause flag so the loop's next poll yields early —
+    the loop stays running, its state and its schedule file are untouched.
+
+    A pause while the loop has not started is a 503.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    headers = {"Authorization": "Bearer sekrit"}
+    assert client.post("/api/ziv/control/pause", headers=headers).status_code == 503
+
+    async def pause_and_check():
+        task = asyncio.create_task(zs.schedule_loop(poll_s=10.0))
+        await asyncio.sleep(0.05)
+        assert zs._schedule_pause.is_set() is False
+        await zs._schedule_loop_iface.pause()
+        assert zs._schedule_pause.is_set() is True
+        await zs._schedule_loop_iface.resume()
+        assert zs._schedule_pause.is_set() is False
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, RuntimeError):
+            pass
+
+    asyncio.run(pause_and_check())
+    zs._schedule_pause.clear()
+
+
+def test_control_resume_after_pause_is_idempotent(client, monkeypatch):
+    """``resume`` clears a pause the loop honored and is a quiet no-op when
+    the loop is not paused — the control strip still answers 200, so the
+    phone keeps one button shape for both states.
+
+    A resume while the loop has not started is a 503.
+    """
+    monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
+    headers = {"Authorization": "Bearer sekrit"}
+
+    # No loop at all: resume refuses rather than no-op-ing.
+    _reset_schedule_state()
+    assert client.post("/api/ziv/control/resume", headers=headers).status_code == 503
+
+    async def resume_and_check():
+        task = asyncio.create_task(zs.schedule_loop(poll_s=10.0))
+        await asyncio.sleep(0.05)
+        # Start unpaused, so resume is a quiet no-op.
+        assert zs._schedule_pause.is_set() is False, (
+            f"pre-state not clear: {zs._schedule_pause.is_set()}"
+        )
+        await zs._schedule_loop_iface.resume()
+        assert zs._schedule_pause.is_set() is False
+
+        # Pause, then resume — the flag must clear.
+        await zs._schedule_loop_iface.pause()
+        assert zs._schedule_pause.is_set() is True
+        await zs._schedule_loop_iface.resume()
+        assert zs._schedule_pause.is_set() is False
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, RuntimeError):
+            pass
+
+    asyncio.run(resume_and_check())
+    zs._schedule_pause.clear()

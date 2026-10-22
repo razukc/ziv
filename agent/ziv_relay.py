@@ -167,6 +167,18 @@ class TelemetryRing:
     def maxlen(self) -> int:
         return self._maxlen
 
+    def last(self, label: str) -> str | None:
+        """The ISO wall-clock of the most recent event with this label, or None.
+
+        A small pin-read for health: which fired-reminder timestamp did the
+        loop most recently record? Used for the always-on liveness signal.
+        """
+        with self._lock:
+            for e in reversed(self._ring):
+                if e.label == label:
+                    return e.at
+        return None
+
 
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

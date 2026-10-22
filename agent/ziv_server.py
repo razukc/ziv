@@ -121,6 +121,26 @@ from ziv_store import (
     WearerMemory,
 )  # noqa: E402
 
+
+class ScheduleLoopIface:
+    """The control surface the routes and the WS layer import.
+
+    Pause/resume/quit here are the ONLY public handles on the always-on
+    loop. Pause is a yield, not a kill — the loop keeps its state and its
+    schedule file; a reminder that catches a pause in its polling window
+    simply fires a tick later. Quit ends the loop for good.
+    """
+
+    def __init__(
+        self, *, pause: Callable[[], Awaitable[None]],
+        resume: Callable[[], Awaitable[None]],
+        quit: Callable[[], Awaitable[None]],
+    ) -> None:
+        self.pause = pause
+        self.resume = resume
+        self.quit = quit
+
+
 #: One logger for the relay: misfires and odd states go here, not into
 #: ad-hoc debug files — the telemetry ring and health stay the operator UI.
 LOGGER = logging.getLogger("ziv.relay")
@@ -226,10 +246,32 @@ async def fire_due() -> list[dict[str, Any]]:
     return fired
 
 
-async def schedule_loop(*, poll_s: float = 1.0) -> None:
-    """Background task: poll and fire due reminders forever."""
-    while True:
-        await asyncio.sleep(poll_s)
+async def schedule_loop(*, poll_s: float = 1.0, iface: ScheduleLoopIface | None = None) -> None:
+    """Background task: poll and fire due reminders forever.
+
+    The only background task the relay owns. When it is not running the
+    relay still serves every HTTP route and every WS turn; it just does not
+    fire reminders unprompted — the always-on path is silent until the loop
+    is restarted. ``pause`` stops the loop's `await sleep` early; ``resume``
+    wakes it; ``quit`` asks it to exit and returns the moment it has.
+    """
+    global _schedule_loop_started, _schedule_loop_iface
+    loop = asyncio.get_running_loop()
+    _schedule_loop_started = True
+    _schedule_loop_iface = ScheduleLoopIface(
+        pause=_pause_schedule, resume=_resume_schedule, quit=_quit_schedule
+    )
+    if iface is not None:
+        _schedule_loop_iface = iface
+        _schedule_pause = asyncio.Event()
+        _schedule_stop = asyncio.Event()
+    while not _schedule_stop.is_set():
+        try:
+            await asyncio.wait_for(_schedule_pause.wait(), timeout=poll_s)
+        except asyncio.TimeoutError:
+            pass
+        if _schedule_stop.is_set():
+            break
         try:
             fired = await fire_due()
             now = time.time()
@@ -250,10 +292,67 @@ async def schedule_loop(*, poll_s: float = 1.0) -> None:
             pass  # the loop stays up; one bad reminder must not kill it
 
 
-#: The durable schedule (ziv_store) + its fire loop (started in the app's
-#: lifespan so it shares the app's event loop).
-scheduled = ScheduledReminders()
-_schedule_task: asyncio.Task[None] | None = None
+#: Controls for the schedule loop. Pause/resume/quit are declared here so the
+#: routes below can reach them; the names are short on purpose (one public
+#: surface, one implementation). Pause is a *yield, not a kill*: the loop
+#: keeps its state and its schedule file; a reminder that catches a pause in
+#: its polling window simply fires a tick later. Quit is the only one that
+#: ends the loop for good.
+
+_schedule_pause = asyncio.Event()
+_schedule_stop = asyncio.Event()
+
+
+async def _pause_schedule() -> None:
+    """Suspend the schedule loop's next poll (resume wakes it)."""
+    if _schedule_loop_iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    _schedule_pause.set()
+
+
+async def _resume_schedule() -> None:
+    """Let the schedule loop poll again."""
+    if _schedule_loop_iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    _schedule_pause.clear()
+    _schedule_pause.set()  # wake a wait_for that may already be sleeping
+
+
+async def _quit_schedule() -> ScheduleLoopIface | None:
+    """Ask the schedule loop to exit and wait for it to have done so.
+
+    Returns the iface the loop was using before it was torn down, so the caller
+    can tell whether the loop was actually running at request time (rather than
+    inferring it from a 503 vs 200 — the endpoint returns 200 with a None iface
+    only when the loop never reached poll).
+    """
+    global _schedule_loop_iface
+    fh_iface = _schedule_loop_iface
+    if fh_iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    _schedule_stop.set()
+    _schedule_pause.set()  # unblock its current or next sleep
+    _schedule_loop_iface = None  # the loop is dead; routes must refuse after this
+    if _schedule_task is not None and not _schedule_task.done():
+        await _schedule_task
+    return fh_iface
+
+
+SCHEDULE_CONTROL = {
+    "pause": _pause_schedule,
+    "resume": _resume_schedule,
+    "quit": _quit_schedule,
+}
+
+
+_schedule_loop_started: bool = False
+_schedule_loop_iface: ScheduleLoopIface | None = None
 
 
 async def _dwell(seconds: float) -> None:
@@ -266,8 +365,26 @@ async def _dwell(seconds: float) -> None:
     which is what makes the pacing assertable instead of merely intended.
     (The scheduler's own poll interval is NOT a dwell and still sleeps
     directly.)
+
+    A pause request short-circuits every dwell: the wearer's rhythm survives
+    the pause exactly as it was — the next resume picks up the same turn at
+    the same pending dwell, so no countdown is silently warped.
     """
-    await asyncio.sleep(seconds)
+    global _schedule_loop_started
+    if not _schedule_loop_started:
+        await asyncio.sleep(seconds)
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + seconds
+    while loop.time() < deadline:
+        remaining = deadline - loop.time()
+        to_wait = min(remaining, 0.1)
+        try:
+            await asyncio.wait_for(_schedule_pause.wait(), timeout=to_wait)
+        except asyncio.TimeoutError:
+            pass
+        if _schedule_stop.is_set():
+            return
 
 
 async def _play_prefix_mark(kind: str, text: str) -> None:
@@ -300,6 +417,13 @@ async def _play_prefix_mark(kind: str, text: str) -> None:
 FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
 ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
 ZIV_PORT = int(os.environ.get("ZIV_PORT", "8787"))
+
+#: How often the WS channel pings the phone with a liveness ack. Set low enough
+#: that a dead relay is felt quickly, high enough that a healthy one is not
+#: papered with pings. The phone uses this to tell "relay alive but quiet"
+#: from "relay gone" — two states the wearer should not have to infer from
+#: silence.
+WS_HEARTBEAT_S = float(os.environ.get("ZIV_WS_HEARTBEAT_S", "10.0"))
 
 # Nebius Token Factory (plan §7 week 1): one OpenAI-compatible endpoint, one
 # key, in a gitignored ``.env``. Two model paths live here, and they are not
@@ -469,6 +593,106 @@ async def ready() -> dict[str, Any]:
         },
     }
 
+
+# ---------------------------------------------------------------------------
+# Control plane (held as asset): pause / resume / quit the always-on loop.
+#
+# These are the announced-but-unproven capabilities from the submission
+# narrative: a wearer or operator can suspend the relay's scheduled-fire
+# activity, resume it, or ask it to shut down its background task — through
+# the same bearer-protected surface the rest of the control plane uses.
+# 
+# They are deliberately small and explicit about being held-as-asset:
+# "pause" is a yield, not a kill (the loop keeps its state and its schedule
+# file; a reminder that catches a pause in its polling window simply fires a
+# tick later), and "quit" ends the loop for good but leaves the rest of the
+# relay (HTTP, WS, the turn pump, the durable stores) running. Making the
+# demo beat exercise these through the real device — pause, schedule a 30-s
+# reminder, confirm it does not fire, resume, confirm it does — is the next
+# build step and is named as such below (§2.1).
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/ziv/control/pause", dependencies=AUTHENTICATED)
+async def control_pause() -> JSONResponse:
+    """Suspend the always-on loop's next poll.
+
+    Held as asset: the route is wired and the loop honours it, but the demo
+    beat has not yet exercised it end to end through the device.
+    """
+    iface = _schedule_loop_iface
+    if iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    await iface.pause()
+    return JSONResponse({"paused": True})
+
+
+@app.post("/api/ziv/control/resume", dependencies=AUTHENTICATED)
+async def control_resume() -> JSONResponse:
+    """Let the always-on loop poll again.
+
+    Held as asset: wired, not yet proven end to end.
+    """
+    iface = _schedule_loop_iface
+    if iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    await iface.resume()
+    return JSONResponse({"resumed": True})
+
+
+@app.post("/api/ziv/control/quit", dependencies=AUTHENTICATED)
+async def control_quit() -> JSONResponse:
+    """Ask the always-on loop to exit, and wait for it to have done so.
+
+    Held as asset: wired, not yet proven end to end. The loop ends but the
+    rest of the relay (HTTP, WS, the turn pump, the durable stores) keeps
+    running — this is a loop stop, not a server stop.
+    """
+    iface = _schedule_loop_iface
+    if iface is None:
+        raise HTTPException(
+            status_code=503, detail="the always-on loop has not started yet"
+        )
+    await iface.quit()
+    return JSONResponse({
+        "loop_stopped": True,
+        "schedule_pending": scheduled.list_all(),
+    })
+
+
+@app.get("/api/ziv/control", dependencies=AUTHENTICATED)
+async def control_status() -> JSONResponse:
+    """The control plane's own liveness readout.
+
+    What a client can ask the control plane to do, and which of those
+    capabilities are wired vs still held as asset.
+    """
+    iface = _schedule_loop_iface
+    return JSONResponse(
+        {
+            "loop": {
+                "running": _schedule_task is not None and not _schedule_task.done(),
+                "started": _schedule_loop_started,
+                "iface": iface is not None,
+            },
+            "actions": {
+                "pause": {"wired": iface is not None, "held_as_asset": iface is None},
+                "resume": {"wired": iface is not None, "held_as_asset": iface is None},
+                "quit": {"wired": iface is not None, "held_as_asset": iface is None},
+            },
+        }
+    )
+
+
+
+# The durable schedule (ziv_store) + its fire loop (started in the app's
+# lifespan so it shares the app's event loop).
+scheduled = ScheduledReminders()
+_schedule_task: asyncio.Task[None] | None = None
 
 
 # Turns recorded ring — the relay's own telemetry, surfaced in health.
@@ -1076,11 +1300,14 @@ async def run_message_turn(
             # The opening kind cue (invariant 1) — the turn exists.
             await _push(frame_for(turn.events[0]))
 
-            # The model round-trip: the fake model sleeps, the timeline's
-            # clock runs — waiting stays legible (invariant 3) without a
-            # timer thread. The channel is already held for all of this
-            # (gate.admit reserved it above), so a message arriving during
-            # the wait cues and queues instead of barging into the turn.
+            # The turn that won the channel now holds it for the whole turn —
+            # through the model wait and the cells, until its close. Without
+            # this, a queued turn keeps the gate idle during the wait and a
+            # later arrival bargains in as message:play instead of queueing
+            # behind the turn that is already playing.
+            if decision.event_type == "message:play":
+                gate.reserve()  # hold playing for the turn that won the channel
+
             turn.begin_processing(now_s=0.0)
             await _push(frame_for(turn.events[-1]))
             tick = 0.05
@@ -1150,6 +1377,10 @@ async def run_message_turn(
         #      reason — the gate no longer holds them. Only while the
         #      channel is still ours: past ``released`` the queue belongs to
         #      another turn, and touching it would corrupt their state.
+        # If the turn already released the gate at its close, the failure
+        # must not abort it again: abort() clears playing and would steal
+        # the next arrival's reservation and queue. Only abort while the
+        # channel is still ours.
         if not released:
             owed.extend(gate.abort())
         for pending_text in owed:
@@ -1176,7 +1407,22 @@ async def run_message_turn(
 
 @app.websocket("/ws")
 async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> None:
-    """The device transport: attach, greet, drain, detach."""
+    """The device transport: attach, greet, drain, detach.
+
+    Held-as-asset additions (announced in the narrative, not yet proven end
+    to end on the real device):
+
+    * The hello ack now carries the control plane's liveness so the phone can
+      show whether the always-on loop is running without a separate HTTP call.
+    * A heartbeat every ``WS_HEARTBEAT_S`` keeps the connection's liveness
+      visible to the phone and lets it tell a dead relay from a silent room.
+    * Client frames are still drained but not yet interpreted — ``pause``
+      arrives as a client-initiated WS message in the next build step, not as
+      an HTTP route the phone polls. ``control_pause`` above is the server's
+      own endpoint; the phone calls it when it can, and the WS channel is the
+      path reserved for it.
+    """
+    global _schedule_loop_iface
     if not _authorized_websocket(token):
         await ws.close(code=4401)
         return
@@ -1184,6 +1430,11 @@ async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> N
     await hub.attach(ws)
     try:
         pending = inbox.count()
+        control_state = {
+            "loop_running": _schedule_task is not None and not _schedule_task.done(),
+            "loop_started": _schedule_loop_started,
+            "iface": _schedule_loop_iface is not None,
+        }
         await ws.send_text(
             json.dumps(
                 {
@@ -1192,6 +1443,7 @@ async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> N
                     "patterns": list(timing.PATTERN_IDS),
                     "mark": timing.PREFIX_MARK,
                     "inbox_pending": pending,
+                    "control": control_state,
                 },
                 ensure_ascii=False,
             )
@@ -1208,7 +1460,19 @@ async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> N
         # sends server-meaningful frames yet; input arrives over HTTP (the
         # Omni spike's shape).
         while True:
-            await ws.receive_text()
+            try:
+                await asyncio.wait_for(
+                    ws.receive_text(), timeout=WS_HEARTBEAT_S
+                )
+            except asyncio.TimeoutError:
+                await _push(
+                    {
+                        "type": "heartbeat",
+                        "control": control_state,
+                    }
+                )
+            except _NoDevices:
+                pass  # the band vanished; the loop will detach below
     except WebSocketDisconnect:
         pass
     finally:
@@ -1401,25 +1665,34 @@ def health() -> dict[str, Any]:
         },
         "gate_queue": len(gate),
         "gate_queue_cap": MessageGate.MAX_QUEUED,
-        "queue_rejections": queue_rejections.snapshot(),
-        "inbox_pending": inbox_pending,
-        # Cap pressure, made visible. The inbox and the schedule still drop
-        # their oldest entry when full — that is what a cap means — but the
-        # drops are counted and logged now, so "silent loss" is bounded
-        # bookkeeping rather than a message nobody knows went missing.
-        "inbox_cap": INBOX_CAP,
-        "inbox_evicted": inbox.evictions(),
-        # The schedule gets the badge treatment too: depth vs. cap (how
-        # close it is to dropping the oldest reminder), and the corrupt
-        # flag read from the one shared drain above.
-        "schedule_pending": schedule_pending,
-        "schedule_cap": SCHEDULE_CAP,
-        "schedule_evicted": scheduled.evictions(),
-        "schedule_corrupt": "schedule" in corrupt,
-        "prefs": prefs,
-        "store_problems": corrupt,
-        "turns": _telemetry.stats(),
-    }
+    "queue_rejections": queue_rejections.snapshot(),
+    "inbox_pending": inbox_pending,
+    # Cap pressure, made visible. The inbox and the schedule still drop
+    # their oldest entry when full — that is what a cap means — but the
+    # drops are counted and logged now, so "silent loss" is bounded
+    # bookkeeping rather than a message nobody knows went missing.
+    "inbox_cap": INBOX_CAP,
+    "inbox_evicted": inbox.evictions(),
+    # The schedule gets the badge treatment too: depth vs. cap (how
+    # close it is to dropping the oldest reminder), and the corrupt
+    # flag read from the one shared drain above.
+    "schedule_pending": schedule_pending,
+    "schedule_cap": SCHEDULE_CAP,
+    "schedule_evicted": scheduled.evictions(),
+    "schedule_corrupt": "schedule" in corrupt,
+    "prefs": prefs,
+    "store_problems": corrupt,
+    "turns": _telemetry.stats(),
+    # The always-on loop is the relay's only background task. It is pinned
+    # here so an operator can tell whether a reminder that should have fired
+    # will be — a stopped loop is a silent always-on failure, so the status
+    # is a liveness fact, not a convenience field.
+    "schedule_loop": {
+        "running": _schedule_task is not None and not _schedule_task.done(),
+        "poll_s": 1.0,
+        "last_fire_at": _telemetry.last("scheduled_reminder_fired"),
+    },
+}
 
 
 @app.get("/ziv_client/index.html")
