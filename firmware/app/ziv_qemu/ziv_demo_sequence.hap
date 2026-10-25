@@ -1,0 +1,8 @@
+ifndef ZIV_DEMO_SEQUENCE_H
+define ZIV_DEMO_SEQUENCE_H
+include "haptic_out.h"
+ifdef __cplusplus
+endif
+ifdef __cplusplus
+endif
+endif /* ZIV_DEMO_SEQUENCE_H */

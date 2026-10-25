@@ -95,6 +95,30 @@ def _attach(client: TestClient):
         yield ws
 
 
+def _receive_json_within(ws, seconds: float):
+    """One WS frame as JSON, or None if none arrives within ``seconds``.
+
+    Starlette 1.0's ``WebSocketTestSession`` has no receive timeout —
+    ``receive_json(timeout=...)`` is a ``TypeError``, which the old 5 s loops
+    swallowed, so every heartbeat test failed at its deadline instead of
+    reading a frame. Read the session's anyio queue without blocking and poll
+    to the deadline; real transport errors still propagate.
+    """
+    import anyio
+
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            message = ws.portal.call(ws._send_rx.receive_nowait)
+        except anyio.WouldBlock:
+            time.sleep(0.02)
+            continue
+        if message.get("text") is not None:
+            return json.loads(message["text"])
+        return message.get("bytes")
+    return None
+
+
 def _vibrate_ms(pattern_id: str) -> list[int]:
     """Expected vibrate pattern, derived the same way the server derives it."""
     out = []
@@ -510,6 +534,11 @@ class _SucceedingThenDying:
             # turn lock this turn is still holding.
             self.handover = True
             self.decision = zs.gate.admit("arrived after the close")
+            # ``admit`` only decides how a message is routed; a turn claims
+            # the channel with ``reserve()``. The band is playing the arriving
+            # turn's role here, so it must make the same claim — otherwise the
+            # assertion below proves nothing (the channel was never owned).
+            assert zs.gate.reserve(), "the arrival must own the channel before the turn dies"
             zs.gate.admit("waiting behind the new arrival")
             raise ConnectionResetError("band vanished")
 
@@ -1969,6 +1998,15 @@ class _LiveTask:
     def cancel(self) -> None:
         pass
 
+    def __await__(self):
+        # The app's lifespan awaits whatever task it was handed during
+        # shutdown (``await _schedule_task``). A fake that is not awaitable
+        # turns this test's teardown into a TypeError and leaves the TestClient
+        # portal unhealthy, which then hangs later tests' requests.
+        if False:
+            yield
+        return None
+
 
 def _make_loop_alive() -> None:
     """Re-asserts the loop-is-alive state the WS layer reads — so the hello
@@ -2053,14 +2091,7 @@ def test_ws_heartbeat_reaches_the_phone_while_the_channel_is_active(
     try:
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()  # hello
-            deadline = time.time() + 5.0
-            frame = None
-            while time.time() < deadline:
-                try:
-                    frame = ws.receive_json(timeout=1.0)
-                    break
-                except Exception:
-                    continue
+            frame = _receive_json_within(ws, 5.0)
             assert frame is not None, "no heartbeat arrived within 5 s"
             assert frame["type"] == "heartbeat"
             assert set(frame) == {"type", "control"}
@@ -2089,14 +2120,7 @@ def test_ws_heartbeat_reaches_the_phone_while_the_channel_is_idle(
     try:
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()  # hello
-            deadline = time.time() + 5.0
-            frame = None
-            while time.time() < deadline:
-                try:
-                    frame = ws.receive_json(timeout=1.0)
-                    break
-                except Exception:
-                    continue
+            frame = _receive_json_within(ws, 5.0)
             assert frame is not None, "no idle heartbeat arrived within 5 s"
             assert frame["type"] == "heartbeat"
     finally:
@@ -2125,14 +2149,7 @@ def test_ws_heartbeat_carries_control_state(client, monkeypatch):
     try:
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()  # hello
-            deadline = time.time() + 5.0
-            frame = None
-            while time.time() < deadline:
-                try:
-                    frame = ws.receive_json(timeout=1.0)
-                    break
-                except Exception:
-                    continue
+            frame = _receive_json_within(ws, 5.0)
             assert frame is not None, "no heartbeat arrived within 5 s"
             assert frame["type"] == "heartbeat"
             ctrl = frame["control"]
@@ -2230,13 +2247,18 @@ def test_control_quit_ends_the_loop(client, monkeypatch):
 
 
 def test_control_pause_yields_the_loop(client, monkeypatch):
-    """``pause`` sets the pause flag so the loop's next poll yields early —
-    the loop stays running, its state and its schedule file are untouched.
+    """``pause`` sets the flag so the loop stops polling until ``resume``
+    clears it — the loop stays running, its state and its schedule file are
+    untouched.
 
     A pause while the loop has not started is a 503.
     """
     monkeypatch.setattr(zs, "ZIV_RELAY_TOKEN", "sekrit")
     headers = {"Authorization": "Bearer sekrit"}
+    # The fixture's lifespan starts the loop; tear that state down so "not
+    # started" is actually the state under test (the other control tests do
+    # the same before asserting their 503s).
+    _reset_schedule_state()
     assert client.post("/api/ziv/control/pause", headers=headers).status_code == 503
 
     async def pause_and_check():

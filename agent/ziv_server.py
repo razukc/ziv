@@ -72,9 +72,7 @@ a deployment.
 Run: ``python agent/ziv_server.py`` (port 8787); the dev band URL is then
 ``http://<lan-ip>:8787/ziv_client/index.html`` opened on the phone.
 """
-
 from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -82,89 +80,118 @@ import os
 import sys
 import threading
 import time
+import weakref
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-
+from typing import Any, Callable
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
-
-# Load .env (gitignored) before reading env vars below — the relay reads
-# NEBIUS_API_KEY at import time, so the file must be loaded first.
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, RedirectResponse
 load_dotenv()
-
-# The shared layer + the seam (same sys.path dance as the tests: this module
-# may be run as a script from the repo root or imported as agent.ziv_server).
 _ROOT = Path(__file__).resolve().parents[1]
-for _p in (str(_ROOT / "agent"), str(_ROOT / "tools")):
+for _p in (str(_ROOT / 'agent'), str(_ROOT / 'tools')):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+import haptic_timing_gen as timing
+from ziv_relay import TelemetryRing
+from ziv_relay import PATTERN_END_OF_MESSAGE, PATTERN_ERROR, PATTERN_MESSAGE_CUE, PATTERN_PROCESSING, MessageGate, TurnTimeline
+from ziv_store import INBOX_CAP, MessageInbox, SCHEDULE_CAP, ScheduledReminders, WearerMemory
 
-import haptic_timing_gen as timing  # noqa: E402  (generated consumer)
-from ziv_relay import TelemetryRing  # noqa: E402
-from ziv_relay import (  # noqa: E402
-    PATTERN_END_OF_MESSAGE,
-    PATTERN_ERROR,
-    PATTERN_MESSAGE_CUE,
-    PATTERN_PROCESSING,
-    MessageGate,
-    TurnTimeline,
-)
-from ziv_store import (
-    INBOX_CAP,
-    MessageInbox,
-    SCHEDULE_CAP,
-    ScheduledReminders,
-    WearerMemory,
-)  # noqa: E402
+class _PerLoop:
+    """One asyncio primitive per running event loop.
+
+    The relay is a single-loop server — one process, one uvicorn loop — so a
+    module-level ``asyncio.Event`` / ``Lock`` is the natural shape. But the
+    test suite drives this module through many short-lived loops: every
+    ``asyncio.run`` in a test, and every ``TestClient`` portal, is its own
+    loop, and once a primitive has been awaited in one of them, touching it
+    from another raises ``RuntimeError: <...> is bound to a different event
+    loop``. That made a test's outcome depend on which tests ran before it.
+
+    Binding lazily to whichever loop touches the primitive keeps the server's
+    one-loop behavior identical (the first loop gets the first instance and
+    keeps it) and gives every test loop a clean, unshared instance. Entries
+    are weak, so a closed loop's primitive is dropped with it. Access outside
+    any loop — a test resetting state between cases, for example — uses a
+    detached instance, which is only inspected or cleared there, never awaited.
+    """
+
+    def __init__(self, factory: Callable[[], Any]) -> None:
+        self._factory = factory
+        self._by_loop: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Any] = weakref.WeakKeyDictionary()
+        self._detached = factory()
+
+    def current(self) -> Any:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return self._detached
+        primitive = self._by_loop.get(loop)
+        if primitive is None:
+            primitive = self._factory()
+            self._by_loop[loop] = primitive
+        return primitive
+
+
+class _LoopBoundEvent:
+    """``asyncio.Event`` semantics, one instance per event loop (see _PerLoop)."""
+
+    __slots__ = ('_per_loop',)
+
+    def __init__(self) -> None:
+        self._per_loop = _PerLoop(asyncio.Event)
+
+    def set(self) -> None:
+        self._per_loop.current().set()
+
+    def clear(self) -> None:
+        self._per_loop.current().clear()
+
+    def is_set(self) -> bool:
+        return self._per_loop.current().is_set()
+
+    async def wait(self) -> bool:
+        return await self._per_loop.current().wait()
+
+    def __repr__(self) -> str:
+        return f'_LoopBoundEvent({self._per_loop.current()!r})'
+
+
+class _LoopBoundLock:
+    """``asyncio.Lock`` semantics, one instance per event loop (see _PerLoop)."""
+
+    __slots__ = ('_per_loop',)
+
+    def __init__(self) -> None:
+        self._per_loop = _PerLoop(asyncio.Lock)
+
+    async def __aenter__(self) -> None:
+        await self._per_loop.current().__aenter__()
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self._per_loop.current().__aexit__(*exc_info)
+
+    def locked(self) -> bool:
+        return self._per_loop.current().locked()
 
 
 class ScheduleLoopIface:
     """The control surface the routes and the WS layer import.
 
     Pause/resume/quit here are the ONLY public handles on the always-on
-    loop. Pause is a yield, not a kill — the loop keeps its state and its
-    schedule file; a reminder that catches a pause in its polling window
-    simply fires a tick later. Quit ends the loop for good.
+    loop. Pause is a suspend, not a kill — the loop keeps its state and its
+    schedule file; a reminder due while paused stays in the store and fires
+    when the pause is cleared, never silently dropped. Quit ends the loop
+    for good.
     """
 
-    def __init__(
-        self, *, pause: Callable[[], Awaitable[None]],
-        resume: Callable[[], Awaitable[None]],
-        quit: Callable[[], Awaitable[None]],
-    ) -> None:
+    def __init__(self, *, pause: Callable[[], Awaitable[None]], resume: Callable[[], Awaitable[None]], quit: Callable[[], Awaitable[None]]) -> None:
         self.pause = pause
         self.resume = resume
         self.quit = quit
-
-
-#: One logger for the relay: misfires and odd states go here, not into
-#: ad-hoc debug files — the telemetry ring and health stay the operator UI.
-LOGGER = logging.getLogger("ziv.relay")
-
-# ---------------------------------------------------------------------------
-# Always-on (Week 3, now durable): scheduled reminders that fire unprompted.
-#
-# The relay's "always-on" beat is a background task that polls the schedule
-# every second and fires any due reminder as its own full haptic turn on the
-# phone — name-mark prefix (invariant 1: no content without a kind cue),
-# then the cue, then the content cells, then the close. The wearer receives
-# it without asking.
-#
-# The schedule itself is DURABLE (``ziv_store.ScheduledReminders`` — the
-# same atomic-JSON, corrupt-tolerant, capped discipline as the inbox): a
-# reminder promised for tomorrow survives a relay restart tonight. This
-# module owns only the async half — claiming due reminders and playing
-# them as turns.
-#
-# The demo beat (Week 3, day 3): schedule a reminder 20 s in the future,
-# watch the phone receive it unprompted — the "acts while you're away"
-# moment the track's always-on sentence needs.
-# ---------------------------------------------------------------------------
-
+LOGGER = logging.getLogger('ziv.relay')
 
 async def fire_due() -> list[dict[str, Any]]:
     """Claim every due reminder and fire it as a full turn; return results.
@@ -179,93 +206,62 @@ async def fire_due() -> list[dict[str, Any]]:
     fired: list[dict[str, Any]] = []
     for r in scheduled.take_due():
         try:
-            text, source = r["text"], r["source"]
-            if source == "agent":
-                # The store holds the *intent* the caller scheduled; the line
-                # the wearer hears is composed here, at fire time, by the
-                # model. If the agent path is unavailable the promise still
-                # fires — verbatim, and honestly labelled as an echo, so the
-                # log never claims a model ran when none did.
-                #
-                # Two failure modes must both fall back to the verbatim echo:
-                #   1. the provider refused (no credit, revoked, wrong model) -
-                #      compose_reminder_line raises HTTPException(502), and the
-                #      provider's own words are the honest cause, never a success.
-                #   2. the provider answered but composed nothing usable -
-                #      an empty or malformed reply is still a failed promise, so
-                #      the verbatim intent is what plays. A key that cannot pay
-                #      must not silently destroy a reminder the wearer was given.
+            text, source = (r['text'], r['source'])
+            if source == 'agent':
                 if agent_path_available():
                     try:
-                        composed = await compose_reminder_line(r["text"])
+                        composed = await compose_reminder_line(r['text'])
                     except Exception as exc:
-                        # take_due() already removed this reminder from the
-                        # schedule, so raising here would drop the promise on
-                        # the floor: never played, never in the inbox, never
-                        # retried. Fall back to the verbatim echo an absent
-                        # key gets, and keep the provider's own words in the
-                        # log so a failure is never disguised as a success.
-                        LOGGER.warning(
-                            "compose failed for reminder %s (%s); firing verbatim",
-                            r.get("id"), exc,
-                        )
-                        text, source = r["text"], "text_echo"
+                        LOGGER.warning('compose failed for reminder %s (%s); firing verbatim', r.get('id'), exc)
+                        text, source = (r['text'], 'text_echo')
                     else:
-                        # A live model call ran only if it returned a real line.
-                        # An empty or garbage reply is a failed promise, not a
-                        # model run — fall back to verbatim and keep the source
-                        # honest so the log never claims a model ran when none
-                        # did.
                         if composed and composed.strip():
-                            text, source = composed.strip(), "text_live"
+                            text, source = (composed.strip(), 'text_live')
                         else:
-                            LOGGER.warning(
-                                "compose returned nothing usable for reminder %s; firing verbatim",
-                                r.get("id"),
-                            )
-                            text, source = r["text"], "text_echo"
+                            LOGGER.warning('compose returned nothing usable for reminder %s; firing verbatim', r.get('id'))
+                            text, source = (r['text'], 'text_echo')
                 else:
-                    source = "text_echo"
-            await run_message_turn(text, source=source, prefix_mark="reminder")
-            fired.append(
-                {**r, "text": text, "source": source,
-                 "fired": True, "fired_at": time.time()}
-            )
+                    source = 'text_echo'
+            await run_message_turn(text, source=source, prefix_mark='reminder')
+            fired.append({**r, 'text': text, 'source': source, 'fired': True, 'fired_at': time.time()})
         except _NoDevices:
-            # No phone attached. run_message_turn already stored the text
-            # it was carrying (the no-band case at its top, or the abort
-            # path if the band vanished mid-turn), so offering it AGAIN
-            # here would double-store one promise into two inbox entries.
-            # The reminder is already safe; this only reports the misfire.
-            fired.append(
-                {**r, "fired": False,
-                 "reason": "no_device_attached_stored_in_inbox"}
-            )
+            fired.append({**r, 'fired': False, 'reason': 'no_device_attached_stored_in_inbox'})
         except Exception as exc:
-            fired.append({**r, "fired": False, "error": str(exc)})
+            fired.append({**r, 'fired': False, 'error': str(exc)})
     return fired
 
-
-async def schedule_loop(*, poll_s: float = 1.0, iface: ScheduleLoopIface | None = None) -> None:
+async def schedule_loop(*, poll_s: float=1.0, iface: ScheduleLoopIface | None=None) -> None:
     """Background task: poll and fire due reminders forever.
 
     The only background task the relay owns. When it is not running the
     relay still serves every HTTP route and every WS turn; it just does not
     fire reminders unprompted — the always-on path is silent until the loop
-    is restarted. ``pause`` stops the loop's `await sleep` early; ``resume``
-    wakes it; ``quit`` asks it to exit and returns the moment it has.
+    is restarted. ``pause`` suspends polling (the loop keeps ticking but
+    fires nothing) until ``resume`` clears it; ``quit`` asks it to exit and
+    returns the moment it has.
     """
     global _schedule_loop_started, _schedule_loop_iface
     loop = asyncio.get_running_loop()
     _schedule_loop_started = True
-    _schedule_loop_iface = ScheduleLoopIface(
-        pause=_pause_schedule, resume=_resume_schedule, quit=_quit_schedule
-    )
+    _schedule_loop_iface = ScheduleLoopIface(pause=_pause_schedule, resume=_resume_schedule, quit=_quit_schedule)
     if iface is not None:
+        # An injected iface replaces the control surface, not the waiter
+        # primitives: pause/stop are per-loop (created on first use by this
+        # loop), so this loop already starts with fresh, clear flags.
         _schedule_loop_iface = iface
-        _schedule_pause = asyncio.Event()
-        _schedule_stop = asyncio.Event()
     while not _schedule_stop.is_set():
+        if _schedule_pause.is_set():
+            # Paused: the flag stays set until ``resume`` clears it. Waiting on
+            # it directly returns immediately while set, which turns the loop
+            # into a 100%-CPU spin that starves every HTTP and WS request on
+            # this same loop (observed: the next request after a control
+            # ``pause`` never completed). Sleep a real tick instead; wait on
+            # stop so ``quit`` is still observed promptly.
+            try:
+                await asyncio.wait_for(_schedule_stop.wait(), timeout=poll_s)
+            except asyncio.TimeoutError:
+                pass
+            continue
         try:
             await asyncio.wait_for(_schedule_pause.wait(), timeout=poll_s)
         except asyncio.TimeoutError:
@@ -276,51 +272,27 @@ async def schedule_loop(*, poll_s: float = 1.0, iface: ScheduleLoopIface | None 
             fired = await fire_due()
             now = time.time()
             for r in fired:
-                _telemetry.record(
-                    label="scheduled_reminder_fired" if r.get("fired")
-                    else "scheduled_reminder_misfired",
-                    seconds=now - (r.get("fire_at", now)),
-                    source=r.get("source", "scheduled"),
-                )
-                if not r.get("fired"):
-                    LOGGER.warning(
-                        "scheduled_reminder_misfired id=%s reason=%s",
-                        r.get("id"),
-                        r.get("reason") or r.get("error") or "unknown",
-                    )
+                _telemetry.record(label='scheduled_reminder_fired' if r.get('fired') else 'scheduled_reminder_misfired', seconds=now - r.get('fire_at', now), retries=0, source=r.get('source', 'scheduled'))
+                if not r.get('fired'):
+                    LOGGER.warning('scheduled_reminder_misfired id=%s reason=%s', r.get('id'), r.get('reason') or r.get('error') or 'unknown')
         except Exception:
-            pass  # the loop stays up; one bad reminder must not kill it
-
-
-#: Controls for the schedule loop. Pause/resume/quit are declared here so the
-#: routes below can reach them; the names are short on purpose (one public
-#: surface, one implementation). Pause is a *yield, not a kill*: the loop
-#: keeps its state and its schedule file; a reminder that catches a pause in
-#: its polling window simply fires a tick later. Quit is the only one that
-#: ends the loop for good.
-
-_schedule_pause = asyncio.Event()
-_schedule_stop = asyncio.Event()
-
+            pass
+_schedule_pause = _LoopBoundEvent()
+_schedule_stop = _LoopBoundEvent()
 
 async def _pause_schedule() -> None:
     """Suspend the schedule loop's next poll (resume wakes it)."""
     if _schedule_loop_iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
     _schedule_pause.set()
-
 
 async def _resume_schedule() -> None:
     """Let the schedule loop poll again."""
     if _schedule_loop_iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
+    # Clear only: re-setting it here left the loop awake (and polling in a
+    # hot loop) after every resume, so ``pause`` never actually ended.
     _schedule_pause.clear()
-    _schedule_pause.set()  # wake a wait_for that may already be sleeping
-
 
 async def _quit_schedule() -> ScheduleLoopIface | None:
     """Ask the schedule loop to exit and wait for it to have done so.
@@ -333,27 +305,16 @@ async def _quit_schedule() -> ScheduleLoopIface | None:
     global _schedule_loop_iface
     fh_iface = _schedule_loop_iface
     if fh_iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
     _schedule_stop.set()
-    _schedule_pause.set()  # unblock its current or next sleep
-    _schedule_loop_iface = None  # the loop is dead; routes must refuse after this
-    if _schedule_task is not None and not _schedule_task.done():
+    _schedule_pause.set()
+    _schedule_loop_iface = None
+    if _schedule_task is not None and (not _schedule_task.done()):
         await _schedule_task
     return fh_iface
-
-
-SCHEDULE_CONTROL = {
-    "pause": _pause_schedule,
-    "resume": _resume_schedule,
-    "quit": _quit_schedule,
-}
-
-
+SCHEDULE_CONTROL = {'pause': _pause_schedule, 'resume': _resume_schedule, 'quit': _quit_schedule}
 _schedule_loop_started: bool = False
 _schedule_loop_iface: ScheduleLoopIface | None = None
-
 
 async def _dwell(seconds: float) -> None:
     """Wait out one beat of the wearer's pace — the relay's only sleep.
@@ -386,7 +347,6 @@ async def _dwell(seconds: float) -> None:
         if _schedule_stop.is_set():
             return
 
-
 async def _play_prefix_mark(kind: str, text: str) -> None:
     """The name-mark prefix before an unsolicited event (plan §4 invariant 1):
     the wearer learns who is calling before the content arrives.
@@ -397,70 +357,27 @@ async def _play_prefix_mark(kind: str, text: str) -> None:
     so nothing can interleave between the name and what it announces.
     """
     mark = list(timing.MARK_CELLS[timing.PREFIX_MARK])
-    tail_id = timing.PREFIX_TAILS.get(kind, "triple-pulse")
-    cells = [{"ch": ch, "ms": timing.cell_ms(ch)} for ch in mark]
-    # Narration first: the wire log gets the words, the cells box gets the
-    # mark's letters to light up as each cell frame lands.
-    await _push({"type": "text", "text": f"{kind}: {text}", "chars": cells})
+    tail_id = timing.PREFIX_TAILS.get(kind, 'triple-pulse')
+    cells = [{'ch': ch, 'ms': timing.cell_ms(ch)} for ch in mark]
+    await _push({'type': 'text', 'text': f'{kind}: {text}', 'chars': cells})
     cell_gap = _effective_cell_gap_ms() / 1000.0
     for cell in cells:
-        await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
-        await _dwell(cell["ms"] / 1000.0 + cell_gap)
-    await _push(haptic_frame(tail_id, why=f"{kind} mark"))
-    await _dwell(
-        sum(buzz + gap for buzz, gap in timing.pattern_beats(tail_id)) / 1000.0
-    )
-    # The breath: a beat of silence between the mark and what it announces.
+        await _push({'type': 'cell', 'ch': cell['ch'], 'ms': cell['ms']})
+        await _dwell(cell['ms'] / 1000.0 + cell_gap)
+    await _push(haptic_frame(tail_id, why=f'{kind} mark'))
+    await _dwell(sum((buzz + gap for buzz, gap in timing.pattern_beats(tail_id))) / 1000.0)
     await _dwell(timing.PREFIX_BREATH_MS / 1000.0)
+FAKE_MODEL_SECONDS = float(os.environ.get('ZIV_FAKE_MODEL_SECONDS', '3.0'))
+ZIV_RELAY_TOKEN = os.environ.get('ZIV_RELAY_TOKEN', '')
+ZIV_PORT = int(os.environ.get('ZIV_PORT', '8787'))
+WS_HEARTBEAT_S = float(os.environ.get('ZIV_WS_HEARTBEAT_S', '10.0'))
+NEBIUS_API_KEY = os.environ.get('NEBIUS_API_KEY', '')
+NEBIUS_BASE_URL = os.environ.get('NEBIUS_BASE_URL') or 'https://api.tokenfactory.nebius.com/v1/'
+ZIV_TEXT_MODEL = os.environ.get('ZIV_TEXT_MODEL') or 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
+ZIV_OMNI_MODEL = os.environ.get('ZIV_OMNI_MODEL', '')
+_OMNI_PROMPT = 'Transcribe this audio clip. Reply with only the words that were spoken, nothing else.'
+_COMPOSE_PROMPT = 'You write the single line a vibro-braille channel plays to a deafblind wearer. Reply with that line only — no quotes, no preamble, no markdown, at most 30 characters, plain everyday words.'
 
-
-FAKE_MODEL_SECONDS = float(os.environ.get("ZIV_FAKE_MODEL_SECONDS", "3.0"))
-ZIV_RELAY_TOKEN = os.environ.get("ZIV_RELAY_TOKEN", "")
-ZIV_PORT = int(os.environ.get("ZIV_PORT", "8787"))
-
-#: How often the WS channel pings the phone with a liveness ack. Set low enough
-#: that a dead relay is felt quickly, high enough that a healthy one is not
-#: papered with pings. The phone uses this to tell "relay alive but quiet"
-#: from "relay gone" — two states the wearer should not have to infer from
-#: silence.
-WS_HEARTBEAT_S = float(os.environ.get("ZIV_WS_HEARTBEAT_S", "10.0"))
-
-# Nebius Token Factory (plan §7 week 1): one OpenAI-compatible endpoint, one
-# key, in a gitignored ``.env``. Two model paths live here, and they are not
-# equal — only one of them runs in this submission's demo.
-#
-# * **text** (``ZIV_TEXT_MODEL``) — the agent path. A scheduled reminder is
-#   composed by Nemotron at fire time and the phone spells the model's own
-#   words. This is the model the demo proves.
-# * **audio** (``ZIV_OMNI_MODEL``) — the transcription path. Opt-in and empty
-#   by default: it needs an audio-capable endpoint, so the relay refuses the
-#   call instead of naming a model id that cannot serve it. Held as asset.
-NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
-NEBIUS_BASE_URL = (
-    os.environ.get("NEBIUS_BASE_URL")
-    or "https://api.tokenfactory.nebius.com/v1/"
-)
-#: The agent model. A real NVIDIA open model this account's /v1/models lists,
-#: so a live call is a live NVIDIA open model on Nebius Token Factory.
-ZIV_TEXT_MODEL = (
-    os.environ.get("ZIV_TEXT_MODEL") or "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
-)
-#: Empty means "no audio-capable endpoint is configured here"; /inject/audio
-#: answers 503 rather than guessing at a model id.
-ZIV_OMNI_MODEL = os.environ.get("ZIV_OMNI_MODEL", "")
-_OMNI_PROMPT = (
-    "Transcribe this audio clip. Reply with only the words that were "
-    "spoken, nothing else."
-)
-_COMPOSE_PROMPT = (
-    "You write the single line a vibro-braille channel plays to a deafblind "
-    "wearer. Reply with that line only — no quotes, no preamble, no markdown, "
-    "at most 30 characters, plain everyday words."
-)
-
-# Lifespan: start the always-on schedule loop when the app starts and stop
-# it when the app shuts down — the loop shares the app's running event loop,
-# so ``asyncio.create_task`` is safe here (unlike calling it at import time).
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _schedule_task
@@ -468,43 +385,26 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        if _schedule_task is not None and not _schedule_task.done():
+        if _schedule_task is not None and (not _schedule_task.done()):
             _schedule_task.cancel()
             try:
                 await _schedule_task
             except (asyncio.CancelledError, RuntimeError):
                 pass
-
-
-app = FastAPI(
-    title="Ziv relay v1 (dev band + memory + schedule)",
-    version="0.3.0",
-    lifespan=lifespan,
-)
-
-
-# ---------------------------------------------------------------------------
-# Auth (optional; open by default on the LAN)
-#
-# Defined above the routes because it is declared as a route dependency: the
-# policy is stated once, here, instead of being re-derived (and forgotten) at
-# each endpoint.
-# ---------------------------------------------------------------------------
+app = FastAPI(title='Ziv relay v1 (dev band + memory + schedule)', version='0.3.0', lifespan=lifespan)
 
 def _authorized_websocket(token: str | None) -> bool:
     if not ZIV_RELAY_TOKEN:
         return True
     return token == ZIV_RELAY_TOKEN
 
-
 def _authorized_http(authorization: str | None) -> None:
     if not ZIV_RELAY_TOKEN:
         return
-    if authorization != f"Bearer {ZIV_RELAY_TOKEN}":
-        raise HTTPException(status_code=401, detail="bad or missing bearer token")
+    if authorization != f'Bearer {ZIV_RELAY_TOKEN}':
+        raise HTTPException(status_code=401, detail='bad or missing bearer token')
 
-
-def require_auth(authorization: str | None = Header(default=None)) -> None:
+def require_auth(authorization: str | None=Header(default=None)) -> None:
     """Bearer-token gate for every route that can *carry or reveal* content.
 
     The wearer's messages, their scheduled reminders and their preferences
@@ -525,14 +425,9 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
       to load before it can present anything.
     """
     _authorized_http(authorization)
-
-
-#: Attached to every route that reveals or mutates the wearer's durable state,
-#: so the set is auditable at a glance instead of per-route.
 AUTHENTICATED = [Depends(require_auth)]
 
-
-@app.post("/api/ziv/schedule", dependencies=AUTHENTICATED)
+@app.post('/api/ziv/schedule', dependencies=AUTHENTICATED)
 async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
     """Schedule a reminder to fire at a specific epoch time (seconds).
 
@@ -540,43 +435,28 @@ async def schedule_reminder(body: dict[str, Any]) -> JSONResponse:
     path: the promise is stored as an intent, and the line is composed by the
     model when it fires. Both are durable, so both survive a restart.
     """
-    fire_at = float(body.get("fire_at", 0))
-    text = str(body.get("text", "")).strip()
-    intent = str(body.get("intent", "")).strip()
-    if not text and not intent:
-        raise HTTPException(
-            status_code=422, detail="text (a line) or intent (composed) is required"
-        )
+    fire_at = float(body.get('fire_at', 0))
+    text = str(body.get('text', '')).strip()
+    intent = str(body.get('intent', '')).strip()
+    if not text and (not intent):
+        raise HTTPException(status_code=422, detail='text (a line) or intent (composed) is required')
     if fire_at <= time.time():
-        raise HTTPException(status_code=422, detail="fire_at must be in the future")
-    rem = scheduled.add(
-        fire_at, intent or text, source="agent" if intent else "scheduled"
-    )
-    return JSONResponse(
-        {
-            "scheduled": True,
-            **rem,
-            "fire_at_iso": time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(rem["fire_at"])
-            ),
-        }
-    )
+        raise HTTPException(status_code=422, detail='fire_at must be in the future')
+    rem = scheduled.add(fire_at, intent or text, source='agent' if intent else 'scheduled')
+    return JSONResponse({'scheduled': True, **rem, 'fire_at_iso': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(rem['fire_at']))})
 
-
-@app.get("/api/ziv/schedule", dependencies=AUTHENTICATED)
+@app.get('/api/ziv/schedule', dependencies=AUTHENTICATED)
 async def list_schedule() -> JSONResponse:
     """List scheduled reminders (id, fire_at, text, source)."""
-    return JSONResponse({"reminders": scheduled.list_all()})
+    return JSONResponse({'reminders': scheduled.list_all()})
 
-
-@app.delete("/api/ziv/schedule", dependencies=AUTHENTICATED)
+@app.delete('/api/ziv/schedule', dependencies=AUTHENTICATED)
 async def clear_schedule() -> JSONResponse:
     """Cancel all scheduled reminders."""
     n = scheduled.clear()
-    return JSONResponse({"cleared": n})
+    return JSONResponse({'cleared': n})
 
-
-@app.get("/api/ziv/ready", dependencies=AUTHENTICATED)
+@app.get('/api/ziv/ready', dependencies=AUTHENTICATED)
 async def ready() -> dict[str, Any]:
     """Health-plus: liveness + the schedule + the always-on loop state.
 
@@ -584,36 +464,9 @@ async def ready() -> dict[str, Any]:
     pending before it fires — proof the relay planned to act while nobody
     was chatting.
     """
-    return {
-        "status": "ok",
-        "service": "Ziv relay v1 (dev band + memory + schedule)",
-        "schedule": {
-            "pending": scheduled.list_all(),
-            "loop_running": _schedule_task is not None and not _schedule_task.done(),
-        },
-    }
+    return {'status': 'ok', 'service': 'Ziv relay v1 (dev band + memory + schedule)', 'schedule': {'pending': scheduled.list_all(), 'loop_running': _schedule_task is not None and (not _schedule_task.done())}}
 
-
-# ---------------------------------------------------------------------------
-# Control plane (held as asset): pause / resume / quit the always-on loop.
-#
-# These are the announced-but-unproven capabilities from the submission
-# narrative: a wearer or operator can suspend the relay's scheduled-fire
-# activity, resume it, or ask it to shut down its background task — through
-# the same bearer-protected surface the rest of the control plane uses.
-# 
-# They are deliberately small and explicit about being held-as-asset:
-# "pause" is a yield, not a kill (the loop keeps its state and its schedule
-# file; a reminder that catches a pause in its polling window simply fires a
-# tick later), and "quit" ends the loop for good but leaves the rest of the
-# relay (HTTP, WS, the turn pump, the durable stores) running. Making the
-# demo beat exercise these through the real device — pause, schedule a 30-s
-# reminder, confirm it does not fire, resume, confirm it does — is the next
-# build step and is named as such below (§2.1).
-# ---------------------------------------------------------------------------
-
-
-@app.post("/api/ziv/control/pause", dependencies=AUTHENTICATED)
+@app.post('/api/ziv/control/pause', dependencies=AUTHENTICATED)
 async def control_pause() -> JSONResponse:
     """Suspend the always-on loop's next poll.
 
@@ -622,14 +475,11 @@ async def control_pause() -> JSONResponse:
     """
     iface = _schedule_loop_iface
     if iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
     await iface.pause()
-    return JSONResponse({"paused": True})
+    return JSONResponse({'paused': True})
 
-
-@app.post("/api/ziv/control/resume", dependencies=AUTHENTICATED)
+@app.post('/api/ziv/control/resume', dependencies=AUTHENTICATED)
 async def control_resume() -> JSONResponse:
     """Let the always-on loop poll again.
 
@@ -637,14 +487,11 @@ async def control_resume() -> JSONResponse:
     """
     iface = _schedule_loop_iface
     if iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
     await iface.resume()
-    return JSONResponse({"resumed": True})
+    return JSONResponse({'resumed': True})
 
-
-@app.post("/api/ziv/control/quit", dependencies=AUTHENTICATED)
+@app.post('/api/ziv/control/quit', dependencies=AUTHENTICATED)
 async def control_quit() -> JSONResponse:
     """Ask the always-on loop to exit, and wait for it to have done so.
 
@@ -654,17 +501,11 @@ async def control_quit() -> JSONResponse:
     """
     iface = _schedule_loop_iface
     if iface is None:
-        raise HTTPException(
-            status_code=503, detail="the always-on loop has not started yet"
-        )
+        raise HTTPException(status_code=503, detail='the always-on loop has not started yet')
     await iface.quit()
-    return JSONResponse({
-        "loop_stopped": True,
-        "schedule_pending": scheduled.list_all(),
-    })
+    return JSONResponse({'loop_stopped': True, 'schedule_pending': scheduled.list_all()})
 
-
-@app.get("/api/ziv/control", dependencies=AUTHENTICATED)
+@app.get('/api/ziv/control', dependencies=AUTHENTICATED)
 async def control_status() -> JSONResponse:
     """The control plane's own liveness readout.
 
@@ -672,40 +513,12 @@ async def control_status() -> JSONResponse:
     capabilities are wired vs still held as asset.
     """
     iface = _schedule_loop_iface
-    return JSONResponse(
-        {
-            "loop": {
-                "running": _schedule_task is not None and not _schedule_task.done(),
-                "started": _schedule_loop_started,
-                "iface": iface is not None,
-            },
-            "actions": {
-                "pause": {"wired": iface is not None, "held_as_asset": iface is None},
-                "resume": {"wired": iface is not None, "held_as_asset": iface is None},
-                "quit": {"wired": iface is not None, "held_as_asset": iface is None},
-            },
-        }
-    )
-
-
-
-# The durable schedule (ziv_store) + its fire loop (started in the app's
-# lifespan so it shares the app's event loop).
+    return JSONResponse({'loop': {'running': _schedule_task is not None and (not _schedule_task.done()), 'started': _schedule_loop_started, 'iface': iface is not None}, 'actions': {'pause': {'wired': iface is not None, 'held_as_asset': iface is None}, 'resume': {'wired': iface is not None, 'held_as_asset': iface is None}, 'quit': {'wired': iface is not None, 'held_as_asset': iface is None}}})
 scheduled = ScheduledReminders()
 _schedule_task: asyncio.Task[None] | None = None
-
-
-# Turns recorded ring — the relay's own telemetry, surfaced in health.
 _telemetry = TelemetryRing(maxlen=20, recent_tail=10)
-
-# The wearer's durable state (relay v1): survives restarts, gitignored.
 memory = WearerMemory()
 inbox = MessageInbox()
-
-
-# ---------------------------------------------------------------------------
-# Frame helpers — the wire vocabulary the PWA renders
-# ---------------------------------------------------------------------------
 
 def vibrate_pattern(pattern_id: str) -> list[int]:
     """The ``vibrate([buzz, gap, ...])`` pattern for one attention pattern id.
@@ -720,16 +533,9 @@ def vibrate_pattern(pattern_id: str) -> list[int]:
         out.append(gap_ms)
     return out
 
-
-def haptic_frame(pattern_id: str, why: str = "") -> dict[str, Any]:
+def haptic_frame(pattern_id: str, why: str='') -> dict[str, Any]:
     """One wearer-visible haptic event as a wire frame."""
-    return {
-        "type": "haptic",
-        "pattern": pattern_id,
-        "ms": vibrate_pattern(pattern_id),
-        "why": why,
-    }
-
+    return {'type': 'haptic', 'pattern': pattern_id, 'ms': vibrate_pattern(pattern_id), 'why': why}
 
 async def _announce_error(why: str) -> None:
     """The error long-buzz for a turn that dies before it starts.
@@ -741,14 +547,9 @@ async def _announce_error(why: str) -> None:
     """
     try:
         await _push(haptic_frame(PATTERN_ERROR, why=why))
-        await _push({"type": "text", "text": f"error: {why}"})
+        await _push({'type': 'text', 'text': f'error: {why}'})
     except _NoDevices:
         pass
-
-
-# ---------------------------------------------------------------------------
-# Device hub: one or more phones attached over /ws
-# ---------------------------------------------------------------------------
 
 @dataclass
 class DeviceHub:
@@ -760,7 +561,6 @@ class DeviceHub:
     request/response, and one slow or dead client must never stall the turn
     pump.
     """
-
     devices: list[WebSocket] = field(default_factory=list)
 
     async def attach(self, ws: WebSocket) -> None:
@@ -790,39 +590,17 @@ class DeviceHub:
                 dead.append(ws)
         for ws in dead:
             self.detach(ws)
-
-
 hub = DeviceHub()
-
 
 class _NoDevices(RuntimeError):
     pass
 
-
 async def _push(frame: dict[str, Any]) -> None:
     if hub.count == 0:
-        raise _NoDevices(
-            "no dev band attached (open /ziv_client/index.html on the phone)"
-        )
+        raise _NoDevices('no dev band attached (open /ziv_client/index.html on the phone)')
     await hub.broadcast(frame)
-
-
-# ---------------------------------------------------------------------------
-# The turn pump: gate + timeline → WS frames (the relay's event loop, live)
-# ---------------------------------------------------------------------------
-
-# One gate for the whole process: the wrist has one haptic channel, so the
-# queue-don't-interrupt policy is server-global, not per-request. A message
-# arriving while a turn is playing gets the cue-only path and queues, and its
-# content replays after the current turn's close — the plan's invariant 4,
-# now live between two HTTP calls.
 gate = MessageGate()
-
-# The playback loop is also single: only one turn pump may drive the wrist at
-# a time. A second request queues behind this lock (and behind the gate, once
-# it starts).
-_turn_lock = asyncio.Lock()
-
+_turn_lock = _LoopBoundLock()
 
 class _RejectionStats:
     """Operator-visible telemetry for the refusals the relay hands out.
@@ -839,10 +617,6 @@ class _RejectionStats:
     pruned on read — no background task); the bound keeps a rejection flood
     from growing memory without bound.
     """
-
-    #: Width of the rate window (seconds) and its hard cap on remembered
-    #: timestamps — a flood beyond the cap reads as "at least this many",
-    #: which is all a spike signal needs.
     WINDOW_S = 60
     WINDOW_MAX = 5000
 
@@ -857,7 +631,7 @@ class _RejectionStats:
         with self._lock:
             self.count += 1
             self.last_reason = reason
-            self.last_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            self.last_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             self._recent.append(time.monotonic())
             if len(self._recent) > self.WINDOW_MAX:
                 self._recent.popleft()
@@ -867,13 +641,7 @@ class _RejectionStats:
             cutoff = time.monotonic() - self.WINDOW_S
             while self._recent and self._recent[0] <= cutoff:
                 self._recent.popleft()
-            return {
-                "count": self.count,
-                "per_minute": len(self._recent),
-                "window_s": self.WINDOW_S,
-                "last_reason": self.last_reason,
-                "last_at": self.last_at,
-            }
+            return {'count': self.count, 'per_minute': len(self._recent), 'window_s': self.WINDOW_S, 'last_reason': self.last_reason, 'last_at': self.last_at}
 
     def reset(self) -> None:
         with self._lock:
@@ -881,8 +649,6 @@ class _RejectionStats:
             self.last_reason = None
             self.last_at = None
             self._recent.clear()
-
-
 queue_rejections = _RejectionStats()
 
 def _omni_configured() -> bool:
@@ -895,7 +661,6 @@ def _omni_configured() -> bool:
     problem, not the button's.
     """
     return bool(NEBIUS_API_KEY and ZIV_OMNI_MODEL)
-
 
 def _effective_cell_gap_ms() -> int:
     """The wearer's pace preference, clamped into the spec's envelope.
@@ -911,10 +676,7 @@ def _effective_cell_gap_ms() -> int:
         v = timing.CELL_GAP_DEFAULT_MS
     return max(timing.CELL_GAP_MIN_MS, min(timing.CELL_GAP_MAX_MS, v))
 
-
-async def _play_cells_and_close(
-    text: str, *, note: str | None = None, free_fn=None
-) -> int:
+async def _play_cells_and_close(text: str, *, note: str | None=None, free_fn=None) -> int:
     """Content on the motors: the cell frames, the dwell, the close.
 
     Shared by the turn pump (after its processing phase) and by inbox
@@ -931,23 +693,18 @@ async def _play_cells_and_close(
     redial behind the remaining replays, so "the close lands on the wire"
     must mean the *last* one.
     """
-    cells = [
-        {"ch": ch, "ms": timing.cell_ms(ch)}
-        for ch in text.lower()
-        if "a" <= ch <= "z"
-    ][:timing.SPELL_MAX_LETTERS]
-    label = f"queued: {text}" if note else f"message: {text}"
-    await _push({"type": "text", "text": label, "chars": cells})
+    cells = [{'ch': ch, 'ms': timing.cell_ms(ch)} for ch in text.lower() if 'a' <= ch <= 'z'][:timing.SPELL_MAX_LETTERS]
+    label = f'queued: {text}' if note else f'message: {text}'
+    await _push({'type': 'text', 'text': label, 'chars': cells})
     gap = _effective_cell_gap_ms() / 1000.0
     for cell in cells:
-        await _push({"type": "cell", "ch": cell["ch"], "ms": cell["ms"]})
-        await _dwell(cell["ms"] / 1000.0 + gap)
-    close = haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
+        await _push({'type': 'cell', 'ch': cell['ch'], 'ms': cell['ms']})
+        await _dwell(cell['ms'] / 1000.0 + gap)
+    close = haptic_frame(PATTERN_END_OF_MESSAGE, why='close')
     if free_fn is not None and free_fn():
-        close["free"] = True
+        close['free'] = True
     await _push(close)
     return len(cells)
-
 
 async def _play_drained(drained: list[Any], owed: list[str]) -> None:
     """Replay the texts the gate drained as their own full events.
@@ -968,16 +725,11 @@ async def _play_drained(drained: list[Any], owed: list[str]) -> None:
     ``_play_cells_and_close``): the wrist is only truly free after the last
     one, not after the turn's own.
     """
-    owed[:] = [str(ev.payload.get("text", "")) for ev in drained]
+    owed[:] = [str(ev.payload.get('text', '')) for ev in drained]
     for idx in range(len(drained)):
-        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="queued replay cue"))
-        await _play_cells_and_close(
-            owed[0],
-            note=True,
-            free_fn=lambda idx=idx, n=len(drained): idx == n - 1,
-        )
-        owed.pop(0)  # this replay's close played — the wearer has it
-
+        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why='queued replay cue'))
+        await _play_cells_and_close(owed[0], note=True, free_fn=lambda idx=idx, n=len(drained): idx == n - 1)
+        owed.pop(0)
 
 async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     """One Token Factory Omni call: audio in, transcript text out.
@@ -993,62 +745,27 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
     """
     try:
         import httpx
-    except ImportError as exc:  # pragma: no cover — httpx ships with fastapi
-        raise HTTPException(status_code=500, detail="httpx unavailable") from exc
-    payload = {
-        "model": ZIV_OMNI_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _OMNI_PROMPT},
-                    {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": audio_b64,
-                            "format": mime,
-                        },
-                    },
-                ],
-            }
-        ],
-        "max_tokens": 512,
-        "temperature": 0.0,
-    }
-    headers = {"Authorization": f"Bearer {NEBIUS_API_KEY}"}
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail='httpx unavailable') from exc
+    payload = {'model': ZIV_OMNI_MODEL, 'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': _OMNI_PROMPT}, {'type': 'input_audio', 'input_audio': {'data': audio_b64, 'format': mime}}]}], 'max_tokens': 512, 'temperature': 0.0}
+    headers = {'Authorization': f'Bearer {NEBIUS_API_KEY}'}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                NEBIUS_BASE_URL.rstrip("/") + "/chat/completions",
-                json=payload,
-                headers=headers,
-            )
+            resp = await client.post(NEBIUS_BASE_URL.rstrip('/') + '/chat/completions', json=payload, headers=headers)
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Token Factory unreachable: {exc}",
-        ) from exc
+        raise HTTPException(status_code=502, detail=f'Token Factory unreachable: {exc}') from exc
     if resp.status_code != 200:
-        # The provider's own words stay on the wire: the caller can check
-        # them, and we never invent a cause they cannot verify.
-        raise HTTPException(
-            status_code=502,
-            detail=f"Token Factory error {resp.status_code}: {resp.text[:300]}",
-        )
+        raise HTTPException(status_code=502, detail=f'Token Factory error {resp.status_code}: {resp.text[:300]}')
     try:
-        text = resp.json()["choices"][0]["message"]["content"]
+        text = resp.json()['choices'][0]['message']['content']
     except (KeyError, IndexError, ValueError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Token Factory reply had no transcript",
-        ) from exc
+        raise HTTPException(status_code=502, detail='Token Factory reply had no transcript') from exc
     text = str(text).strip()
     if not text:
-        raise HTTPException(status_code=502, detail="Omni heard nothing (empty transcript)")
+        raise HTTPException(status_code=502, detail='Omni heard nothing (empty transcript)')
     return text
 
-
-async def compose_with_nebius(prompt: str, *, system: str = "") -> str:
+async def compose_with_nebius(prompt: str, *, system: str='') -> str:
     """One Token Factory **text** call — the agent path.
 
     Same endpoint, same key, same OpenAI-compatible wire shape as the audio
@@ -1059,43 +776,23 @@ async def compose_with_nebius(prompt: str, *, system: str = "") -> str:
     """
     try:
         import httpx
-    except ImportError as exc:  # pragma: no cover — httpx ships with fastapi
-        raise HTTPException(status_code=500, detail="httpx unavailable") from exc
-    payload = {
-        "model": ZIV_TEXT_MODEL,
-        "messages": (
-            ([{"role": "system", "content": system}] if system else [])
-            + [{"role": "user", "content": prompt}]
-        ),
-        "max_tokens": 64,
-        "temperature": 0.0,
-    }
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail='httpx unavailable') from exc
+    payload = {'model': ZIV_TEXT_MODEL, 'messages': ([{'role': 'system', 'content': system}] if system else []) + [{'role': 'user', 'content': prompt}], 'max_tokens': 64, 'temperature': 0.0}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                NEBIUS_BASE_URL.rstrip("/") + "/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {NEBIUS_API_KEY}"},
-            )
+            resp = await client.post(NEBIUS_BASE_URL.rstrip('/') + '/chat/completions', json=payload, headers={'Authorization': f'Bearer {NEBIUS_API_KEY}'})
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Token Factory unreachable: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f'Token Factory unreachable: {exc}') from exc
     if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Token Factory error {resp.status_code}: {resp.text[:300]}",
-        )
+        raise HTTPException(status_code=502, detail=f'Token Factory error {resp.status_code}: {resp.text[:300]}')
     try:
-        out = str(resp.json()["choices"][0]["message"]["content"]).strip()
+        out = str(resp.json()['choices'][0]['message']['content']).strip()
     except (KeyError, IndexError, ValueError) as exc:
-        raise HTTPException(
-            status_code=502, detail="Token Factory reply had no text"
-        ) from exc
+        raise HTTPException(status_code=502, detail='Token Factory reply had no text') from exc
     if not out:
-        raise HTTPException(status_code=502, detail="model composed nothing")
+        raise HTTPException(status_code=502, detail='model composed nothing')
     return out
-
 
 def agent_path_available() -> bool:
     """Can the relay actually reach the model? Key present *and* a model id.
@@ -1106,7 +803,6 @@ def agent_path_available() -> bool:
     """
     return bool(NEBIUS_API_KEY and ZIV_TEXT_MODEL)
 
-
 async def compose_reminder_line(intent: str) -> str:
     """Ask the model for the one line this reminder should play.
 
@@ -1115,13 +811,8 @@ async def compose_reminder_line(intent: str) -> str:
     work an agent should do while nobody is chatting. The model's own words
     are what plays; nothing here invents or templates them.
     """
-    line = await compose_with_nebius(
-        f"Write the reminder line for this intent: {intent}",
-        system=_COMPOSE_PROMPT,
-    )
-    # One line, no leftover markdown emphasis or quotes the model added.
+    line = await compose_with_nebius(f'Write the reminder line for this intent: {intent}', system=_COMPOSE_PROMPT)
     return line.strip().strip('"').splitlines()[0][:60] or intent
-
 
 async def deliver_inbox_one() -> dict[str, Any] | None:
     """Deliver the oldest pending inbox message as its own full event.
@@ -1150,57 +841,30 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
     """
     async with _turn_lock:
         if not gate.reserve():
-            # A turn owns the channel. Leave the entry pending — it is
-            # durable, so declining costs a delay and nothing else.
             return None
-        # The entry itself needs no bookkeeping here: it stays pending in the
-        # inbox until its close actually plays, so a failure cannot lose it
-        # (and must not re-offer it — that would duplicate). Only the texts
-        # the drain is holding need carrying out.
         owed: list[str] = []
-        # See run_message_turn: once close_event() has run, the channel is
-        # the next arrival's, and aborting would release *its* reservation.
         released = False
         try:
             entry = inbox.peek_one()
             if entry is None:
-                # Nothing stored — but the channel is ours, and something may
-                # have cued behind the previous delivery. Play it; discarding
-                # the drain here would silently drop a message the wearer has
-                # already been told about.
                 released = True
                 await _play_drained(gate.close_event(), owed)
                 return None
-            source = str(entry.get("source", "message"))
-            # Inbox sources are storage origins, not mark kinds: map them —
-            # a reminder stored while away replays as a reminder; everything
-            # else (typed, transcribed) replays as a message.
-            kind = "reminder" if source == "scheduled" else "message"
-            await _play_prefix_mark(kind, str(entry.get("text", "")))
-            await _play_cells_and_close(str(entry.get("text", "")), note=True)
+            source = str(entry.get('source', 'message'))
+            kind = 'reminder' if source == 'scheduled' else 'message'
+            await _play_prefix_mark(kind, str(entry.get('text', '')))
+            await _play_cells_and_close(str(entry.get('text', '')), note=True)
             owed = []
             inbox.mark_delivered(entry)
-            # The channel is still ours: release it and play whatever queued
-            # behind this delivery, so nothing cues and then goes quiet.
             released = True
             await _play_drained(gate.close_event(), owed)
         except BaseException:
-            # The band vanished mid-delivery. The entry is still pending (the
-            # mark never landed) and so is everything that cued behind it —
-            # the gate is the only place those texts were held, and nobody is
-            # left to play them. Hand them to the inbox, where they are kept
-            # for days instead of for the life of the process. Once released,
-            # though, the queue belongs to whichever arrival took the channel
-            # over and it will drain it itself.
-            for stranded in (owed if released else [*owed, *gate.abort()]):
-                inbox.offer(stranded, source="queued")
+            for stranded in owed if released else [*owed, *gate.abort()]:
+                inbox.offer(stranded, source='queued')
             raise
     return entry
 
-
-async def run_message_turn(
-    text: str, *, source: str = "message", prefix_mark: str | None = None
-) -> dict[str, Any]:
+async def run_message_turn(text: str, *, source: str='message', prefix_mark: str | None=None) -> dict[str, Any]:
     """One inbound message through the real seam, out over the WS.
 
     The ordering is TurnTimeline's, not this function's: the opening kind
@@ -1220,94 +884,41 @@ async def run_message_turn(
     inbox before re-raising: the channel is freed for the next arrival and
     nothing the wearer never felt is lost. Redelivery, never a silent drop.
     """
-    # No band attached: the message is stored, not dropped — the inbox is
-    # what the gate is for a turn, for days. It is offered on the next
-    # attach, under the wearer's control.
     if hub.count == 0:
         entry = inbox.offer(text, source=source)
-        return {
-            "event": "inbox:stored",
-            "stored": True,
-            "inbox_pending": inbox.count(),
-            "at": entry["at"],
-        }
-
+        return {'event': 'inbox:stored', 'stored': True, 'inbox_pending': inbox.count(), 'at': entry['at']}
     decision = gate.admit(text)
-
-    if decision.event_type == "message:rejected":
-        # The gate said no: the replay queue is full (bounded memory, plan
-        # §9). The sender gets a loud 429 with the cap — never a silent
-        # drop, and the wrist feels nothing for a message that was refused.
-        # The refusal is operator-visible: health counts every 429 handed out.
-        queue_rejections.record(str(decision.payload.get("reason", "queue_full")))
-        cap = int(decision.payload.get("cap", MessageGate.MAX_QUEUED))
-        raise HTTPException(
-            status_code=429,
-            detail=f"message rejected: the replay queue is full ({cap} queued) — "
-            "the wearer releases it after the current turn; try again later",
-        )
-
-    if decision.event_type != "message:play":
-        # The gate queued it: announce now (cue only), content waits for the
-        # current turn's close (invariant 4, across HTTP calls).
-        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why="queued"))
-        return {
-            "event": decision.event_type,
-            "queued": True,
-            "queue_len": len(gate),
-        }
-
-    # Everything this turn still owes the wearer, oldest first: the
-    # in-flight text, then whatever the close drains, then anything that
-    # arrives while the replays play. An entry leaves the list only when
-    # its OWN close has been pushed, so a failure part-way through hands
-    # the remainder to the inbox — redelivery (the wrist may hear a message
-    # twice), never a silent loss.
+    if decision.event_type == 'message:rejected':
+        queue_rejections.record(str(decision.payload.get('reason', 'queue_full')))
+        cap = int(decision.payload.get('cap', MessageGate.MAX_QUEUED))
+        raise HTTPException(status_code=429, detail=f'message rejected: the replay queue is full ({cap} queued) — the wearer releases it after the current turn; try again later')
+    if decision.event_type != 'message:play':
+        await _push(haptic_frame(PATTERN_MESSAGE_CUE, why='queued'))
+        return {'event': decision.event_type, 'queued': True, 'queue_len': len(gate)}
     owed: list[str] = [text]
     turn: TurnTimeline | None = None
-    # Whether the gate is still OURS. The turn's own finish_playback()
-    # releases it at the close, and this turn keeps playing drained replays
-    # long after that — so a failure during the replay loop must NOT abort
-    # the gate: by then the next arrival may already hold the channel, and
-    # aborting would release *its* reservation and pull *its* queue into our
-    # inbox. Set at the release, with no await in between, so the two are
-    # simultaneous as far as the event loop is concerned.
     released = False
     try:
         async with _turn_lock:
-            # An unsolicited turn names itself first (plan §4 invariant 1):
-            # the mark plays inside this lock, so no message can interleave
-            # between the name and the content it announces.
             if prefix_mark is not None:
                 await _play_prefix_mark(prefix_mark, text)
-
             turn = TurnTimeline(gate, text=text)
 
             def frame_for(ev: Any) -> dict[str, Any]:
                 et = ev.event_type
-                if et == "message:play":
-                    return haptic_frame(PATTERN_MESSAGE_CUE, why="kind cue")
-                if et == f"attention:{PATTERN_PROCESSING}":
-                    return haptic_frame(PATTERN_PROCESSING, why="working")
-                if et == f"attention:{PATTERN_ERROR}":
-                    return haptic_frame(PATTERN_ERROR, why="error")
-                if et == "lifecycle:playback_done":
-                    return haptic_frame(PATTERN_END_OF_MESSAGE, why="close")
-                return {"type": "text", "text": et}
-
+                if et == 'message:play':
+                    return haptic_frame(PATTERN_MESSAGE_CUE, why='kind cue')
+                if et == f'attention:{PATTERN_PROCESSING}':
+                    return haptic_frame(PATTERN_PROCESSING, why='working')
+                if et == f'attention:{PATTERN_ERROR}':
+                    return haptic_frame(PATTERN_ERROR, why='error')
+                if et == 'lifecycle:playback_done':
+                    return haptic_frame(PATTERN_END_OF_MESSAGE, why='close')
+                return {'type': 'text', 'text': et}
             t0 = time.monotonic()
-
-            # The opening kind cue (invariant 1) — the turn exists.
             await _push(frame_for(turn.events[0]))
-
-            # The turn that won the channel now holds it for the whole turn —
-            # through the model wait and the cells, until its close. Without
-            # this, a queued turn keeps the gate idle during the wait and a
-            # later arrival bargains in as message:play instead of queueing
-            # behind the turn that is already playing.
-            if decision.event_type == "message:play":
-                gate.reserve()  # hold playing for the turn that won the channel
-
+            if decision.event_type == 'message:play':
+                gate.reserve()
             turn.begin_processing(now_s=0.0)
             await _push(frame_for(turn.events[-1]))
             tick = 0.05
@@ -1318,95 +929,27 @@ async def run_message_turn(
                 ev = turn.poll(now_s=waited)
                 if ev is not None:
                     await _push(frame_for(ev))
-
-            # Content on the motors: the cue re-announced (invariant 1),
-            # then the message spelled as vibro-braille cells at the
-            # wearer's pace — the phone literally renders the firmware's
-            # playback loop.
             turn.begin_playback()
             await _push(frame_for(turn.events[-1]))
-
-            # Content on the motors (the channel stays held through every
-            # cell dwell — a message arriving mid-content queues,
-            # invariant 4). The wrist is freed by the LAST close of the
-            # sequence: the main close when the queue holds nothing AT THE
-            # CLOSE PUSH, else the final replay's close below. The flag is
-            # evaluated lazily (see _play_cells_and_close) — after the
-            # dwells, where fills land.
             await _play_cells_and_close(text, free_fn=lambda: len(gate) == 0)
-            owed.pop(0)  # this text's own close played — the wearer has it
-
-            # The close has played; the gate releases (invariants 2 + 4)
-            # and the drained messages replay as their own full events (cue
-            # → cells → close), the last one carrying the ``free`` marker
-            # the dev band fires its armed redial on.
+            owed.pop(0)
             replay = turn.finish_playback(now_s=round(time.monotonic() - t0, 1))
             drained = replay[1:]
-            released = True  # the gate is the next arrival's now
+            released = True
             await _play_drained(drained, owed)
-
-            _telemetry.record(
-                label="message_turn",
-                seconds=turn.seconds,
-                retries=turn.retries,
-                source=source,
-                queued=len(drained),
-            )
-            return {
-                "event": "turn_complete",
-                "seconds": turn.seconds,
-                "events": [ev.event_type for ev in turn.events],
-                "drained": len(drained),
-            }
+            _telemetry.record(label='message_turn', seconds=turn.seconds, retries=turn.retries, source=source, queued=len(drained))
+            return {'event': 'turn_complete', 'seconds': turn.seconds, 'events': [ev.event_type for ev in turn.events], 'drained': len(drained)}
     except BaseException as exc:
-        # The turn died part-way through (the real case: the band vanished
-        # and _push raised _NoDevices; also a cancellation while queued for
-        # the turn lock). Two promises hold here, and both are about what
-        # the NEXT message finds:
-        #
-        #   1. the channel is released. gate.admit() holds it for this
-        #      whole turn and only the turn's own finish_playback() clears
-        #      it — a turn that raises in between leaves _playing True
-        #      forever, every later arrival queues against a wrist that is not
-        #      reading, and after MAX_QUEUED the relay refuses everything until
-        #      restart. abort() clears it.
-        #   2. nothing the wearer never felt is dropped. The in-flight
-        #      text and every unplayed replay go to the inbox, which
-        #      delivers them as full events on the next attach. The
-        #      still-queued texts come back from abort() for the same
-        #      reason — the gate no longer holds them. Only while the
-        #      channel is still ours: past ``released`` the queue belongs to
-        #      another turn, and touching it would corrupt their state.
-        # If the turn already released the gate at its close, the failure
-        # must not abort it again: abort() clears playing and would steal
-        # the next arrival's reservation and queue. Only abort while the
-        # channel is still ours.
         if not released:
             owed.extend(gate.abort())
         for pending_text in owed:
             inbox.offer(pending_text, source=source)
-        _telemetry.record(
-            label="message_turn_aborted",
-            seconds=0.0,
-            retries=turn.retries if turn is not None else 0,
-            source=source,
-            reason=type(exc).__name__,
-            stranded=len(owed),
-        )
-        LOGGER.warning(
-            "turn_aborted source=%s reason=%s stranded=%d — "
-            "gate released, undelivered texts stored in the inbox",
-            source, type(exc).__name__, len(owed),
-        )
+        _telemetry.record(label='message_turn_aborted', seconds=0.0, retries=turn.retries if turn is not None else 0, source=source, reason=type(exc).__name__, stranded=len(owed))
+        LOGGER.warning('turn_aborted source=%s reason=%s stranded=%d — gate released, undelivered texts stored in the inbox', source, type(exc).__name__, len(owed))
         raise
 
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-@app.websocket("/ws")
-async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> None:
+@app.websocket('/ws')
+async def ws_device(ws: WebSocket, token: str | None=Query(default=None)) -> None:
     """The device transport: attach, greet, drain, detach.
 
     Held-as-asset additions (announced in the narrative, not yet proven end
@@ -1430,77 +973,41 @@ async def ws_device(ws: WebSocket, token: str | None = Query(default=None)) -> N
     await hub.attach(ws)
     try:
         pending = inbox.count()
-        control_state = {
-            "loop_running": _schedule_task is not None and not _schedule_task.done(),
-            "loop_started": _schedule_loop_started,
-            "iface": _schedule_loop_iface is not None,
-        }
-        await ws.send_text(
-            json.dumps(
-                {
-                    "type": "hello",
-                    "spec_version": timing.SPEC_VERSION,
-                    "patterns": list(timing.PATTERN_IDS),
-                    "mark": timing.PREFIX_MARK,
-                    "inbox_pending": pending,
-                    "control": control_state,
-                },
-                ensure_ascii=False,
-            )
-        )
-        # Relay v1: a message that arrived while no band was attached is
-        # offered now, as its own full event — stored, never dropped.
+        control_state = {'loop_running': _schedule_task is not None and (not _schedule_task.done()), 'loop_started': _schedule_loop_started, 'iface': _schedule_loop_iface is not None}
+        await ws.send_text(json.dumps({'type': 'hello', 'spec_version': timing.SPEC_VERSION, 'patterns': list(timing.PATTERN_IDS), 'mark': timing.PREFIX_MARK, 'inbox_pending': pending, 'control': control_state}, ensure_ascii=False))
         if pending:
             try:
                 while await deliver_inbox_one() is not None:
                     pass
             except _NoDevices:
-                pass  # the band vanished mid-delivery; entries stay pending
-        # Keep the socket alive and drain client frames. The dev band never
-        # sends server-meaningful frames yet; input arrives over HTTP (the
-        # Omni spike's shape).
+                pass
         while True:
             try:
-                await asyncio.wait_for(
-                    ws.receive_text(), timeout=WS_HEARTBEAT_S
-                )
+                await asyncio.wait_for(ws.receive_text(), timeout=WS_HEARTBEAT_S)
             except asyncio.TimeoutError:
-                await _push(
-                    {
-                        "type": "heartbeat",
-                        "control": control_state,
-                    }
-                )
+                await _push({'type': 'heartbeat', 'control': control_state})
             except _NoDevices:
-                pass  # the band vanished; the loop will detach below
+                pass
     except WebSocketDisconnect:
         pass
     finally:
         hub.detach(ws)
 
-
-@app.post("/api/ziv/message")
-async def post_message(
-    body: dict[str, Any],
-    authorization: str | None = Header(default=None),
-) -> JSONResponse:
+@app.post('/api/ziv/message')
+async def post_message(body: dict[str, Any], authorization: str | None=Header(default=None)) -> JSONResponse:
     """One inbound message → gate → timeline → WS frames → the wrist."""
     _authorized_http(authorization)
-    text = str(body.get("text", "")).strip()
+    text = str(body.get('text', '')).strip()
     if not text:
-        raise HTTPException(status_code=422, detail="text is required")
+        raise HTTPException(status_code=422, detail='text is required')
     try:
-        result = await run_message_turn(text, source="message")
+        result = await run_message_turn(text, source='message')
     except _NoDevices as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse(result)
 
-
-@app.post("/inject/audio")
-async def inject_audio(
-    body: dict[str, Any],
-    authorization: str | None = Header(default=None),
-) -> JSONResponse:
+@app.post('/inject/audio')
+async def inject_audio(body: dict[str, Any], authorization: str | None=Header(default=None)) -> JSONResponse:
     """The Omni spike's seam (week 1), now real: mic audio → transcript → turn.
 
     The PWA records the mic (MediaRecorder) and posts
@@ -1511,92 +1018,59 @@ async def inject_audio(
     cells, close and the queue are all exercised either way.
     """
     _authorized_http(authorization)
-    simulate = str(body.get("simulate") or "").strip()
-    audio_b64 = str(body.get("audio_b64") or "").strip()
-    if not simulate and not audio_b64:
-        raise HTTPException(
-            status_code=422,
-            detail="provide 'audio_b64' (+ 'mime': webm|ogg|mp4|mp3|wav) "
-            "or 'simulate' (keyless stub)",
-        )
+    simulate = str(body.get('simulate') or '').strip()
+    audio_b64 = str(body.get('audio_b64') or '').strip()
+    if not simulate and (not audio_b64):
+        raise HTTPException(status_code=422, detail="provide 'audio_b64' (+ 'mime': webm|ogg|mp4|mp3|wav) or 'simulate' (keyless stub)")
     if simulate:
-        text, source = simulate, "audio_stub"
+        text, source = (simulate, 'audio_stub')
     else:
         if not NEBIUS_API_KEY:
-            raise HTTPException(
-                status_code=503,
-                detail="NEBIUS_API_KEY is not set — transcription unavailable; "
-                "use {\"simulate\": \"…\"} for the keyless path",
-            )
+            raise HTTPException(status_code=503, detail='NEBIUS_API_KEY is not set — transcription unavailable; use {"simulate": "…"} for the keyless path')
         if not ZIV_OMNI_MODEL:
-            raise HTTPException(
-                status_code=503,
-                detail="no audio-capable endpoint configured — set "
-                "ZIV_OMNI_MODEL to an endpoint that accepts audio input; "
-                "use {\"simulate\": \"…\"} for the keyless path",
-            )
-        mime = str(body.get("mime") or "webm").strip().lower()
-        allowed = {"webm", "ogg", "mp4", "mp3", "wav"}
+            raise HTTPException(status_code=503, detail='no audio-capable endpoint configured — set ZIV_OMNI_MODEL to an endpoint that accepts audio input; use {"simulate": "…"} for the keyless path')
+        mime = str(body.get('mime') or 'webm').strip().lower()
+        allowed = {'webm', 'ogg', 'mp4', 'mp3', 'wav'}
         if mime not in allowed:
-            raise HTTPException(
-                status_code=422,
-                detail=f"unsupported mime {mime!r} — one of {sorted(allowed)}",
-            )
+            raise HTTPException(status_code=422, detail=f'unsupported mime {mime!r} — one of {sorted(allowed)}')
         try:
             text = await _transcribe_omni(audio_b64, mime)
         except HTTPException as exc:
-            # The error long-buzz, not silence (the spike's loud-not-silent
-            # rule): the transcription died before a turn could start, so
-            # the wrist feels the attention beat now.
-            await _announce_error(f"transcription failed ({exc.status_code})")
+            await _announce_error(f'transcription failed ({exc.status_code})')
             raise
-        source = "audio_omni"
+        source = 'audio_omni'
     try:
         result = await run_message_turn(text, source=source)
     except _NoDevices as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return JSONResponse({"source": source, **result})
+    return JSONResponse({'source': source, **result})
 
-
-@app.get("/api/ziv/inbox", dependencies=AUTHENTICATED)
+@app.get('/api/ziv/inbox', dependencies=AUTHENTICATED)
 def get_inbox() -> dict[str, Any]:
     """The wearer's inbox: pending messages, oldest first (the wrist shows
     them as pending until the wearer's band takes them)."""
-    return {
-        "pending": inbox.pending(),
-        "count": inbox.count(),
-        "cap": INBOX_CAP,
-    }
+    return {'pending': inbox.pending(), 'count': inbox.count(), 'cap': INBOX_CAP}
 
-
-@app.delete("/api/ziv/inbox", dependencies=AUTHENTICATED)
+@app.delete('/api/ziv/inbox', dependencies=AUTHENTICATED)
 def clear_inbox() -> dict[str, Any]:
     """The wearer discards everything pending — the inbox answers to them."""
-    return {"cleared": inbox.clear()}
+    return {'cleared': inbox.clear()}
 
-
-@app.get("/api/ziv/prefs", dependencies=AUTHENTICATED)
+@app.get('/api/ziv/prefs', dependencies=AUTHENTICATED)
 def get_prefs() -> dict[str, Any]:
     """The wearer's playback-pace preference, clamped into the spec envelope."""
-    return {
-        "cell_gap_ms": _effective_cell_gap_ms(),
-        "cell_gap_min_ms": timing.CELL_GAP_MIN_MS,
-        "cell_gap_max_ms": timing.CELL_GAP_MAX_MS,
-        "cell_gap_default_ms": timing.CELL_GAP_DEFAULT_MS,
-    }
+    return {'cell_gap_ms': _effective_cell_gap_ms(), 'cell_gap_min_ms': timing.CELL_GAP_MIN_MS, 'cell_gap_max_ms': timing.CELL_GAP_MAX_MS, 'cell_gap_default_ms': timing.CELL_GAP_DEFAULT_MS}
 
-
-@app.post("/api/ziv/prefs", dependencies=AUTHENTICATED)
+@app.post('/api/ziv/prefs', dependencies=AUTHENTICATED)
 def set_prefs(body: dict[str, Any]) -> dict[str, Any]:
     """Store the playback-pace preference (parameters are personal; the
     envelope is the spec's — values outside it are clamped, not rejected)."""
-    if "cell_gap_ms" not in body:
-        raise HTTPException(status_code=422, detail="cell_gap_ms is required")
-    memory.set(WearerMemory.PREF_CELL_GAP, body["cell_gap_ms"])
+    if 'cell_gap_ms' not in body:
+        raise HTTPException(status_code=422, detail='cell_gap_ms is required')
+    memory.set(WearerMemory.PREF_CELL_GAP, body['cell_gap_ms'])
     return get_prefs()
 
-
-@app.get("/api/ziv/timing")
+@app.get('/api/ziv/timing')
 def get_timing() -> dict[str, Any]:
     """The generated timing module, serialized — the client's beat source.
 
@@ -1605,106 +1079,83 @@ def get_timing() -> dict[str, Any]:
     The drift guard holds this module against the spec; the client adds no
     numbers of its own.
     """
-    return {
-        "spec_version": timing.SPEC_VERSION,
-        "patterns": {pid: list(timing.pattern_beats(pid)) for pid in timing.PATTERN_IDS},
-        "letters": {ch: timing.cell_ms(ch) for ch in timing.LETTERS},
-        "letter_masks": dict(timing.LETTER_MASKS),
-        "mark": timing.PREFIX_MARK,
-        "mark_cells": list(timing.MARK_CELLS[timing.PREFIX_MARK]),
-        "prefix_tails": dict(timing.PREFIX_TAILS),
-        "prefix_breath_ms": timing.PREFIX_BREATH_MS,
-        "cell_gap_ms": timing.CELL_GAP_DEFAULT_MS,
-        "spell_max_letters": timing.SPELL_MAX_LETTERS,
-    }
+    return {'spec_version': timing.SPEC_VERSION, 'patterns': {pid: list(timing.pattern_beats(pid)) for pid in timing.PATTERN_IDS}, 'letters': {ch: timing.cell_ms(ch) for ch in timing.LETTERS}, 'letter_masks': dict(timing.LETTER_MASKS), 'mark': timing.PREFIX_MARK, 'mark_cells': list(timing.MARK_CELLS[timing.PREFIX_MARK]), 'prefix_tails': dict(timing.PREFIX_TAILS), 'prefix_breath_ms': timing.PREFIX_BREATH_MS, 'cell_gap_ms': timing.CELL_GAP_DEFAULT_MS, 'spell_max_letters': timing.SPELL_MAX_LETTERS}
 
-
-@app.get("/api/ziv/health")
+@app.get('/api/ziv/health')
 def health() -> dict[str, Any]:
     """Operator view — deliberately public, and deliberately content-free.
 
     The PWA's queue badge polls this before it has any credential, so it is
-    not bearer-gated. It answers counts, caps, model wiring, turn telemetry
-    and corrupt-store flags — never a message's text, a reminder's line, or
-    a preference value. Anything added here must keep that property; the
-    routes that DO carry content are the ``AUTHENTICATED`` ones.
+    not bearer-gated. It answers counts, caps, model wiring, turn telemetry and corrupt-store flags — never a message's text, a reminder's line, or a preference value. Anything added here must keep that property; the routes that DO carry content are the ``AUTHENTICATED`` ones.
     """
-    # Every load that can DISCOVER corruption runs BEFORE the single drain:
-    # a corrupt file is found (and reported) by the depth/count/prefs reads,
-    # so the drain below captures all of it — one snapshot, the flag and
-    # the store_problems list can never disagree, and the consume-once
-    # report is consumed exactly once.
     schedule_pending = scheduled.count()
     inbox_pending = inbox.count()
-    prefs = {"cell_gap_ms": _effective_cell_gap_ms()}
-    corrupt = (
-        memory.take_corrupt_files()
-        + inbox.take_corrupt_files()
-        + scheduled.take_corrupt_files()
-    )
-    return {
-        "status": "ok",
-        "service": "Ziv relay v1 (dev band + memory)",
-        "devices": hub.count,
-        "spec_version": timing.SPEC_VERSION,
-        "fake_model_seconds": FAKE_MODEL_SECONDS,
-        "auth": bool(ZIV_RELAY_TOKEN),
-        # The model wiring, operator-visible: which path can actually run
-        # right now. `text` is the demo's model; `omni` is the audio seam,
-        # unset unless an audio-capable endpoint is configured.
-        "text": {
-            "key_set": bool(NEBIUS_API_KEY),
-            "base_url": NEBIUS_BASE_URL.rstrip("/"),
-            "model": ZIV_TEXT_MODEL,
-            "available": agent_path_available(),
-        },
-        "omni": {
-            "key_set": _omni_configured(),
-            "model": ZIV_OMNI_MODEL,
-            "configured": bool(ZIV_OMNI_MODEL),
-        },
-        "gate_queue": len(gate),
-        "gate_queue_cap": MessageGate.MAX_QUEUED,
-    "queue_rejections": queue_rejections.snapshot(),
-    "inbox_pending": inbox_pending,
-    # Cap pressure, made visible. The inbox and the schedule still drop
-    # their oldest entry when full — that is what a cap means — but the
-    # drops are counted and logged now, so "silent loss" is bounded
-    # bookkeeping rather than a message nobody knows went missing.
-    "inbox_cap": INBOX_CAP,
-    "inbox_evicted": inbox.evictions(),
-    # The schedule gets the badge treatment too: depth vs. cap (how
-    # close it is to dropping the oldest reminder), and the corrupt
-    # flag read from the one shared drain above.
-    "schedule_pending": schedule_pending,
-    "schedule_cap": SCHEDULE_CAP,
-    "schedule_evicted": scheduled.evictions(),
-    "schedule_corrupt": "schedule" in corrupt,
-    "prefs": prefs,
-    "store_problems": corrupt,
-    "turns": _telemetry.stats(),
-    # The always-on loop is the relay's only background task. It is pinned
-    # here so an operator can tell whether a reminder that should have fired
-    # will be — a stopped loop is a silent always-on failure, so the status
-    # is a liveness fact, not a convenience field.
-    "schedule_loop": {
-        "running": _schedule_task is not None and not _schedule_task.done(),
-        "poll_s": 1.0,
-        "last_fire_at": _telemetry.last("scheduled_reminder_fired"),
-    },
-}
+    prefs = {'cell_gap_ms': _effective_cell_gap_ms()}
+    corrupt = memory.take_corrupt_files() + inbox.take_corrupt_files() + scheduled.take_corrupt_files()
+    return {'status': 'ok', 'service': 'Ziv relay v1 (dev band + memory)', 'devices': hub.count, 'spec_version': timing.SPEC_VERSION, 'fake_model_seconds': FAKE_MODEL_SECONDS, 'auth': bool(ZIV_RELAY_TOKEN), 'text': {'key_set': bool(NEBIUS_API_KEY), 'base_url': NEBIUS_BASE_URL.rstrip('/'), 'model': ZIV_TEXT_MODEL, 'available': agent_path_available()}, 'omni': {'key_set': _omni_configured(), 'model': ZIV_OMNI_MODEL, 'configured': bool(ZIV_OMNI_MODEL)}, 'queue_rejections': queue_rejections.snapshot(), 'gate_queue': len(gate), 'gate_queue_cap': MessageGate.MAX_QUEUED, 'inbox_pending': inbox_pending, 'inbox_cap': INBOX_CAP, 'inbox_evicted': inbox.evictions(), 'schedule_pending': schedule_pending, 'schedule_cap': SCHEDULE_CAP, 'schedule_evicted': scheduled.evictions(), 'schedule_corrupt': 'schedule' in corrupt, 'prefs': prefs, 'store_problems': corrupt, 'turns': _telemetry.stats(), 'schedule_loop': {'running': _schedule_task is not None and (not _schedule_task.done()), 'poll_s': 1.0, 'last_fire_at': _telemetry.last('scheduled_reminder_fired')}}
 
 
-@app.get("/ziv_client/index.html")
-@app.get("/ziv_client/")
-def client_page() -> FileResponse:
-    path = Path(__file__).resolve().parent / "ziv_client" / "index.html"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="client page missing")
-    return FileResponse(path)
+@app.get('/')
+@app.get('/favicon.ico')
+def ziv_root() -> RedirectResponse:
+    """The bare host lands on the phone client — a shared link should just work."""
+    return RedirectResponse(url='/ziv_client/index.html', status_code=307)
 
 
-if __name__ == "__main__":
+@app.get('/ziv_client')
+@app.get('/ziv_client/')
+def ziv_client_root() -> RedirectResponse:
+    """A bare /ziv_client (what a person types) lands on the client page."""
+    return RedirectResponse(url='/ziv_client/index.html', status_code=307)
+
+
+@app.get('/ziv_client/manifest.json', response_class=Response)
+def ziv_client_manifest(request: Request) -> Response:
+    return Response(content=_static_path('ziv_manifest.json').read_bytes(), media_type='application/json', headers={'Cache-Control': 'public, max-age=86400, immutable'})
+
+
+@app.get('/ziv_client/index.html', response_class=Response)
+def ziv_client_index(request: Request) -> Response:
+    return Response(content=_static_path('index.html').read_bytes(), media_type='text/html', headers={'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*'})
+
+
+@app.get('/ziv_client/ziv_icon.png', response_class=Response)
+def ziv_client_icon_png(request: Request) -> Response:
+    return Response(content=_static_path('ziv_icon.png').read_bytes(), media_type='image/png', headers={'Cache-Control': 'public, max-age=86400, immutable'})
+
+
+@app.get('/ziv_client/ziv_icon.svg', response_class=Response)
+def ziv_client_icon_svg(request: Request) -> Response:
+    return Response(content=_static_path('ziv_icon.svg').read_bytes(), media_type='image/svg+xml', headers={'Cache-Control': 'public, max-age=86400, immutable'})
+
+
+@app.get('/ziv_client/ziv_sw.js', response_class=Response)
+def ziv_client_sw(request: Request) -> Response:
+    return Response(content=_static_path('ziv_sw.js').read_bytes(), media_type='application/javascript', headers={'Cache-Control': 'public, max-age=86400, immutable'})
+
+
+ZIV_CLIENT_PATH_ROUTES = ('/ziv_client/static/{path:path}', '/ziv_client/manifest.json', '/ziv_client/ziv_icon.png', '/ziv_client/ziv_sw.js', '/ziv_client/index.html')
+
+INDEX_FILE = (Path(__file__).resolve().parent / 'ziv_client' / 'index.html').resolve()
+ZIV_CLIENT_DIR = INDEX_FILE.parent
+ZIV_CLIENT_DIR_FOR_RESOLVE = (Path(__file__).resolve().parent / 'ziv_client').resolve()
+
+_STATICS = {}
+
+def _static_path(path: str) -> Path:
+    normalized = os.path.normpath(path).lstrip(os.sep)
+    if os.path.isabs(normalized) or normalized.startswith('..') or chr(0) in normalized:
+        raise HTTPException(status_code=400, detail='bad client path')
+    p = (ZIV_CLIENT_DIR_FOR_RESOLVE / normalized).resolve()
+    try:
+        p.relative_to(ZIV_CLIENT_DIR_FOR_RESOLVE)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='client asset missing')
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail='client asset missing')
+    return p
+
+
+if __name__ == '__main__':
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=ZIV_PORT)
+    uvicorn.run(app, host='0.0.0.0', port=ZIV_PORT)
