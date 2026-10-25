@@ -1,42 +1,620 @@
 <!DOCTYPE html>
 <!--
-  Ziv dev band — the phone stands in for the wrist (plan §5, relay v0).
+  Ziv phone band — a phone-shaped installable client for the relay's dev band.
 
-  Connects to the relay's /ws, renders every haptic frame through the
-  Vibration API, and bootstraps ALL of its timing from /api/ziv/timing —
-  the serialized generated module. No pattern numbers live in this file:
-  the phone, the firmware header, and the tests share one derivation
-  (docs/haptic-timing.json), held together by the drift guard.
+  Phone-shaped PWA shell that plays the relay's attention vocabulary as timed
+  vibro-braille and exposes the device lifecycle screens a wearer actually
+  passes through:
+
+    off       — powered down
+    locked    — standby / wrist asleep
+    unlocking — waking the wrist
+    listening — capturing the wearer's cue
+    processing— relay is running one turn
+    transcription — spoken reply turning into text
+    compose   — text turning into braille
+    sending   — the reply going back over the wire
+    reply     — playing the braille rhythm, one cell at a time
+    cooldown  — just finished; a short settle before the next listen
+
+  Everything timing-related still arrives from the relay (GET /api/ziv/timing —
+  the serialized generated module). This client contains zero duration
+  literals; pattern ids only.
 
   Open http://<lan-ip>:8787/ziv_client/index.html on Android Chrome.
-  Buttons are for the demo bench; the wearer-visible loop (cue → ticks →
-  cells → close → queue release) runs on its own, driven by the server.
+  Buttons are for the demo bench; the wearer-visible loop (cue -> ticks ->
+  cells -> close -> queue release) runs on its own, driven by the server.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ziv dev band</title>
+<title>Ziv — feel a reply instead of reading it</title>
+<meta name="description" content="Ziv — a private haptic reply channel. Demo on a phone today: timed vibro-braille; a wrist form factor is the next revision.">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./ziv_icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./ziv_icon.png">
+<script>
+  (function () {
+    function log(kind, text) {
+      var d = document.createElement("div");
+      if (kind === "haptic") d.className = "haptic";
+      if (kind === "sys") d.className = "sys";
+      var now = new Date();
+      var hh = String(now.getHours()).padStart(2, "0");
+      var mm = String(now.getMinutes()).padStart(2, "0");
+      var ss = String(now.getSeconds()).padStart(2, "0");
+      d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
+      var host = document.getElementById("log");
+      if (host) {
+        host.prepend(d);
+        while (host.children.length > 60) host.removeChild(host.lastChild);
+      }
+    }
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./ziv_sw.js", { scope: "./" })
+          .then(function (r) { log("sys", "service worker ready — scope " + r.scope); })
+          .catch(function (e) { log("sys", "service worker skipped: " + e); });
+      });
+    }
+  })();
+</script>
 <style>
   :root {
     --bg: #0e1116; --panel: #161c24; --line: #263041;
     --fg: #e8edf4; --dim: #8b98ab; --accent: #6ee7b7; --warn: #fbbf24;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--fg);
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
     font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding-bottom: env(safe-area-inset-bottom);
+    min-height: 100dvh;
   }
-  header { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
-  h1 { font-size: 17px; margin: 0 0 2px; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* ---------- phone shell ---------- */
+  .phone {
+    position: relative;
+    width: min(100vw, 420px);
+    background: #0b0e14;
+    border-radius: 44px;
+    border: 1px solid #263041;
+    box-shadow: 0 24px 50px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.02);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 100dvh;
+  }
+
+  .statusbar {
+    flex: 0 0 auto;
+    background: #0b0e14;
+    border-bottom: 1px solid #263041;
+    color: #9aa4b2;
+    font-size: 12px;
+    padding: 12px 22px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    letter-spacing: .2px;
+  }
+  .statusbar .time { color: #cfd6e2; font-weight: 600; }
+  .statusbar .topstat { display: flex; gap: 8px; align-items: center; }
+  .statusbar .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7;
+  }
+  .statusbar .dot.off { background: #f87171; box-shadow: 0 0 6px #f87171; }
+  .statusbar .dot.busy { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+
+  .devicebar {
+    flex: 0 0 auto;
+    background: #0b0e14;
+    border-bottom: 1px solid #263041;
+    padding: 12px 22px 10px;
+  }
+  .devicebar .brand {
+    font-size: 15px; color: #cfd6e2; letter-spacing: .3px;
+  }
+  .devicebar .brand .mark {
+    color: #9aa4b2; font-size: 12px; margin-left: 6px;
+  }
+  .devicebar .tag {
+    color: #8b98ab; font-size: 12px; margin-top: 3px;
+  }
+  .devicebar .write-during {
+    width: 100%;
+    min-height: 36px;
+    margin-top: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: #10161e;
+    border-color: #3a4a60;
+    color: #cfd6e2;
+  }
+  .devicebar .write-during[hidden] { display: none; }
+
+  main {
+    flex: 1 1 auto;
+    padding: 14px 16px 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .panel.focus {
+    background: #131a22;
+    border-color: #1f5c49;
+  }
+  .now {
+    font-size: 13px; color: #8b98ab; margin: 0 0 8px;
+  }
+  .now b { color: #cfd6e2; font-weight: 600; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 auto; background: #1d2530; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; font-size: 14px; min-height: 46px;
+    cursor: pointer;
+  }
+  button:active { background: #243041; }
+  button.primary { background: #14342b; border-color: #1f5c49; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  input[type=text] {
+    width: 100%; background: #0f141b; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; font-size: 15px; margin: 0 0 8px;
+  }
+  .cap { font-size: 12px; color: var(--dim); margin: 6px 0 0; line-height: 1.5; }
+
+  /* ---------- screen system ---------- */
+  .screen {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .screen.active {
+    display: flex;
+  }
+  .screen h2 {
+    margin: 0 0 6px; font-size: 16px; color: var(--fg);
+    letter-spacing: .2px;
+  }
+  .screen .sub {
+    font-size: 12px; color: var(--dim); margin: 0 0 10px; line-height: 1.5;
+  }
+
+  /* off */
+  .off-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .off-power {
+    width: 74px; height: 74px; border-radius: 50%;
+    background: #131a22; border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .off-power .stem {
+    position: absolute;
+    top: -10px; left: 50%;
+    transform: translateX(-50%);
+    width: 14px; height: 10px;
+    background: #1d2530; border-radius: 4px;
+    border: 1px solid var(--line);
+  }
+  .off-power .toggle {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: #1d2530; border: 1px solid var(--line);
+    box-shadow: inset 0 0 0 2px #0b0e14;
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .off-power .toggle.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+
+  /* locked */
+  .locked-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .locked-ring {
+    width: 86px; height: 86px; border-radius: 50%;
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #10161e;
+    position: relative;
+  }
+  .locked-ring .lock {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: #1d2530; border: 1px solid var(--line);
+    position: relative;
+  }
+  .locked-ring .lock .shackle {
+    position: absolute;
+    top: -8px; left: 50%;
+    transform: translateX(-50%);
+    width: 18px; height: 14px;
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: #1d2530;
+  }
+
+  /* unlocking */
+  .unlock-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .unlock-ring {
+    width: 86px; height: 86px; border-radius: 50%;
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #10161e;
+    position: relative;
+  }
+  .unlock-ring .unlock-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+  }
+
+  /* listening */
+  .listen-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .listen-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .listen-head .row { margin: 0; flex: 1; }
+  .meter {
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: #1d2530;
+    overflow: hidden;
+    margin-right: 8px;
+  }
+  .meter .fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width .12s linear;
+  }
+  .meter .fill.clip {
+    background: var(--warn);
+  }
+
+  /* processing */
+  .processing-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .spinner {
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    animation: spin .9s linear infinite;
+    margin: 4px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* transcription */
+  .trans-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .trans-bubble {
+    max-width: 260px;
+    min-height: 48px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  /* compose */
+  .compose-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .compose-text {
+    max-width: 260px;
+    min-height: 64px;
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  /* compose without stopping the turn (bottom sheet) */
+  #composeSheet {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 30;
+    max-height: 82%;
+    overflow-y: auto;
+    background: #131a22;
+    border-top: 1px solid #1f5c49;
+    border-radius: 20px 20px 0 0;
+    padding: 16px 18px calc(16px + env(safe-area-inset-bottom));
+    box-shadow: 0 -18px 42px rgba(0,0,0,.6);
+  }
+  #composeSheet[hidden] { display: none; }
+  #composeSheet .now { margin: 0 0 2px; }
+  #composeSheet .cap { margin: 0 0 10px; }
+  #composeSheet .sheet-status { min-height: 18px; margin: 8px 0 0; }
+  #composeSheet .sheet-status.bad { color: var(--warn); }
+
+  /* sending */
+  .send-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .send-arrow {
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .send-arrow::before,
+  .send-arrow::after {
+    content: "";
+    position: absolute;
+    background: var(--line);
+  }
+  .send-arrow::before {
+    width: 2px; height: 18px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--line);
+  }
+  .send-arrow::after {
+    width: 12px; height: 12px;
+    border-right: 2px solid var(--line);
+    border-top: 2px solid var(--line);
+    transform: translate(6px, -1px) rotate(45deg);
+    background: transparent;
+  }
+
+  /* reply — braille cells */
+  .reply-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .cells-reading {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .cells-reading caption {
+    caption-side: top;
+    text-align: left;
+    padding-bottom: 8px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .cells-reading td {
+    text-align: center;
+    padding: 2px 6px;
+    width: 30px;
+  }
+  .cells-reading .cell {
+    width: 30px;
+    height: 36px;
+    border-radius: 6px;
+    background: #10161e;
+    border: 1px solid var(--line);
+    margin: 0 auto;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+    color: var(--dim);
+    line-height: 36px;
+    font-size: 14px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .cells-reading .cell.on {
+    background: #12291f;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .cells-reading .cell.done {
+    background: #0f141b;
+    border-color: var(--line);
+    color: var(--dim);
+  }
+  .cell-row {
+    display: block;
+    min-height: 40px;
+  }
+  .cell-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .cell-row .cell {
+    width: 28px;
+    height: 34px;
+    border-radius: 6px;
+    background: #10161e;
+    border: 1px solid var(--line);
+    line-height: 34px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--dim);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+  }
+  .cell-row .cell.on {
+    background: #12291f;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .cell-row .cell.done {
+    background: #0f141b;
+    color: #6b7787;
+    border-color: var(--line);
+  }
+
+  /* cooldown */
+  .cooldown-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 0;
+  }
+  .cooldown-bar {
+    width: 100%;
+    max-width: 240px;
+    height: 8px;
+    border-radius: 999px;
+    background: #1d2530;
+    overflow: hidden;
+  }
+  .cooldown-bar .fill {
+    height: 100%;
+    width: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width .25s linear;
+  }
+
+  /* ---------- log and install bar ---------- */
+  #log {
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  #log div { padding: 1px 0; border-bottom: 1px dotted #1c2431; }
+  #log .t { color: var(--dim); }
+  #log .haptic { color: var(--accent); }
+  #log .sys { color: var(--warn); }
+  .vibrate-note { font-size: 11px; color: var(--dim); }
+
+  .installbar {
+    flex: 0 0 auto;
+    background: #0b0e14;
+    border-top: 1px solid #263041;
+    padding: 10px 16px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #9aa4b2;
+  }
+  .installbar button {
+    background: #14342b;
+    border-color: #1f5c49;
+    padding: 8px 12px;
+    min-height: 36px;
+    font-size: 13px;
+  }
+  .installbar button:disabled { opacity: .5; }
+
   #state { font-size: 13px; color: var(--dim); }
   #state.ok { color: var(--accent); }
   #state.bad { color: var(--warn); }
   #queueBadge {
-    display: inline-block; margin-top: 6px; padding: 2px 10px;
-    border-radius: 999px; font-size: 12px; color: var(--dim);
-    border: 1px solid var(--line); background: #10161e;
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--dim);
+    border: 1px solid var(--line);
+    background: #10161e;
   }
   #queueBadge.warn { color: var(--warn); border-color: #5c4a1a; }
   #queueBadge.full { color: #f87171; border-color: #7a2e2e; }
@@ -44,242 +622,252 @@
   #redialNote { font-size: 12px; color: var(--warn); margin-top: 4px; }
   #redialNote.dead { color: #f87171; }
   #redialNote[hidden] { display: none; }
-  main { padding: 12px 16px; }
-  .panel {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;
-  }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  button {
-    flex: 1 1 auto; background: #1d2530; color: var(--fg);
-    border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px 12px; font-size: 14px; min-height: 44px;
-  }
-  button:active { background: #243041; }
-  button.primary { background: #14342b; border-color: #1f5c49; }
-  button:disabled { opacity: 0.45; }
-  input[type=text] {
-    width: 100%; background: #0f141b; color: var(--fg);
-    border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px; font-size: 15px; margin-bottom: 8px;
-  }
-  .cap { font-size: 12px; color: var(--dim); margin: 6px 0 0; }
-  #cells { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-  .cell {
-    width: 34px; height: 40px; border-radius: 6px;
-    background: #10161e; border: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px; color: var(--dim);
-  }
-  .cell.on { color: var(--fg); border-color: var(--accent); background: #12291f; }
-  #log { font-size: 12px; line-height: 1.5; max-height: 220px; overflow-y: auto; }
-  #log div { padding: 1px 0; border-bottom: 1px dotted #1c2431; }
-  #log .t { color: var(--dim); }
-  #log .haptic { color: var(--accent); }
-  #log .sys { color: var(--warn); }
-  .vibrate-note { font-size: 11px; color: var(--dim); }
-  button.rec { background: #3a1d1d; border-color: #7a2e2e; }
-  #micStatus { display: inline-block; flex: 1 1 auto; margin: 0; align-self: center; }
-  #micStatus.bad { color: var(--warn); }
-  #micStatus.ok { color: var(--accent); }
-  #micStatus.rec { color: var(--warn); }
 </style>
 </head>
 <body>
-<header>
-  <h1>Ziv dev band</h1>
-  <div id="state">connecting…</div>
-  <div id="queueBadge" hidden></div>
-  <div id="redialNote" hidden></div>
-</header>
-<main>
-  <div class="panel">
-    <div class="row">
-      <button id="btnUnlock" class="primary">Unlock vibration</button>
-      <button id="btnTest">Test buzz</button>
-    </div>
-    <p class="cap" id="vibrateNote"></p>
+<div class="phone" role="region" aria-label="Ziv phone band">
+  <div class="statusbar">
+    <span class="time" id="clock">--:--</span>
+    <span class="topstat">
+      <span class="dot off" id="connDot" aria-hidden="true"></span>
+      <span id="state">connecting...</span>
+    </span>
+  </div>
+  <div class="devicebar">
+    <div class="brand">Ziv dev band<span class="mark"> — reply as braille rhythm</span></div>
+    <div class="tag" id="timingTag">bootstrapping timing...</div>
+    <div id="queueBadge" hidden>queue 0/0</div>
+    <div id="redialNote" hidden></div>
+    <button id="btnWriteDuring" class="write-during" hidden>Write a message</button>
   </div>
 
-  <div class="panel">
-    <input type="text" id="msg" value="Taxi arrived" autocomplete="off">
-    <div class="row">
-      <button id="btnSend" class="primary">Send as message</button>
-      <button id="btnOmniStub">Stub demo</button>
+  <main>
+    <!-- OFF -->
+    <section id="screen-off" class="screen active" aria-label="Powered down">
+      <div class="off-shell">
+        <div class="off-power" id="offPower" aria-hidden="true">
+          <div class="stem"></div>
+          <div class="toggle" id="offToggle"></div>
+        </div>
+        <p class="sub" style="margin:0">Ziv is powered down. Tap the power button to wake the band.</p>
+      </div>
+    </section>
+
+    <!-- LOCKED -->
+    <section id="screen-locked" class="screen" aria-label="Band locked">
+      <div class="locked-shell">
+        <div class="locked-ring" id="lockedRing" aria-hidden="true">
+          <div class="lock">
+            <div class="shackle"></div>
+          </div>
+        </div>
+        <p class="sub" style="margin:0">The band is locked. Wake it with the side button or a tap to start listening.</p>
+        <div class="row">
+          <button id="btnUnlock" class="primary big-btn">Wake band</button>
+          <button id="btnCancelLocked" class="big-btn">Stand by</button>
+        </div>
+        <div class="row">
+          <button id="btnWrite" class="big-btn">Write a message</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- UNLOCKING -->
+    <section id="screen-unlocking" class="screen" aria-label="Unlocking">
+      <div class="unlock-shell">
+        <div class="unlock-ring" id="unlockRing" aria-hidden="true">
+          <div class="unlock-dot"></div>
+        </div>
+        <p class="sub" id="unlockSub">Waking the wrist...</p>
+      </div>
+    </section>
+
+    <!-- LISTENING -->
+    <section id="screen-listening" class="screen" aria-label="Listening">
+      <div class="panel focus listen-shell">
+        <div class="listen-head">
+          <p class="now" style="margin:0">Listening for your cue</p>
+          <div class="meter"><div class="fill" id="listenFill"></div></div>
+        </div>
+        <p class="cap">The band is capturing the wearer's cue. As it hears the mic, the meter rises; when the cue clears, the relay picks it up.</p>
+      </div>
+      <div class="row" style="margin-top:-4px">
+        <button class="big-btn" id="btnCancelListen">Cancel</button>
+      </div>
+    </section>
+
+    <!-- PROCESSING -->
+    <section id="screen-processing" class="screen" aria-label="Processing">
+      <div class="panel focus processing-shell">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="now" style="margin:8px 0 4px">Working on your reply</p>
+        <p class="cap">How would you say this back as timed braille? The relay is running one turn through an open model.</p>
+      </div>
+    </section>
+
+    <!-- TRANSCRIPTION -->
+    <section id="screen-transcription" class="screen" aria-label="Transcription">
+      <div class="trans-shell">
+        <div class="trans-bubble" id="transBubble" aria-label="spoken reply" role="status"></div>
+        <p class="sub" id="transSub">Turning speech into text...</p>
+      </div>
+    </section>
+
+    <!-- COMPOSE -->
+    <section id="screen-compose" class="screen" aria-label="Compose">
+      <div class="compose-shell">
+        <p class="now" style="margin:0">Write the message this band should feel</p>
+        <input id="composeInput" type="text" maxlength="120" autocomplete="off"
+               placeholder="e.g. running ten minutes late" aria-label="Message to send">
+        <div class="row" style="width:100%;max-width:260px">
+          <button id="btnSendCompose" class="primary big-btn">Send</button>
+          <button id="btnCancelCompose" class="big-btn">Cancel</button>
+        </div>
+        <p class="cap" style="margin:0">Sends through <code>POST /api/ziv/message</code> — the same seam the demo uses.</p>
+      </div>
+    </section>
+
+    <!-- SENDING -->
+    <section id="screen-sending" class="screen" aria-label="Sending">
+      <div class="send-shell">
+        <div class="send-arrow" id="sendArrow" aria-hidden="true"></div>
+        <p class="sub" id="sendSub">Sending your message...</p>
+      </div>
+    </section>
+
+    <!-- REPLY -->
+    <section id="screen-reply" class="screen" aria-label="Reply">
+      <div class="panel focus reply-shell">
+        <p class="now" style="margin:0 0 8px">Reply in braille</p>
+        <div id="cellRow" class="cell-row" aria-live="polite"></div>
+        <p class="cap" id="cellCount">Waiting for the relay's first cell…</p>
+        <p class="cap">The phone renders the relay's attention vocabulary: an arrival cue, working ticks while it thinks, one braille cell at a time, then a close that says the message is over. Nothing leaks to the room — this is a display for touch, not eyes.</p>
+      </div>
+    </section>
+
+    <!-- COOLDOWN -->
+    <section id="screen-cooldown" class="screen" aria-label="Cooldown">
+      <div class="cooldown-shell">
+        <p class="now" style="margin:0">Settle</p>
+        <div class="cooldown-bar"><div class="fill" id="cooldownFill"></div></div>
+        <p class="cap" style="margin:0">A short settle before the band listens again.</p>
+      </div>
+    </section>
+
+    <!-- WIRED PANEL -->
+    <div class="panel">
+      <div class="cap" style="margin:0 0 6px">Wire log (server frames)</div>
+      <div id="log" aria-hidden="true"></div>
     </div>
-    <div class="row" style="margin-top:8px">
-      <button id="btnMic">Talk to Omni</button>
-      <p id="micStatus" class="cap"></p>
-    </div>
-    <p class="cap">Mic records → POST /inject/audio → Nemotron-3-Nano-Omni (Token Factory)
-    transcribes → the reply plays as braille. “Stub demo” sends the text field directly
-    (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
-    release come back over /ws. If the wrist is mid-message and its queue is full,
-    a send is refused with a “wrist is busy” note — never a silent drop — and a
-    typed or stub message rearms itself: the client queues its own redial and
-    sends the moment the close lands on the wire (three chances; editing the box
-    or sending manually cancels it — and if all three chances are used up, the
-    note says so instead of going quiet). The badge
-    below the header shows the live queue depth and refusal rate, plus the
-    pending reminder count — or a corrupt-schedule warning — so you can see
-    how close the wrist is to refusing, and what it will still fire, before
-    you send.</p>
-    <div id="cells"></div>
+  </main>
+
+  <div class="installbar">
+    <span id="installHint">Not installed</span>
+    <button id="btnInstall" disabled>Install app</button>
   </div>
 
-  <div class="panel">
-    <div class="cap" style="margin:0 0 6px">Wire log (server frames)</div>
-    <div id="log"></div>
+  <!-- Compose while the band is busy. A sheet, not a screen: the current
+       turn keeps painting behind it and sending queues normally. -->
+  <div id="composeSheet" hidden role="dialog" aria-label="Write a message while the band is busy">
+    <p class="now" id="composeSheetTitle">Write a message</p>
+    <p class="cap">It waits its turn — the current screen keeps running, without interrupting the rhythm.</p>
+    <input id="composeSheetInput" type="text" maxlength="120" autocomplete="off"
+           placeholder="e.g. running ten minutes late" aria-label="Message to send">
+    <div class="row">
+      <button id="btnSheetSend" class="primary big-btn">Send</button>
+      <button id="btnSheetCancel" class="big-btn">Cancel</button>
+    </div>
+    <p class="cap sheet-status" id="sheetStatus" role="status"></p>
   </div>
-</main>
+</div>
 
 <script>
 "use strict";
-// Everything timing-related arrives from the relay (GET /api/ziv/timing —
-// the serialized generated module). This client contains zero duration
-// literals; pattern ids only.
-const S = {
+/* Everything timing-related arrives from the relay (GET /api/ziv/timing —
+   the serialized generated module). This client contains zero duration
+   literals; pattern ids only. */
+var S = {
   ws: null,
   timing: null,
-  unlocked: false,
-  cellsEl: document.getElementById("cells"),
-  logEl: document.getElementById("log"),
+  powerOn: false,
+  currentScreen: "off",
+  now: document.getElementById("clock"),
+  connDot: document.getElementById("connDot"),
   stateEl: document.getElementById("state"),
-  msgEl: document.getElementById("msg"),
+  timingTag: document.getElementById("timingTag"),
+  offToggleEl: document.getElementById("offToggle"),
+  screens: {},
+  sheetBusy: false,
 };
+S.stageTimers = [];
 
-function log(kind, text) {
-  const d = document.createElement("div");
-  if (kind === "haptic") d.className = "haptic";
-  if (kind === "sys") d.className = "sys";
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
-  S.logEl.prepend(d);
-  while (S.logEl.children.length > 60) S.logEl.removeChild(S.logEl.lastChild);
+function setPower(on) {
+  S.powerOn = on;
+  S.offToggleEl.classList.toggle("on", on);
+  S.connDot.classList.toggle("off", !on);
+  closeComposeSheet();
+  goScreen(on ? "locked" : "off");
+  setState(on ? "powered on" : "powered down", on ? "ok" : "bad");
 }
 
-function setState(text, cls) {
+function setState(text, kind) {
   S.stateEl.textContent = text;
-  S.stateEl.className = cls || "";
+  S.stateEl.className = kind === "ok" ? "ok" : kind === "bad" ? "bad" : "";
 }
 
-// --- vibration -------------------------------------------------------------
-
-function unlock() {
-  if (!("vibrate" in navigator)) {
-    setState("Vibration API not available in this browser", "bad");
-    document.getElementById("vibrateNote").textContent =
-      "Open this page on Android Chrome to feel the patterns (iOS Safari has no vibrate()).";
-    return;
-  }
-  // The unlock gesture: a 30 ms buzz registers the user activation Chrome
-  // requires before any later vibrate() call is honored.
-  navigator.vibrate(30);
-  S.unlocked = true;
-  setState("vibration unlocked");
-  document.getElementById("btnUnlock").disabled = true;
+function setTimingTag(text) {
+  S.timingTag.textContent = text;
 }
 
-function vibrateNow(msArray) {
-  if (!S.unlocked) {
-    log("sys", "vibration not unlocked yet — tap Unlock, then replay");
-    return false;
-  }
-  const ok = navigator.vibrate(msArray);
-  if (!ok) log("sys", "vibrate() returned false (browser refused)");
-  return ok;
+function goScreen(name) {
+  Object.keys(S.screens).forEach(function (k) {
+    S.screens[k].classList.remove("active");
+  });
+  var target = S.screens[name];
+  if (target) target.classList.add("active");
+  S.currentScreen = name;
+  syncWriteDuring();
 }
 
-// --- the wire protocol -----------------------------------------------------
-
-function onHaptic(frame) {
-  // frame: {type:"haptic", pattern, ms:[buzz,gap,...], why}
-  log("haptic", "▶ " + frame.pattern + " (" + (frame.why || "") + ") — " + frame.ms.join(",") + " ms");
-  vibrateNow(frame.ms);
-  if (frame.pattern === "processing") {
-    // The ellipsis: show the middle gap is the signal, not a hang.
-    setState("working… (" + frame.why + ")", "");
-  } else {
-    setState("haptic: " + frame.pattern, "ok");
-  }
-  if (frame.pattern === "end-of-message" && frame.free === true) {
-    // The marked close just landed: this is the LAST close of the whole
-    // turn-plus-drain sequence — the server says nothing more is playing
-    // and the queue holds nothing behind the replays. Exactly when an
-    // armed redial fires; firing on any other close would queue the
-    // redial behind the remaining replays.
-    fireRedialIfFree();
-  }
+function syncWriteDuring() {
+  var btn = document.getElementById("btnWriteDuring");
+  if (!btn) return;
+  var sheet = document.getElementById("composeSheet");
+  var isIdle = S.currentScreen === "off"
+    || S.currentScreen === "locked"
+    || S.currentScreen === "compose";
+  btn.hidden = !S.powerOn || isIdle || (sheet && !sheet.hidden);
 }
 
-function onText(frame) {
-  log("sys", frame.text);
-  if (frame.chars && frame.chars.length) {
-    S.cellsEl.innerHTML = "";
-    for (const c of frame.chars) {
-      const el = document.createElement("div");
-      el.className = "cell";
-      el.textContent = c.ch;
-      S.cellsEl.appendChild(el);
-    }
-  }
-}
-
-function onCell(frame) {
-  // One braille cell at a time, synced to the server's playback dwell —
-  // the highlight is the wrist's playback loop made visible.
-  const kids = S.cellsEl.children;
-  for (const el of kids) {
-    if (el.textContent === frame.ch && !el.classList.contains("done")) {
-      el.classList.add("on");
-      vibrateNow([frame.ms, 0]);
-      setTimeout(() => {
-        el.classList.remove("on");
-        el.classList.add("done");
-      }, frame.ms + 120);
-      return;
-    }
-  }
-}
-
-// A 429 from the relay: the replay queue is full and the gate refused the
-// message. By contract the wrist stays silent for a refusal (no cue for a
-// no) — so the refusal is rendered *visually*: a plain-language note in the
-// header state and the wire log. And the fix is no longer a manual tap: for
-// send paths that carry their payload (typed message, stub demo) the client
-// arms a *redial* — it keeps the refused body and sends it itself the moment
-// the end-of-message close lands on the wire, up to RD.max chances (a
-// re-refusal re-arms; editing the box or sending manually cancels). The mic
-// path stays a manual retry: its clip would need re-transcription.
-
-// --- redial: the client queues its own retry --------------------------------
-const RD = {
-  url: "",        // where the refused POST went
-  body: null,     // the refused payload, kept verbatim for the redial
-  label: "",      // what the user typed — shown in the note
-  lastLabel: "",  // survives disarms; keeps the attempt budget per message
-  attempts: 0,    // redials fired for the current message
-  max: 3,         // give up after this many closes-with-no-luck
-  dead: false,    // the budget is spent: the note stays until the wearer acts
-  el: document.getElementById("redialNote"),
+var RD = {
+  url: "",
+  body: null,
+  label: "",
+  lastLabel: "",
+  attempts: 0,
+  max: 3,
+  dead: false,
+  el: null,
 };
+
+function redialNoteEl() {
+  if (!RD.el) RD.el = document.getElementById("redialNote");
+  return RD.el;
+}
 
 function armRedial(url, body, label) {
-  if (RD.lastLabel !== label) RD.attempts = 0; // a different message: fresh budget
-  RD.lastLabel = label; // the budget stays pinned to this message
+  if (RD.lastLabel !== label) RD.attempts = 0;
+  RD.lastLabel = label;
   if (RD.attempts >= RD.max) {
-    // The budget is spent. Loud, like every other no in this channel: the
-    // note STAYS on screen naming the dead end — a quiet disappearance here
-    // would read as “sent” and drop the message on the floor.
     RD.dead = true;
     RD.body = null;
-    RD.el.hidden = false;
-    RD.el.classList.add("dead");
-    RD.el.textContent = "✋ “" + label + "” gave up after " + RD.max
-      + " tries — the wrist never freed. Send manually when ready.";
+    RD.el = redialNoteEl();
+    if (RD.el) {
+      RD.el.hidden = false;
+      RD.el.classList.add("dead");
+      RD.el.textContent = "✋ “" + label + "” gave up after " + RD.max
+        + " tries — the wrist never freed. Send manually when ready.";
+    }
     log("sys", "↹ redial gave up after " + RD.max
       + " chances — send manually when ready");
     return;
@@ -287,69 +875,504 @@ function armRedial(url, body, label) {
   RD.dead = false;
   RD.url = url;
   RD.body = body;
-  RD.el.hidden = false;
-  RD.el.classList.remove("dead");
-  RD.el.textContent = "↻ redial armed — “" + label + "” sends when the current message ends ("
-    + (RD.max - RD.attempts) + " chances left)";
+  RD.el = redialNoteEl();
+  if (RD.el) {
+    RD.el.hidden = false;
+    RD.el.classList.remove("dead");
+    RD.el.textContent = "↻ redial armed — “" + label + "” sends when the current message ends ("
+      + (RD.max - RD.attempts) + " chances left)";
+  }
   log("sys", "↻ redial armed — your message sends itself when the wrist frees (edit the box or send manually to cancel)");
 }
 
 function disarmRedial(why) {
-  const had = RD.body !== null || RD.dead; // a dead-end note is an armed state too
+  var had = RD.body !== null || RD.dead;
   RD.body = null;
   RD.dead = false;
-  RD.el.hidden = true;
-  RD.el.classList.remove("dead");
+  if (RD.el) {
+    RD.el.hidden = true;
+    RD.el.classList.remove("dead");
+  }
   if (had && why) log("sys", "↺ redial cancelled — " + why);
   return had;
 }
 
-// The end-of-message close just landed on the wire: the current turn is over
-// and the gate is releasing its queue — exactly when an armed redial fires.
 async function fireRedialIfFree() {
   if (!RD.body || RD.dead) return;
   RD.attempts += 1;
-  const url = RD.url;
-  const body = RD.body;
-  RD.body = null; // one-shot per fire; a re-refusal re-arms in send()'s 429 branch
-  RD.el.hidden = true; // in flight — a re-refusal re-arms it, a delivery ends it
+  var url = RD.url;
+  var body = RD.body;
+  RD.body = null;
+  if (RD.el) RD.el.hidden = true;
   log("sys", "↻ redial — resending “" + RD.label + "” (the close just landed)");
-  await send(url, body);
+  try {
+    await send(url, body);
+    // If the refusal happened in the busy-sheet, the automatic resend is the
+    // wearer's message: close the sheet rather than leave a stale refusal.
+    closeComposeSheet();
+  } catch (e) {
+    // send() re-arms on a 429; any other failure is already logged there.
+  }
 }
 
-function renderWristBusy(detail, url, body, label) {
-  setState("wrist is busy — try after the current message", "bad");
-  log("sys", "✋ refused — the wrist is busy reading. "
-    + (url && body
-      ? "It stays armed: the client redials it when the current message ends."
-      : "Your text stays in the box; send again after the current message ends.")
-    + (detail ? " (" + detail + ")" : ""));
-  if (url && body && label) armRedial(url, body, label);
-  // Refresh the badge immediately — the refusal just changed the numbers.
-  pollQueueBadge();
+async function send(url, body) {
+  if (!S.ws || S.ws.readyState !== WebSocket.OPEN) {
+    setState("not connected", "bad");
+    throw new Error("not connected");
+  }
+  try {
+    var res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      log("sys", "POST " + res.status + ": " + (data.detail || "?"));
+      if (res.status === 429) {
+        var label = typeof body.text === "string" ? body.text
+          : (typeof body.simulate === "string" ? body.simulate : "");
+        if (label) armRedial(url, body, label);
+      }
+      throw data;
+    }
+    log("sys", "POST ok — " + JSON.stringify(data));
+    // A delivered message frees the whole budget: the next refusal starts
+    // fresh, even if it is the same text sent again much later. It also
+    // proves the wearer acted — a stale dead-end note would be noise now.
+    RD.attempts = 0;
+    RD.lastLabel = "";
+    RD.dead = false;
+    if (RD.el) {
+      RD.el.hidden = true;
+      RD.el.classList.remove("dead");
+    }
+    return data;
+  } catch (e) {
+    log("sys", "POST failed: " + e);
+    throw e;
+  }
 }
 
-// --- queue badge: how close is the wrist to refusing? -----------------------
-// The relay's health owns every number (depth, cap, per-minute rejections);
-// the client invents none of them — the same discipline as the timing
-// bootstrap. Polls every 2 s while the page is visible; hidden tabs pause.
-const QB = {
-  el: document.getElementById("queueBadge"),
-  timer: 0,
+function connect() {
+  var proto = location.protocol === "https:" ? "wss:" : "ws:";
+  var url = proto + "//" + location.host + "/ws";
+  try {
+    var ws = new WebSocket(url);
+    S.ws = ws;
+    ws.onopen = function () { setState("connected", "ok"); };
+    ws.onclose = function () {
+      setState("disconnected — retrying...", "bad");
+      setTimeout(connect, 1500);
+    };
+    ws.onerror = function () { setState("ws error", "bad"); };
+    ws.onmessage = function (ev) {
+      var frame;
+      try { frame = JSON.parse(ev.data); } catch (e) { return; }
+      if (frame.type === "hello") {
+        var inbox = typeof frame.inbox_pending === "number" && frame.inbox_pending > 0
+          ? ", " + frame.inbox_pending + " message(s) waiting"
+          : "";
+        log("sys", "relay hello — spec v" + frame.spec_version
+          + ", " + frame.patterns.length + " patterns, mark: " + frame.mark + inbox);
+        setTimingTag("spec v" + frame.spec_version + " · "
+          + frame.patterns.length + " patterns · mark " + frame.mark);
+      } else if (frame.type === "haptic") {
+        onHaptic(frame);
+      } else if (frame.type === "text") {
+        onText(frame);
+      } else if (frame.type === "cell") {
+        onCell(frame);
+      }
+    };
+  } catch (e) {
+    log("sys", "ws connect failed: " + e);
+  }
+}
+
+function log(kind, text) {
+  var d = document.createElement("div");
+  if (kind === "haptic") d.className = "haptic";
+  if (kind === "sys") d.className = "sys";
+  var now = new Date();
+  var hh = String(now.getHours()).padStart(2, "0");
+  var mm = String(now.getMinutes()).padStart(2, "0");
+  var ss = String(now.getSeconds()).padStart(2, "0");
+  d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
+  var host = document.getElementById("log");
+  if (host) {
+    host.prepend(d);
+    while (host.children.length > 60) host.removeChild(host.lastChild);
+  }
+}
+
+var PATTERN = {
+  cue: "double-tap",
+  processing: "processing",
+  close: "end-of-message",
+  error: "long-buzz",
 };
 
+function onHaptic(frame) {
+  var pattern = frame.pattern || "";
+  log("haptic", "pattern " + (pattern || "?") + (frame.why ? " — " + frame.why : ""));
+  vibrateNow(frame.ms || 0);
+
+  if (pattern === PATTERN.cue) {
+    // A queued message's cue is felt on the wrist, but it is not the wearer
+    // starting a cue — do not yank the phone away from the turn that is
+    // still playing underneath the busy-sheet.
+    if (String(frame.why || "").indexOf("queued") !== 0) startListening();
+  } else if (pattern === PATTERN.processing) {
+    goScreen("processing");
+    setState("working on your reply", "ok");
+    setTimingTag("processing...");
+  } else if (pattern === PATTERN.close) {
+    if (frame.free === true) fireRedialIfFree();
+    finishReply();
+  } else if (pattern === PATTERN.error) {
+    setState("error — " + (frame.why || "turn failed"), "bad");
+    setTimingTag("error");
+  }
+}
+
+function clearStageTimers() {
+  (S.stageTimers || []).forEach(function (t) { clearTimeout(t); });
+  S.stageTimers = [];
+}
+
+function onText(frame) {
+  var text = frame.text || "";
+  log("sys", "text: " + text);
+  var bubble = document.getElementById("transBubble");
+  if (bubble) bubble.textContent = text;
+  if (frame.chars && frame.chars.length) buildCells(frame.chars);
+
+  // The relay's own order is text then cells; the screen follows the frames.
+  clearStageTimers();
+  goScreen("transcription");
+  setState("turning speech into text", "ok");
+  setTimingTag("transcribed");
+}
+
+function buildCells(chars) {
+  // One text frame = one run of cells (the Ziv mark, then the content). Each
+  // run gets its own row so a later run never overwrites an earlier one.
+  var row = document.getElementById("cellRow");
+  if (!row) return;
+  var group = document.createElement("div");
+  group.className = "cell-group";
+  row.appendChild(group);
+  S.cellEls = [];
+  S.cellIdx = 0;
+  chars.forEach(function (c) {
+    var el = document.createElement("div");
+    el.className = "cell";
+    el.textContent = "·";
+    el.title = c.ch;
+    group.appendChild(el);
+    S.cellEls.push(el);
+  });
+  var total = document.querySelectorAll("#cellRow .cell").length;
+  var count = document.getElementById("cellCount");
+  if (count) count.textContent = total + " cell" + (total === 1 ? "" : "s") + " queued";
+}
+
+function onCell(frame) {
+  clearStageTimers();
+  var els = S.cellEls || [];
+  var idx = S.cellIdx || 0;
+  var el = els[idx];
+  if (el) {
+    el.textContent = frame.ch || "?";
+    el.className = "cell on";
+    if (idx > 0 && els[idx - 1]) els[idx - 1].className = "cell done";
+  }
+  S.cellIdx = idx + 1;
+  vibrateNow(frame.ms || 0);
+  goScreen("reply");
+  setState("reply in braille", "ok");
+  setTimingTag("cell " + S.cellIdx + "/" + els.length);
+  var count = document.getElementById("cellCount");
+  var total = document.querySelectorAll("#cellRow .cell").length;
+  if (count) count.textContent = "playing " + (S.cellIdx + (S.cellsBefore || 0)) + " of " + total;
+}
+
+function finishReply() {
+  clearStageTimers();
+  (S.cellEls || []).forEach(function (el) { el.className = "cell done"; });
+  var count = document.getElementById("cellCount");
+  var total = document.querySelectorAll("#cellRow .cell").length;
+  if (count) count.textContent = "message over — " + total + " cells played";
+  goScreen("cooldown");
+  setState("settle", "ok");
+  setTimingTag("cooldown...");
+  var fill = document.getElementById("cooldownFill");
+  if (fill) {
+    fill.style.transition = "none";
+    fill.style.width = "100%";
+    void fill.offsetWidth;
+    fill.style.transition = "width 3s linear";
+    fill.style.width = "0%";
+  }
+  // Keep the settle timer in the stage list: a queued replay's text/cell
+  // frame must cancel it, or the starter's cooldown would blank the screen
+  // while the queued message is still playing.
+  S.stageTimers.push(setTimeout(function () {
+    goScreen("locked");
+    setState("ready", "ok");
+    setTimingTag("ready");
+  }, 3000));
+}
+
+function vibrateNow(ms) {
+  try {
+    if (navigator.vibrate) navigator.vibrate(ms);
+  } catch (e) { /* noop */ }
+}
+
+function unlock() {
+  if (!S.powerOn) return;
+  goScreen("unlocking");
+  setState("waking the wrist", "ok");
+  setTimingTag("waking...");
+}
+
+function cancelListening() {
+  log("sys", "listening cancelled by wearer");
+  goScreen("locked");
+  setState("stand by", "ok");
+}
+
+function cancelLocked() {
+  log("sys", "stand by — staying locked");
+  goScreen("locked");
+  setState("stand by", "ok");
+}
+
+function startListening() {
+  if (!S.powerOn) return;
+  goScreen("listening");
+  setState("listening for your cue", "ok");
+  setTimingTag("listening...");
+  listeningMeter();
+}
+
+window.addEventListener("beforeinstallprompt", function (e) {
+  e.preventDefault();
+  S.deferredInstall = e;
+  document.getElementById("installHint").textContent = "Ready to install";
+  document.getElementById("btnInstall").disabled = false;
+});
+
+document.getElementById("btnInstall").addEventListener("click", function () {
+  if (!S.deferredInstall) return;
+  S.deferredInstall.prompt();
+  S.deferredInstall.userChoice.then(function () {
+    document.getElementById("installHint").textContent = "Install prompt answered";
+    document.getElementById("btnInstall").disabled = true;
+    S.deferredInstall = null;
+  });
+});
+
+function openCompose() {
+  var input = document.getElementById("composeInput");
+  if (input) { input.value = ""; input.focus(); }
+  goScreen("compose");
+  setState("composing", "ok");
+  setTimingTag("compose");
+}
+
+function setSheetStatus(text, bad) {
+  var el = document.getElementById("sheetStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = "cap sheet-status" + (bad ? " bad" : "");
+}
+
+function openComposeSheet() {
+  if (!S.powerOn) return;
+  var sheet = document.getElementById("composeSheet");
+  if (!sheet) return;
+  var input = document.getElementById("composeSheetInput");
+  if (input) input.value = "";
+  setSheetStatus("");
+  sheet.hidden = false;
+  syncWriteDuring();
+  log("sys", "compose opened while the band is busy — the message waits its turn");
+  if (input) input.focus();
+}
+
+function closeComposeSheet() {
+  var sheet = document.getElementById("composeSheet");
+  if (sheet) sheet.hidden = true;
+  setSheetStatus("");
+  var sendBtn = document.getElementById("btnSheetSend");
+  var cancel = document.getElementById("btnSheetCancel");
+  if (sendBtn) sendBtn.disabled = false;
+  if (cancel) cancel.disabled = false;
+  S.sheetBusy = false;
+  syncWriteDuring();
+}
+
+function sendSheetComposed() {
+  if (S.sheetBusy) return;
+  var input = document.getElementById("composeSheetInput");
+  var text = input ? input.value.trim() : "";
+  if (!text) { if (input) input.focus(); return; }
+  var sendBtn = document.getElementById("btnSheetSend");
+  var cancel = document.getElementById("btnSheetCancel");
+  S.sheetBusy = true;
+  if (sendBtn) sendBtn.disabled = true;
+  if (cancel) cancel.disabled = true;
+  setSheetStatus("Sending — it waits its turn...");
+  disarmRedial("you sent manually");
+  send("/api/ziv/message", { text: text }).then(function (data) {
+    var queued = !!(data && data.queued);
+    closeComposeSheet();
+    setState(queued ? "queued behind this turn" : "sent", "ok");
+    setTimingTag(queued ? "queued" : "sent");
+    log("sys", "sent without stopping the band — "
+      + (queued ? "queued behind the current turn" : "accepted"));
+  }).catch(function (err) {
+    S.sheetBusy = false;
+    if (sendBtn) sendBtn.disabled = false;
+    if (cancel) cancel.disabled = false;
+    var why = err && err.detail ? err.detail : "send failed";
+    var armed = !!RD.body;
+    setSheetStatus(armed
+      ? "Refused — " + why + " Redial armed; it will resend when this turn ends."
+      : "Send failed — " + why, true);
+    setState(armed ? "send failed — redial armed" : "send failed", "bad");
+    setTimingTag(armed ? "refused — redial armed" : "error");
+  });
+}
+
+function sendComposed() {
+  var input = document.getElementById("composeInput");
+  var text = input ? input.value.trim() : "";
+  if (!text) { if (input) input.focus(); return; }
+  disarmRedial("you sent manually");
+  goScreen("sending");
+  setState("sending your message", "ok");
+  setTimingTag("sending...");
+  send("/api/ziv/message", { text: text }).then(function (data) {
+    log("sys", "sent — " + (data.event || "accepted"));
+  }).then(function () {
+    setState("sent", "ok");
+    setTimingTag("sent");
+    goScreen("locked");
+  }).catch(function (err) {
+    var why = err && err.detail ? err.detail : "send failed";
+    log("sys", "send failed: " + why);
+    setState("send failed", "bad");
+    setTimingTag("error");
+    goScreen("compose");
+  });
+}
+
+document.getElementById("btnWrite").addEventListener("click", openCompose);
+document.getElementById("btnWriteDuring").addEventListener("click", openComposeSheet);
+document.getElementById("btnSheetSend").addEventListener("click", sendSheetComposed);
+document.getElementById("btnSheetCancel").addEventListener("click", function () {
+  closeComposeSheet();
+  log("sys", "compose closed — the current screen kept running");
+});
+document.getElementById("composeSheetInput").addEventListener("input", function () {
+  disarmRedial("you edited the message");
+});
+document.addEventListener("keydown", function (e) {
+  var sheet = document.getElementById("composeSheet");
+  if (e.key === "Escape" && sheet && !sheet.hidden) closeComposeSheet();
+});
+document.getElementById("btnSendCompose").addEventListener("click", sendComposed);
+document.getElementById("composeInput").addEventListener("input", function () {
+  disarmRedial("you edited the message");
+});
+document.getElementById("btnCancelCompose").addEventListener("click", function () {
+  goScreen("locked");
+  setState("ready", "ok");
+});
+document.getElementById("btnUnlock").addEventListener("click", function () {
+  if (!S.powerOn) { setPower(true); return; }
+  unlock();
+  setTimeout(startListening, 400);
+});
+document.getElementById("btnCancelLocked").addEventListener("click", cancelLocked);
+document.getElementById("btnCancelListen").addEventListener("click", cancelListening);
+S.offToggleEl.addEventListener("click", function () { setPower(!S.powerOn); });
+
+function updateClock() {
+  var now = new Date();
+  var hh = String(now.getHours()).padStart(2, "0");
+  var mm = String(now.getMinutes()).padStart(2, "0");
+  S.now.textContent = hh + ":" + mm;
+}
+updateClock();    setInterval(updateClock, 10000);
+
+function listeningMeter() {
+  var fill = document.getElementById("listenFill");
+  if (!fill) return;
+  var w = (window.performance && window.performance.now ? window.performance.now() : Date.now());
+  fill.style.width = "0%";
+  var step = function () {
+    var n = window.performance && window.performance.now ? window.performance.now() : Date.now();
+    var t = (n - w) / 3000;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    fill.style.width = String(100 * t) + "%";
+    if (t >= 1) {
+      fill.classList.add("clip");
+    }
+  };
+  step();
+  S.lm = setInterval(step, 40);
+}
+
+S.screens = {
+
+  off: document.getElementById("screen-off"),
+  locked: document.getElementById("screen-locked"),
+  unlocking: document.getElementById("screen-unlocking"),
+  listening: document.getElementById("screen-listening"),
+  processing: document.getElementById("screen-processing"),
+  transcription: document.getElementById("screen-transcription"),
+  compose: document.getElementById("screen-compose"),
+  sending: document.getElementById("screen-sending"),
+  reply: document.getElementById("screen-reply"),
+  cooldown: document.getElementById("screen-cooldown"),
+};
+
+document.addEventListener("DOMContentLoaded", function () {
+  if (!("vibrate" in navigator)) {
+    var note = document.querySelector(".vibrate-note");
+    if (note) note.textContent = "This browser has no Vibration API — open on Android Chrome to feel it.";
+  }
+  connect();
+});
+
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden) {
+    if (S.badgeTimer) { clearInterval(S.badgeTimer); S.badgeTimer = 0; }
+    if (S.lm) { clearInterval(S.lm); S.lm = 0; }
+  } else if (!S.badgeTimer) {
+    pollQueueBadge();
+    S.badgeTimer = setInterval(pollQueueBadge, 2000);
+  }
+});
+
 function renderQueueBadge(h) {
-  const depth = h.gate_queue;
-  const cap = h.gate_queue_cap;
+  var depth = h.gate_queue;
+  var cap = h.gate_queue_cap;
   if (typeof depth !== "number" || typeof cap !== "number") return;
-  const rate = h.queue_rejections ? h.queue_rejections.per_minute : 0;
-  // The schedule beside the queue: pending reminders + the drop-oldest
-  // cap. A corrupt schedule is the one state the wearer's future depends
-  // on, so it turns the badge red even at zero depth — never swallowed.
-  const pending = h.schedule_pending;
-  const schedCap = h.schedule_cap;
-  const schedCorrupt = h.schedule_corrupt;
-  let sched = "";
+  var rate = h.queue_rejections ? h.queue_rejections.per_minute : 0;
+  // The schedule beside the queue: pending reminders + the drop-oldest cap.
+  // A corrupt schedule is the one state the wearer's future depends on, so
+  // it turns the badge red even at zero depth — never swallowed.
+  var pending = h.schedule_pending;
+  var schedCap = h.schedule_cap;
+  var schedCorrupt = h.schedule_corrupt;
+  var sched = "";
   if (schedCorrupt === true) {
     sched = " · schedule corrupt";
   } else if (typeof pending === "number" && typeof schedCap === "number") {
@@ -357,8 +1380,8 @@ function renderQueueBadge(h) {
       ? " · reminders full (" + pending + "/" + schedCap + ")"
       : " · reminders " + pending + "/" + schedCap;
   }
-  let cls = "";
-  let text = "queue " + depth + "/" + cap;
+  var cls = "";
+  var text = "queue " + depth + "/" + cap;
   if (rate > 0) text += " · " + rate + "/min refused";
   text += sched;
   if (schedCorrupt === true) {
@@ -369,299 +1392,22 @@ function renderQueueBadge(h) {
   } else if (depth >= Math.ceil(cap / 2) || rate > 0) {
     cls = "warn";
   }
-  QB.el.textContent = text;
-  QB.el.className = cls;
-  QB.el.hidden = false;
-}
-
-async function pollQueueBadge() {
-  try {
-    const res = await fetch("/api/ziv/health");
-    if (!res.ok) return;
-    renderQueueBadge(await res.json());
-  } catch (e) {
-    // Transient — keep showing the last known numbers.
+  var el = document.getElementById("queueBadge");
+  if (el) {
+    el.textContent = text;
+    el.className = cls;
+    el.hidden = false;
   }
 }
 
-function startBadgePolling() {
-  pollQueueBadge();
-  QB.timer = setInterval(pollQueueBadge, 2000);
+function pollQueueBadge() {
+  fetch("/api/ziv/health")
+    .then(function (r) { if (!r.ok) return Promise.resolve(null); return r.json(); })
+    .then(function (h) { if (h) renderQueueBadge(h); })
+    .catch(function () { /* keep last known numbers */ });
 }
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    clearInterval(QB.timer);
-    QB.timer = 0;
-  } else if (!QB.timer) {
-    startBadgePolling();
-  }
-});
-
-async function send(url, body) {
-  if (!S.ws || S.ws.readyState !== 1) {
-    setState("not connected", "bad");
-    return;
-  }
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (res.status === 429) {
-        // Arm the redial for any path that carries its payload (typed
-        // message, stub demo). The mic path reports its own 429 — its clip
-        // would need re-transcription, so it stays a manual retry.
-        const label = typeof body.text === "string" ? body.text
-          : (typeof body.simulate === "string" ? body.simulate : "");
-        renderWristBusy(
-          typeof data.detail === "string" ? data.detail : "",
-          label ? url : "",
-          label ? body : null,
-          label,
-        );
-      } else {
-        log("sys", "HTTP " + res.status + ": " + (data.detail || "?"));
-      }
-      return;
-    }
-    log("sys", "POST ok — " + JSON.stringify(data));
-    // A delivered message frees the whole budget: the next refusal starts
-    // fresh, even if it is the same text sent again much later. It also
-    // proves the wearer acted — a stale dead-end note would be noise now.
-    RD.attempts = 0;
-    RD.lastLabel = "";
-    RD.dead = false;
-    RD.el.hidden = true;
-    RD.el.classList.remove("dead");
-  } catch (e) {
-    log("sys", "POST failed: " + e);
-  }
-}
-
-// --- connection ------------------------------------------------------------
-
-function connect() {
-  const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = wsProto + "//" + location.host + "/ws";
-  S.ws = new WebSocket(url);
-
-  S.ws.onopen = () => setState("connected", "ok");
-  S.ws.onclose = () => {
-    setState("disconnected — retrying…", "bad");
-    setTimeout(connect, 1500);
-  };
-  S.ws.onerror = () => setState("ws error", "bad");
-  S.ws.onmessage = (ev) => {
-    let frame;
-    try { frame = JSON.parse(ev.data); } catch { return; }
-    if (frame.type === "hello") {
-      const inbox = typeof frame.inbox_pending === "number" && frame.inbox_pending > 0
-        ? ", " + frame.inbox_pending + " message(s) waiting"
-        : "";
-      log("sys", "relay hello — spec v" + frame.spec_version +
-        ", " + frame.patterns.length + " patterns, mark: " + frame.mark + inbox);
-    } else if (frame.type === "haptic") {
-      onHaptic(frame);
-    } else if (frame.type === "text") {
-      onText(frame);
-    } else if (frame.type === "cell") {
-      onCell(frame);
-    }
-  };
-}
-
-async function loadTiming() {
-  // Bootstrap from the generated module — one derivation everywhere.
-  try {
-    const res = await fetch("/api/ziv/timing");
-    S.timing = await res.json();
-    log("sys", "timing bootstrapped: spec v" + S.timing.spec_version +
-      ", " + Object.keys(S.timing.patterns).length + " patterns" +
-      ", cell gap " + S.timing.cell_gap_ms + " ms");
-  } catch (e) {
-    log("sys", "timing bootstrap failed: " + e);
-  }
-}
-
-// --- buttons ----------------------------------------------------------------
-
-document.getElementById("btnUnlock").addEventListener("click", unlock);
-document.getElementById("btnTest").addEventListener("click", () => {
-  if (!S.timing) return;
-  // Replay double-tap straight from the bootstrapped table (no server turn).
-  const beats = S.timing.patterns["double-tap"];
-  const ms = [];
-  for (const [b, g] of beats) { ms.push(b); ms.push(g); }
-  log("haptic", "local test: double-tap — " + ms.join(",") + " ms");
-  vibrateNow(ms);
-});
-document.getElementById("btnSend").addEventListener("click", () => {
-  disarmRedial("you sent manually");
-  send("/api/ziv/message", { text: S.msgEl.value || "Taxi arrived" });
-});
-// --- the Omni spike: mic → /inject/audio → Token Factory -------------------
-// MediaRecorder captures the mic; the clip goes base64 to the relay, which
-// transcribes it with Nemotron-3-Nano-Omni and runs the same turn a typed
-// message takes. No timing lives here — only the wire shape.
-const OMNI = {
-  rec: null,
-  chunks: [],
-  stream: null,
-  mime: "",
-  busy: false,
-  maxTimer: 0,
-  btn: document.getElementById("btnMic"),
-  status: document.getElementById("micStatus"),
-};
-
-function omniStatus(text, cls) {
-  OMNI.status.textContent = text;
-  OMNI.status.className = cls ? "cap " + cls : "cap";
-}
-
-function pickMime() {
-  if (!window.MediaRecorder) return "";
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c)) return c;
-  }
-  return "";
-}
-
-function mimeToFormat(m) {
-  if (m.indexOf("ogg") >= 0) return "ogg";
-  if (m.indexOf("mp4") >= 0) return "mp4";
-  return "webm";
-}
-
-async function omniStart() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia
-      || !window.MediaRecorder) {
-    omniStatus("MediaRecorder/mic not available in this browser", "bad");
-    return;
-  }
-  try {
-    OMNI.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    omniStatus("mic blocked: " + e.name, "bad");
-    return;
-  }
-  OMNI.mime = pickMime();
-  if (!OMNI.mime) {
-    omniStatus("no supported recording mime in this browser", "bad");
-    OMNI.stream.getTracks().forEach((t) => t.stop());
-    return;
-  }
-  OMNI.chunks = [];
-  try {
-    OMNI.rec = new MediaRecorder(OMNI.stream, { mimeType: OMNI.mime });
-  } catch (e) {
-    omniStatus("recorder error: " + e, "bad");
-    OMNI.stream.getTracks().forEach((t) => t.stop());
-    return;
-  }
-  OMNI.rec.ondataavailable = (ev) => {
-    if (ev.data && ev.data.size) OMNI.chunks.push(ev.data);
-  };
-  OMNI.rec.onstop = omniSend;
-  OMNI.rec.start();
-  OMNI.busy = true;
-  OMNI.btn.textContent = "Stop & send";
-  OMNI.btn.classList.add("rec");
-  omniStatus("recording — speak, then tap again (10 s max)", "rec");
-  OMNI.maxTimer = setTimeout(() => {
-    if (OMNI.busy && OMNI.rec && OMNI.rec.state === "recording") omniStop();
-  }, 10000);
-}
-
-function omniStop() {
-  if (!OMNI.busy || !OMNI.rec) return;
-  clearTimeout(OMNI.maxTimer);
-  if (OMNI.rec.state !== "inactive") OMNI.rec.stop(); // onstop fires omniSend
-}
-
-async function omniSend() {
-  OMNI.stream.getTracks().forEach((t) => t.stop());
-  OMNI.btn.textContent = "Talk to Omni";
-  OMNI.btn.classList.remove("rec");
-  OMNI.busy = false;
-  const blob = new Blob(OMNI.chunks, { type: OMNI.mime || "audio/webm" });
-  if (!blob.size) {
-    omniStatus("nothing recorded", "bad");
-    return;
-  }
-  omniStatus("transcribing via Token Factory…", "");
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  log("sys", "mic clip: " + Math.round(blob.size / 1024) + " kB ("
-    + (blob.type || "?") + ") → /inject/audio");
-  try {
-    const res = await fetch("/inject/audio", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        audio_b64: btoa(bin),
-        mime: mimeToFormat(OMNI.mime),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const d = typeof data.detail === "string" ? data.detail : "?";
-      if (res.status === 429) {
-        renderWristBusy(d);
-        omniStatus("wrist is busy — try after the current message", "bad");
-      } else {
-        omniStatus("HTTP " + res.status + ": " + d, "bad");
-        log("sys", "Omni POST failed: " + d);
-      }
-      return;
-    }
-    log("sys", "Omni heard — turn " + (data.event || "?") + ", source " + data.source);
-    omniStatus("sent — the reply plays as braille", "ok");
-  } catch (e) {
-    omniStatus("POST failed: " + e, "bad");
-  }
-}
-
-OMNI.btn.addEventListener("click", () => {
-  if (OMNI.busy) omniStop();
-  else omniStart();
-});
-
-// Keyless stub demo (hermetic): same turn, transcript handed in directly.
-document.getElementById("btnOmniStub").addEventListener("click", () => {
-  disarmRedial("you sent manually");
-  send("/inject/audio", { simulate: S.msgEl.value || "Taxi arrived" });
-});
-S.msgEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    disarmRedial("you sent manually");
-    send("/api/ziv/message", { text: S.msgEl.value });
-  }
-});
-S.msgEl.addEventListener("input", () => disarmRedial("you edited the message"));
-
-// Boot: connect first (so the server knows the band exists), then bootstrap.
-if (!("vibrate" in navigator)) {
-  document.getElementById("vibrateNote").textContent =
-    "This browser has no Vibration API — open on Android Chrome to feel it.";
-}
-connect();
-loadTiming();
-startBadgePolling();
+pollQueueBadge();
+S.badgeTimer = setInterval(pollQueueBadge, 2000);
 </script>
 </body>
 </html>

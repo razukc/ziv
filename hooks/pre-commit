@@ -1,0 +1,78 @@
+#!/bin/sh
+# Pre-commit hook — the haptic channel must never drift.
+#
+# Runs before every commit:
+#   1. python tools/haptic_timing.py            spec vs generated consumers
+#      (docs/haptic-timing.json -> feel-tool block, firmware header, doc
+#      tables).  Fails the commit on any drift.
+#   2. python firmware/haptic_out/run_tests.py  bench suite against the mock
+#      DRV2605L.  Skipped when no host C compiler is installed (run_tests.py
+#      exits 2 in that case); a real failure (exit 1) blocks the commit.
+#   3. python scripts/ziv_client_cache.py --check against the STAGED tree
+#      whenever the commit touches agent/ziv_client/.  A shell change without
+#      a service-worker cache bump would leave every installed PWA on the old
+#      page forever; reading the index (not the worktree) also catches a
+#      --bump that was run but never staged.
+#
+# Install once — the script is committed, no framework needed:
+#     git config core.hooksPath hooks
+#
+# Hooks run with the worktree root as cwd, so the relative paths below are
+# correct from any subdirectory of the repo.
+set -u
+
+# Prefer the project venv (agent/venv) when present: it is where the
+# ziglang pip package lives, so the bench suite gets its compiler there.
+PY=python
+if [ -x agent/venv/Scripts/python.exe ]; then PY=agent/venv/Scripts/python.exe
+elif [ -x agent/venv/bin/python ]; then PY=agent/venv/bin/python
+elif command -v "$PY" >/dev/null 2>&1; then :; else PY=python3; fi
+
+fail=0
+
+echo "pre-commit: haptic timing verify..."
+if ! "$PY" tools/haptic_timing.py; then
+    echo "  FAIL: timing spec and generated consumers disagree."
+    echo "  Run: python tools/haptic_timing.py --write"
+    echo "  and commit the regenerated files together."
+    fail=1
+fi
+
+echo "pre-commit: haptic_out bench suite..."
+"$PY" firmware/haptic_out/run_tests.py
+bench=$?
+if [ "$bench" = "1" ]; then
+    echo "  FAIL: haptic_out bench suite failed."
+    fail=1
+elif [ "$bench" = "2" ]; then
+    echo "  (skipped — no host C compiler; install one to run the bench suite)"
+fi
+
+echo "pre-commit: client shell cache..."
+# --staged reads the index, not the worktree: --bump writes ziv_sw.js and the
+# manifest to disk, so a bump that was never staged would pass a worktree check
+# while the commit still shipped the new page behind the old cache name.
+# Only a staged shell file triggers this: the manifest alone cannot change what
+# a browser has cached, and --check on the deploy/CI side still validates it.
+if git diff --cached --quiet -- agent/ziv_client; then
+    echo "  (skipped — no client shell files staged)"
+elif "$PY" scripts/ziv_client_cache.py --check --staged; then
+    echo "  client shell cache in sync (staged tree)."
+else
+    fail=1
+    echo "  FAIL: this commit would ship a shell change without a cache bump."
+    echo "    python scripts/ziv_client_cache.py --bump"
+    if [ -n "$(git ls-files -- scripts/ziv_client_shell_cache.json)" ]; then
+        echo "    git add agent/ziv_client/ziv_sw.js scripts/ziv_client_shell_cache.json"
+    else
+        echo "  (scripts/ziv_client_shell_cache.json is not tracked yet —"
+        echo "   git add it so the recorded baseline travels with the commit)"
+    fi
+fi
+
+if [ "$fail" = "0" ]; then
+    echo "pre-commit: haptic timing and client shell cache in sync."
+    exit 0
+fi
+echo "pre-commit: FAILED — commit blocked."
+exit 1

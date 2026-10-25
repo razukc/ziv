@@ -1,0 +1,33 @@
+{
+  "name": "Ziv — feel a reply instead of reading it",
+  "short_name": "Ziv",
+  "description": "A private haptic reply channel. Demo on a phone today: timed vibro-braille; a wrist form factor is the next revision.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "en",
+  "categories": ["productivity"],
+  "background_color": "#0e1116",
+  "theme_color": "#0e1116",
+  "icons": [
+    {
+      "src": "ziv_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "ziv_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "ziv_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
