@@ -8,7 +8,10 @@ What this is for (from the plan §2.1 deliverable, not restatement):
 - If the loop is not running, report the control/health state the operator
   would use to prove that, rather than guessing.
 
-This is a read-only probe for a running relay; it does not restart anything.
+It never restarts anything, but it is not read-only: it schedules one
+"probe reminder" about 30 s out on the origin it is pointed at and watches
+whether the loop fires it. Run it against the demo origin only when that
+reminder playing is fine.
 """
 from __future__ import annotations
 

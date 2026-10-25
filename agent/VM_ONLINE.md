@@ -94,6 +94,22 @@ stop/start — an ephemeral IP would silently break it.
   `manifest_errors: []`, `installability_errors: []`. The in-app preview is Electron,
   which never fires `beforeinstallprompt`, so its disabled "Install app" button is not
   a signal — Chrome's own verdict is.
+- **Always-on schedule loop probed from off-VM (2026-10-25 15:24 UTC).**
+  [`scripts/ziv_loop_liveness_probe.py`](../scripts/ziv_loop_liveness_probe.py) against
+  the public origin: `/api/ziv/health`, `/api/ziv/ready` and `/api/ziv/control` all
+  answered `200`; `schedule_loop.running: true` (`poll_s: 1.0`), `/api/ziv/ready`
+  reported `schedule.loop_running: true` with `pending: []`, and `/api/ziv/control`
+  reported `loop: {started: true, running: true, iface: true}`. The probe is not
+  read-only — it schedules one `probe reminder` — and that one (`id 3`) was due at
+  `15:24:36Z`; the probe's 8-second recheck still found it pending, as designed. Read
+  again after the due time: `pending: []` and `last_fire_at: 2026-10-25T15:24:50.97Z`.
+  No client request and no HTTP message caused that turn — health showed **one device
+  attached**, so the reminder played to it, which is exactly the always-on path.
+  The telemetry rows behind that stamp are `message_turn 10.9 s`
+  (`source: scheduled`) and `scheduled_reminder_fired 15.0 s`; the 15 s is
+  due-to-completion, not poll lag — `last_fire_at` is written after `fire_due()`
+  returns, i.e. once the reminder's turn has closed. Before this run the stamp was
+  `07:25:55Z`, 7 h earlier, so the new value is this probe's fire.
 
 ## What runs on the VM
 
