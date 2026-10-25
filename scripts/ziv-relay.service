@@ -1,0 +1,25 @@
+[Unit]
+Description=Ziv haptic relay (FastAPI/uvicorn on :8787)
+Documentation=file:///home/kc_razu_gmail_com/ziv-relay/agent/VM_ONLINE.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kc_razu_gmail_com
+Group=kc_razu_gmail_com
+WorkingDirectory=/home/kc_razu_gmail_com/ziv-relay
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/home/kc_razu_gmail_com
+
+# Same interpreter, same argv, same cwd as the nohup invocation this replaces.
+# ziv_server.py calls load_dotenv(), which finds agent/.env relative to its own
+# file, so the Nebius key wiring survives the move to a service.
+ExecStart=/home/kc_razu_gmail_com/ziv-venv/bin/python3 agent/ziv_server.py
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
