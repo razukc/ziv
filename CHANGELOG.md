@@ -14,6 +14,23 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only
 
+- **The commit gate now enforces the PWA shell cache** — `hooks/pre-commit`
+  gained the third check: when the index touches `agent/ziv_client/`, it runs
+  `scripts/ziv_client_cache.py --check --staged`. The new `--staged` mode
+  reads the **index**, not the worktree, because `--bump` writes to disk: a
+  bump that ran but was never staged would pass a worktree check while the
+  commit still shipped the new page behind `ziv-phone-band-vN`, the exact
+  silent failure the guard exists to stop. Blob bytes are read raw with
+  `git cat-file`, and the fingerprint is now LF-canonical (`\r\n` → `\n`)
+  before hashing: git stores LF while a Windows checkout smudges CRLF, so the
+  old raw-byte digest recorded on this machine could never match a Linux CI
+  run of the same commit. Five new tests in
+  `agent/tests/test_client_cache_guard.py` cover the staged-change block, a
+  staged bump passing, an unstaged manifest failing closed, the hook's own
+  command, and CRLF/LF equivalence; the suite is now 179 hermetic tests. The
+  recorded baseline was re-taken at `v4` with the canonical digest (no cache
+  bump, because no served byte changed).
+
 - **CI runs `prove.py`, so the haptic bench is enforced on the runner at last** —
   the `ziv` job's three verification steps (hermetic suite, timing drift guard,
   QEMU rung-2 bench) were hand-written copies of `tools/prove.py`'s `CHECKS`

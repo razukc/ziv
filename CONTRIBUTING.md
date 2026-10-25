@@ -72,7 +72,11 @@ git tag pre-v0.1.1    # next verified milestone
 
 0. Install the pre-commit hook once per clone: `git config core.hooksPath hooks`
    — it runs the haptic timing verify (`python tools/haptic_timing.py`) and the
-   haptic_out bench suite, and blocks any commit that would ship spec drift
+   haptic_out bench suite, and blocks any commit that would ship spec drift.
+   It also runs the service-worker shell cache check against the **staged**
+   tree (`python scripts/ziv_client_cache.py --check --staged`), so a client
+   change cannot be committed behind an unchanged `ziv-phone-band-vN` cache,
+   and a bump that ran but was never staged cannot slip through either
 1. `cd agent && python -m pytest -q` — the hermetic suite (browser e2e
    deselected); includes the timing drift guard, the seam/threading tests,
    the server + store suites, and the demo-chain generation tests

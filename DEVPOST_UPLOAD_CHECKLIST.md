@@ -7,8 +7,8 @@ keeps the deaf-blind case in its own section) and stay in that voice for
 every field. Before you record or upload, run the gate:
 
 ```bash
-cd agent && python -m pytest -m "not e2e"   # → 164 passed (3 e2e deselected)
-python -m pytest -m e2e                     # → 3 passed (needs Playwright)
+cd agent && python -m pytest -m "not e2e"   # → 179 passed (4 e2e deselected)
+python -m pytest -m e2e                     # → 4 passed (needs Playwright)
 ```
 
 **Deadline: submissions close Friday, October 30, 10:00 AM PT.** The draft
@@ -61,8 +61,8 @@ trail is HONESTY_CHANGELOG.md."*
     and plays the line the model wrote (`source: text_live` on the wire); with
     no key the same beat fires the promise verbatim, labelled `text_echo`, and
     the wire log names the path it took rather than claiming a model ran. Flash
-    `python tools/prove.py` — one block with every suite's counts and the
-    drift-guard result — and `docs/haptic-timing.json`.
+    the README's "Tests" block — 179-test suite, 274-check bench, 49-check host
+    suite, drift-guard result — and `docs/haptic-timing.json`.
 5. **1:50–2:30 the agent acts while you're away** — a finished `text`
    reminder, scheduled by curl, fires unprompted: `reminder: pills`
    narration, Z-I-V cells, `triple-pulse`, close. Then the durability beat:
@@ -238,11 +238,11 @@ lost:
 
 ## 9. Pre-flight (final)
 
-- [ ] `pytest -m "not e2e"` → 164 passed (3 e2e deselected); `-m e2e` → 3 passed
+- [ ] `pytest -m "not e2e"` → 179 passed (4 e2e deselected); `-m e2e` → 4 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable, and
       Token Factory + Nemotron **named aloud** (§2's narrated pipeline),
       uploaded as MP4/WebM with the audio track present in the file
-- [ ] Every number in the description matches the repo (164 passed / 3 e2e,
+- [ ] Every number in the description matches the repo (179 passed / 4 e2e,
       274-check firmware bench, 49-check ziv_qemu host suite, 27 HAP events
       — JUDGE_REPRO.md is the source of truth)
 - [ ] Both deferral sentences intact (AI-composed replies = next build
