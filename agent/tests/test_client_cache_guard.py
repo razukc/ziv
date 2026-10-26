@@ -18,6 +18,7 @@ without touching the real client directory:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -34,7 +35,15 @@ SCRIPT = SCRIPTS / "ziv_client_cache.py"
 
 
 def _cli(client: Path, manifest: Path, *args: str) -> subprocess.CompletedProcess:
-    """Run the checker the way CI and the deploy script do."""
+    """Run the checker the way CI and the deploy script do.
+
+    The checker prints an em-dash in its stale-shell failure, which cp1252
+    encodes as 0x97. With a UTF-8-mode parent — `python -X utf8 -m pytest`,
+    exactly what CI runs — the decode thread dies on that byte, ``stderr``
+    comes back None, and the assertion below raises TypeError instead of
+    reporting what the guard said. Pin stdio on both sides so the test reads
+    the same on every console code page.
+    """
     return subprocess.run(
         [
             sys.executable,
@@ -48,6 +57,9 @@ def _cli(client: Path, manifest: Path, *args: str) -> subprocess.CompletedProces
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
 
 
