@@ -299,3 +299,35 @@ def test_cli_bump_then_check_round_trips_the_manifest(tmp_path):
     assert checked.returncode == 0, checked.stderr
     expected = f"OK: {target} matches shell sha256 {payload['client_shell_sha256']}"
     assert expected in checked.stdout
+
+
+def test_cli_decoding_is_pinned_against_the_console_code_page(tmp_path):
+    """Drop the stdio pinning in ``_cli`` and this fails, not only Windows CI.
+
+    CI starts pytest with ``-X utf8``, a flag a child never inherits. If the
+    child is left to the locale it writes the checker's em-dash as cp1252
+    0x97, the UTF-8 parent's reader thread dies, and ``stderr`` arrives as
+    None. Reproduce that split in a child interpreter — UTF-8-mode parent,
+    cp1252 child — so the assertion is about the helper's pinning rather than
+    about which console happens to run the suite.
+    """
+    client, manifest = _client_and_manifest(tmp_path)
+    _change_shell(client)
+    script = (
+        "import sys\n"
+        "sys.path.insert(0, 'tests')\n"
+        "import test_client_cache_guard as guard\n"
+        "from pathlib import Path\n"
+        "proc = guard._cli(Path(sys.argv[1]), Path(sys.argv[2]), '--check')\n"
+        "assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)\n"
+        "assert proc.stderr and 'installed PWAs would keep the old shell' in proc.stderr, proc.stderr\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", script, str(client), str(manifest)],
+        cwd=REPO_ROOT / "agent",
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr

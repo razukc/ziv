@@ -55,10 +55,10 @@ Green on this checkout, no network and no key. The demo requirements do not pin
 ```bash
 cd agent
 python -m pytest -q
-# -> 196 passed, 4 deselected in about 170 s (2:50), exit 0
+# -> 197 passed, 4 deselected in about 168 s (2:48), exit 0
 ```
 
-That is every hermetic test in the tree: 196 in 13 modules, with the four browser
+That is every hermetic test in the tree: 197 in 13 modules, with the four browser
 tests in the other two modules deselected by their `e2e` marker. The store file
 alone is the quick read:
 
@@ -291,13 +291,13 @@ desktop Chrome renders the wire log, cells box, badge and redial note, but canno
 The four `e2e`-marked tests drive the visible compose surfaces:
 `#btnWrite` → `#composeInput` → `#btnSendCompose` from the idle screen, and
 `#btnWriteDuring` → the busy-sheet → Send while a turn owns the screens. They
-are deselected from the 196-count hermetic run. With Playwright installed they
+are deselected from the 197-count hermetic run. With Playwright installed they
 run separately:
 
 ```bash
 cd agent
 python -m pytest -m e2e -q
-# -> 4 passed, 196 deselected in about 62 s
+# -> 4 passed, 197 deselected in about 62 s
 ```
 
 ---
