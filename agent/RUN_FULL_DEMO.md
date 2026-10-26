@@ -28,6 +28,36 @@ That starts the relay and waits until `/api/ziv/health` answers `200 ok`, then
 prints the URL and the process id. It does not open a browser; use the preview
 panel to open the URL it prints.
 
+## Pre-flight gate (before any take)
+
+With the relay up and the band page open, awake and idle (nothing queued, empty
+inbox), run from the repo root:
+
+    bash scripts/demo_preflight.sh
+
+It exits `0` only when the always-on schedule loop is running **and** a real
+reminder fires: the probe schedules one `probe reminder` ~10 s out, waits for
+the loop to take it, and requires a new `last_fire_at` stamp. With an idle band
+that stamp lands after the reminder's full turn (the wire log shows
+`reminder: probe reminder`). Any other exit means do not start:
+
+| exit | meaning | what to do |
+| --- | --- | --- |
+| `1` | `/health`, `/ready` or `/control` reports the loop stopped | restart the relay, then re-run |
+| `2` | the relay could not be read at that origin | start it, or set `ZIV_RELAY` |
+| `3` | loop running, but no fire proven | attach/wake the band, clear its queue and inbox, or resume a paused loop |
+
+It refuses before scheduling when a surface reports the loop stopped, no band
+is attached, or the band is not idle, so a failed gate does not leave a
+reminder behind to replay over the first beat. If the loop dies after the
+reminder is scheduled, the probe cancels it when it is the only row pending.
+To gate the deployed origin instead:
+
+    ZIV_RELAY=https://35-224-56-20.sslip.io bash scripts/demo_preflight.sh
+
+That plays the probe reminder on whichever band is attached there, so use it
+only when that band is the one about to demo.
+
 ## What counts as the full demo
 
 - The relay is running.
