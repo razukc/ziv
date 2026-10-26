@@ -109,7 +109,26 @@ stop/start — an ephemeral IP would silently break it.
   (`source: scheduled`) and `scheduled_reminder_fired 15.0 s`; the 15 s is
   due-to-completion, not poll lag — `last_fire_at` is written after `fire_due()`
   returns, i.e. once the reminder's turn has closed. Before this run the stamp was
-  `07:25:55Z`, 7 h earlier, so the new value is this probe's fire.
+  `07:25:55Z`, 7 h earlier, so the new value is this probe's fire. The probe now
+  exits `0` only when all three surfaces agree the loop is running, `1` when one
+  reports it stopped, and `2` when a surface cannot be read (fails closed), so a
+  demo run can gate on it.
+- **Pre-flight gate passed against the live origin (2026-10-26 05:53 UTC).**
+  `ZIV_RELAY=https://35-224-56-20.sslip.io bash scripts/demo_preflight.sh` exited
+  **`0`** with `PASS: schedule loop running` / `preflight passed - the loop is
+  running and fired the probe reminder`. The read-only checks before scheduling
+  agreed on all three surfaces (`schedule_loop.running`, `schedule.loop_running`,
+  `loop.running` all true) with **one device attached, `gate_queue: 0`,
+  `inbox_pending: 0`, `schedule_pending: 0`**, so the probe scheduled its reminder
+  instead of refusing. Reminder `id 4` was due `05:53:07Z`; the loop took it and
+  wrote `last_fire_at: 2026-10-26T05:53:21.714953Z` after **21.3 s** of waiting
+  (previous stamp `2026-10-25T15:24:50.97Z`). Telemetry behind the stamp:
+  `message_turn 10.8 s (source: scheduled)` and `scheduled_reminder_fired 14.7 s`
+  at the same instant. Afterwards `/api/ziv/ready` reported `pending: []` and
+  health still showed `gate_queue: 0`, `inbox_pending: 0`, `devices: 1` — nothing
+  left queued to replay over a take. The reminder played on the attached live
+  band; the gate is not read-only, which is why it runs before the take and not
+  during one.
 
 ## What runs on the VM
 
