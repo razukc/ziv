@@ -174,7 +174,7 @@ The built things are the submission. The rest is held as asset.
 | `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events |
 | `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo; rung 1 is proven on the host, while rung 2's QEMU boot is still pending an IDF install (`docs/QEMU_SIMULATION_LADDER.md`) |
 | `tools/haptic_timing.py` | The timing spec's generator + drift guard (7 generated consumers) |
-| `agent/tests/` | The 14 test modules (179 hermetic tests; the 4 browser-tier tests are marked `e2e`) |
+| `agent/tests/` | The 15 test modules (196 hermetic tests; the 4 browser-tier tests are marked `e2e`) |
 | `tools/build_ziv_demo.py` | The demo-chain single source — one `DEMO_STAGES` generates app, fixture, and docs |
 | `tools/qemu_timeline.py` | The rung-2 differ (bench/boot HAP logs vs the derived fixture) |
 | `docs/` | Plan, timing spec, QEMU ladder, hardware bring-up + shopping |
@@ -225,7 +225,7 @@ python firmware/app/ziv_qemu/run_ziv_tests.py    # rung-1 host demo (not a QEMU 
 Last run on this tree:
 
 ```
-PASS  hermetic relay suite            179 checks
+PASS  hermetic relay suite            196 checks
 PASS  browser tier                      4 checks
 PASS  haptic bench                    274 checks
 PASS  rung-1 host demo                 49 checks
@@ -237,8 +237,9 @@ concurrent admits losing/duplicating nothing), the server endpoints, the agent
 path (a scheduled intent composed by the model and played as its own words; the
 keyless echo; the loud failure), the durable store (schedule round-trip across
 instances, corrupt recovery, cap), the two-sided PWA badge contract, the
-busy-sheet compose contract, and the loud redial give-up contract. The four browser-tier tests are marked `e2e` and
-deselected by default; they are not part of the 179 verified tests above, but
+busy-sheet compose contract, the demo pre-flight gate's exit codes and
+reminder cleanup, and the loud redial give-up contract. The four browser-tier tests are marked `e2e` and
+deselected by default; they are not part of the 196 verified tests above, but
 they run on this tree against the current visible compose flow — the idle
 compose screen and the mid-turn busy-sheet:
 `cd agent && python -m pytest -m e2e` → **4 passed** (~62 s).

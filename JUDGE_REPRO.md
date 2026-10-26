@@ -39,7 +39,7 @@ Quick index — claim → where it's proven:
 | Honesty audit trail | `HONESTY_CHANGELOG.md` |
 
 > **Reproducibility in this checkout.** The full tree frozen at tag
-> `submission-v1` is present: all 14 test modules plus `conftest.py` (under `agent/tests/`), the
+> `submission-v1` is present: all 15 test modules plus `conftest.py` (under `agent/tests/`), the
 > `firmware/` tree, the `docs/` timing spec, and the generated consumers. Every row
 > above is reproducible from this working tree. The firmware rows were re-run for
 > this checkout: 274 checks and 49 checks, 0 failures, 27 HAP events matched.
@@ -55,10 +55,10 @@ Green on this checkout, no network and no key. The demo requirements do not pin
 ```bash
 cd agent
 python -m pytest -q
-# -> 179 passed, 4 deselected in about 145 s (2:25), exit 0
+# -> 196 passed, 4 deselected in about 170 s (2:50), exit 0
 ```
 
-That is every hermetic test in the tree: 179 in 12 modules, with the four browser
+That is every hermetic test in the tree: 196 in 13 modules, with the four browser
 tests in the other two modules deselected by their `e2e` marker. The store file
 alone is the quick read:
 
@@ -291,13 +291,13 @@ desktop Chrome renders the wire log, cells box, badge and redial note, but canno
 The four `e2e`-marked tests drive the visible compose surfaces:
 `#btnWrite` → `#composeInput` → `#btnSendCompose` from the idle screen, and
 `#btnWriteDuring` → the busy-sheet → Send while a turn owns the screens. They
-are deselected from the 179-count hermetic run. With Playwright installed they
+are deselected from the 196-count hermetic run. With Playwright installed they
 run separately:
 
 ```bash
 cd agent
 python -m pytest -m e2e -q
-# -> 4 passed, 179 deselected in about 62 s
+# -> 4 passed, 196 deselected in about 62 s
 ```
 
 ---

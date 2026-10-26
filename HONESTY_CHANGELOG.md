@@ -72,7 +72,7 @@ the timing drift guard are each run directly. The counts were previously
 hand-typed into six files and had already disagreed across three variants
 present in the tree at once; they are now read from the four runs, and the
 version of this file you are reading was last refreshed from a run that read
-179 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
+196 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
 this repository or its history.)
 
 ### 0.5 What is deliberately still not claimed
@@ -493,13 +493,13 @@ What's-next list lost the items this work built.
 Last refreshed by direct runs of the four suites — do not hand-edit the numbers:
 
 ```
-PASS  hermetic relay suite            179 checks
+PASS  hermetic relay suite            196 checks
 PASS  haptic bench                    274 checks
 PASS  QEMU host suite                  49 checks
 PASS  drift guard                     7 consumers in sync
 ```
 
-- **Suite:** `python -m pytest -q` → **179 passed, 4 deselected**
+- **Suite:** `python -m pytest -q` → **196 passed, 4 deselected**
   (deselected = e2e, needs a browser; collection is clean with no ignore
   flags). With a browser installed: `python -m pytest -m e2e` → **4 passed**
   in a real chromium — the full redial, give-up, and busy-sheet queue

@@ -3,7 +3,7 @@
 Every remaining Devpost form field as a copy-ready block, in form order.
 Companion to `DEVPOST_UPLOAD_CHECKLIST.md` (the map) and
 `DEVPOST_PROJECT_STORY.md` (the Project Story block — not repeated here).
-All numbers verified against the repo: 179 passed / 4 e2e, 274-check
+All numbers verified against the repo: 196 passed / 4 e2e, 274-check
 firmware bench, 49-check ziv_qemu host suite, 27 HAP events.
 
 ---
