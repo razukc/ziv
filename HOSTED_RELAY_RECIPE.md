@@ -1,6 +1,8 @@
 # Hosted relay recipe draft — keyless demo
 
-Status: recipe draft only. Not deployed. Not a scaffold. Not BYOK.
+Status: recipe draft only. Not deployed. Not a scaffold. BYOK is wired as a
+one-shot compose (`POST /api/ziv/compose`) — a judge-supplied key is used for
+one call and is never stored, scheduled, or written into the environment.
 
 ## 1) What a hosted build actually needs
 
@@ -45,7 +47,7 @@ If the host has a separate build-vs-run directory, the app is not importable unl
 - `ZIV_PORT` — default `8787`. Host ports may be assigned externally; if so, set this.
 - `ZIV_FAKE_MODEL_SECONDS` — default `3.0`. Controls the fake-model wait in the demo beat.
 - `ZIV_RELAY_TOKEN` — default empty = open. Set to lock the relay down. For the keyless demo link, leave it unset unless you want auth on.
-- `NEBIUS_API_KEY` — default empty. If unset, `agent_path_available()` is False and the agent path is unavailable; scheduled intents fire verbatim as `text_echo`.
+- `NEBIUS_API_KEY` — default empty. If unset, `agent_path_configured()` is False and no live call is attempted; scheduled intents fire verbatim as `text_echo`. The judge-key path (`POST /api/ziv/compose`) does not need it: the key travels in `X-Nebius-Key` for one request.
 - `NEBIUS_BASE_URL` — default `https://api.tokenfactory.nebius.com/v1/`. Only matters if `NEBIUS_API_KEY` is set.
 - `ZIV_TEXT_MODEL` — default `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`. Only matters if `NEBIUS_API_KEY` is set.
 
@@ -60,11 +62,13 @@ For the default keyless demo link, leave these empty:
 - The client page, timing, health, schedule, inbox, and message routes still work.
 - The demo still proves the whole turn shape, the queue + 429 + redial, and the always-on reminder beat — without any key.
 
-### Health currently exposes the wiring state
+### Health separates wiring from proof
 `GET /api/ziv/health` currently returns, among other things:
 - `auth` — whether `ZIV_RELAY_TOKEN` is set
 - `model` — `ZIV_TEXT_MODEL`
-- `available` — `agent_path_available()`
+- `configured` — `agent_path_configured()`: key + model present, so a call can be *attempted*
+- `available` — `agent_path_available()`: `null` until a real compose is attempted, then that attempt's outcome. It is not a key check — an unfunded key reports `available: false` with the provider's status in `last_compose`
+- `last_compose` — `{ok, status, error, detail, model, at}` for the last scheduled compose attempt, or `null`. Content-free: counts and provider status only, never the line
 
 For a keyless hosted demo, that is fine and even useful: it makes the default “no model wired” state visible in the operator view. It is worth one honest check before shipping: confirm the health payload only exposes counts/telemetry/wiring and never message text, reminders, or inbox content. The current public claim is that it does; this recipe should not be shipped until that claim is re-verified on the deployed instance.
 
@@ -123,12 +127,15 @@ These are the smallest checks that prove the link is the real full demo, not a s
    - A WS client connecting to `wss://<public-origin>/ws` receives a scheduled reminder as a self-naming turn: prefix mark, cue, processing ticks, content cells, close, queue release.
 5. Optional durable-link check:
    - If the host has an idle-sleep tier, verify whether an idle period breaks the first WS connect or only adds a cold-start delay, and record that caveat explicitly in the demo link notes.
+6. Model wiring:
+   - `GET /api/ziv/model/check` answers `200` with a `sample` when the key works, and `502` with the provider's own `provider_status`/`detail` when it does not.
+   - `POST /api/ziv/compose` with a judge-supplied `X-Nebius-Key` plays one `text_live` turn; a bad key returns the provider's status without the key in the body.
 
 If any of those fail on the deployed URL, the link is not yet the hosted full demo; treat it as a build issue, not a verification artifact.
 
 ## 7) What is not in scope here
 
-- No BYOK wiring.
+- No key storage: BYOK is one request, not a saved credential.
 - No new package scaffolding.
 - No actual deploy in this pass.
 - No decision on the final host; this is the recipe surface plus the gaps that block a real deploy.

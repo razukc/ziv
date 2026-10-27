@@ -7,11 +7,11 @@ open at `http://127.0.0.1:8787/ziv_client/index.html`.
 
 **Pre-roll (before REC):**
 
-- [ ] Terminal A: `python -m pytest -m "not e2e"` → `197 passed, 4 deselected` (keep the tail on screen)
+- [ ] Terminal A: `python -m pytest -m "not e2e"` → `199 passed, 4 deselected` (keep the tail on screen)
 - [ ] Terminal B: `ZIV_FAKE_MODEL_SECONDS=8 python ziv_server.py` → `Uvicorn running on http://0.0.0.0:8787` (8 s fake-model = room to work; every turn ~10 s)
-- [ ] Browser: open the dev-band page → `relay hello — spec v3, … patterns, mark: ziv`
-- [ ] Tap the power button, then **Wake band** → `listening for your cue`; badge reads `queue 0/8 · reminders 0/64`
-- [ ] Message box cleared; mic unmuted; REC ●
+- [ ] Browser: open the dev-band page → tap **Open the band** → `connected`, `relay hello — spec v3, … patterns, mark: ziv`
+- [ ] Badge reads `queue 0/8 · reminders 0/64`; no microphone prompt appears (this build has no capture path)
+- [ ] Compose box cleared; wire log visible; REC ●
 
 ---
 

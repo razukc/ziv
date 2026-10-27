@@ -58,36 +58,45 @@ Evidence lives in the agent log files we created for the run, named like:
 with the reminder-fire assertions in the run output, not in the repo’s
 commit history.
 
-## What is still missing for a shareable link
+## The shareable link
 
-Right now the verified surface is `127.0.0.1` only. That is “this device” on
-the machine that is running the relay, which is not useful to a phone, a judge
-on another laptop, or anyone not on this exact session.
+The relay is deployed on the GCP demo VM and reachable over HTTPS:
 
-To make a real “Try out” link we still need to decide:
+    https://35-224-56-20.sslip.io
 
-1. Which exposure path you want:
-   - local LAN address only (same WiFi, phone opens `http://<this-machine-ip>:8787/ziv_client/index.html`)
-   - a tunnel from this machine to a public URL
-   - a hosted deployment of the relay itself
+That origin serves the real client page, the manifest, the service worker and
+`/ws`, with a Let's Encrypt certificate, so a phone can install it as an app.
+Details, restart commands and limits: [VM_ONLINE.md](VM_ONLINE.md).
 
-2. Whether the demo should use the live Nebius Token Factory text model path or
-   stay keyless (`text_echo`). Keyless still fires; it is just labelled
-   honestly as an echo. The link works either way.
+Two demo choices are settled by this deployment:
 
-3. Whether you want auth turned on. With `ZIV_RELAY_TOKEN` set, the current
-   client page cannot connect because it sends no token. That is a known gap
-   in the client, stated in the repo’s honesty docs. For a demo link today,
-   leaving the token unset is the honest choice.
+1. **Exposure path** — a hosted relay on the VM, fronted by Caddy. Not a LAN
+   address and not a quick tunnel; the hostname is permanent because the VM's
+   IP is reserved and the name is derived from it.
+2. **Model** — the VM runs `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` on a funded
+   trial key. `/api/ziv/model/check` reports `200`, and a scheduled intent makes
+   a real call: `tell me to drink` composed **"drink water"**, and all 10 of its
+   cells played on the public band. The relay sends
+   `chat_template_kwargs: {"enable_thinking": false}` — without it this model
+   spends the whole budget in `reasoning` and returns `content: null`. Keyless
+   still fires the full turn and labels it `text_echo`; `health.text.last_compose`
+   carries the provider's own reason when a call fails. A judge can also use
+   their own key in the console's one-shot panel: that path needs nothing
+   configured on the VM, and the key is never stored.
+
+Auth is still unset on the VM (`ZIV_RELAY_TOKEN`). With the token set, the
+current client cannot connect because it sends no token — a known gap, stated
+in the honesty docs. For a judged demo, leaving it unset is the honest choice.
 
 ## The honest current status
 
-- The relay and the real client page are verified working together on this
-  machine, loopback only.
-- There is no public URL, tunnel, or hosted deployment attached to this
-  session yet.
-- If you want a link you can paste into a phone or send to a judge, the next
-  move is to choose the exposure path in the list above and stand it up.
+- The relay and the real client page are verified working together **locally**
+  and on the **public HTTPS origin** (service worker controlling, `wss://`
+  connected, a live turn rendered 12/12 braille cells, Chrome reports no
+  installability errors).
+- The VM's relay and Caddy are both systemd units and both `enabled`: a full VM reset
+  brought the public URL back in 19 s with no manual step.
+- The demo is unauthenticated on purpose for judging.
 
 ## Files that matter for the full demo
 

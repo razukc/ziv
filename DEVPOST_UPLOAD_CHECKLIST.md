@@ -7,7 +7,7 @@ keeps the deaf-blind case in its own section) and stay in that voice for
 every field. Before you record or upload, run the gate:
 
 ```bash
-cd agent && python -m pytest -m "not e2e"   # → 197 passed (4 e2e deselected)
+cd agent && python -m pytest -m "not e2e"   # → 199 passed (4 e2e deselected)
 python -m pytest -m e2e                     # → 4 passed (needs Playwright)
 ```
 
@@ -32,7 +32,7 @@ page's own counter is the source of truth — don't plan a last-day upload.
 | **"What hackathon track are you in?"** | GENERIC → Devpost-Specific Answers | Best Apps and Agents |
 | **GitHub repo link** | `https://github.com/razukc/ziv` | Judges land on the README's "For judges" block; the `submission-v1` tag freezes the verified tree. Public-repo requirements are a graded form item — see §6 |
 | **"Built with" chips** | NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3, DRV2605L, Python | Add chips exactly as listed (ESP32/DRV2605 belong to the next revision — the tech answer already scopes that). NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
-| **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Organizer ask: name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack. This clip is the keyless/verbatim take, so the soundtrack does **not** name a live model call (it says so on camera); the live-key version of the same beat does, and §2's recording notes state which is which. |
+| **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Organizer ask: name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack. Upload `agent/demo_full_narrated.mp4` (**107 s**, full six-beat cut): the voiceover names both, the band plays **"drink water now"** for the scheduled intent `tell me to drink` (a line the model wrote), the queue/refusal and redial are shown, and the relay is really restarted before `pills` fires. `agent/demo_live_narrated.mp4` (54 s) is the shorter live-only alternative. **Re-record after §1.12:** the cap fix that makes a composed line fit 12 cells landed after this take, so the band on screen spells `drinkwaterno` — the last `w` of "drink water now" is dropped — and today's relay composes `drink water` (10 letters) instead. |
 | **Screenshot gallery** | See shot list below | 4–6 images, each with its caption — §3 |
 
 Do **not** paste: `HONESTY_CHANGELOG.md` and `JUDGE_REPRO.md` are repo
@@ -55,14 +55,18 @@ trail is HONESTY_CHANGELOG.md."*
    `refusing — queue full (8/8)`; show the HTTP 429 and the busy note; then
    the redial: `↻ redial armed — … 3 chances left`, the auto resend on the
    freeing close, `POST ok`.4. **1:10–1:50 the stack** — the model-path beat (live only with a funded
-    Nebius Token Factory key; the shipped clip is the keyless/verbatim take).
-    Schedule an *intent* by curl (`{"intent": "meds at nine", "fire_at": …}`);
+    Nebius Token Factory key).
+    Schedule an *intent* by curl (`{"intent": "tell me to drink", "fire_at": …}`);
     with a key the relay calls Nemotron-3-Nano-30B-A3B on Nebius Token Factory
-    and plays the line the model wrote (`source: text_live` on the wire); with
-    no key the same beat fires the promise verbatim, labelled `text_echo`, and
-    the wire log names the path it took rather than claiming a model ran. Flash
-    the README's "Tests" block — 197-test suite, 274-check bench, 49-check host
-    suite, drift-guard result — and `docs/haptic-timing.json`.
+    and plays the line the model wrote; the relay's own `last_compose` record
+    names the model and status, and the wire log shows the composed line rather
+    than the intent. With no key the same beat fires the promise verbatim —
+    the relay records `text_echo` instead of claiming a model ran.
+    The full cut (`agent/demo_full_narrated.mp4`) captures this beat: the intent
+    `tell me to drink` plays **"drink water now"**, and the relay's
+    `last_compose` record is `{ok: true, status: 200}` on the NVIDIA model.
+    Flash the README's "Tests" block — 274-check bench, 49-check host suite,
+    drift-guard result — and `docs/haptic-timing.json`.
 5. **1:50–2:30 the agent acts while you're away** — a finished `text`
    reminder, scheduled by curl, fires unprompted: `reminder: pills`
    narration, Z-I-V cells, `triple-pulse`, close. Then the durability beat:
@@ -84,23 +88,29 @@ video, not just a passing mention." Two scripted paths do this themselves
 -  `agent/record_full_demo.py` — the **whole §2 outline in one take**
   (cold-open card → channel → the model-path beat → refusal → the
   durability beat with a real relay kill/restart → closing card) →
-  `demo_full_narrated.mp4` (~112 s, uploaded as the unlisted YouTube clip).
-  It owns the relay lifecycle on :8787, sweeps stray relays, and refuses a
-  poisoned gate. The stack beat schedules an intent and, on THIS keyed-take-
-  free recording, the relay fires the promise verbatim: the soundtrack says
-  "I gave the relay an intent, not a message. With no key set it fired the
-  promise verbatim, labelled text_echo, and the log named the path it took."
-  — the log names the path it took rather than claiming a model ran. The
-  narration is generated from the same `_STACK_ACTUAL` the script computes,
-  so a take recorded WITH a funded Nebius Token Factory key would instead
-  narrate the live model call and the wire log would say `source: text_live`.
+  `demo_full_narrated.mp4` (**107 s**, uploaded as the unlisted YouTube clip).
+  This take was recorded against the public origin with the funded key: the
+  intent `tell me to drink` was composed live into **"drink water now"**, and
+  the relay's `last_compose` says `{ok: true, status: 200, model: NVIDIA…}`.
+  The soundtrack is generated from that same record — a keyless take would
+  narrate the verbatim `text_echo` path instead, and the closing card says so.
   The beat is otherwise identical either way: same turn pipeline, same cue →
   processing → cells → close, same refusal fill, same drain. No Omni model is
   shown or named anywhere in this take — it is held as asset, not
-  demonstrated.
+  demonstrated. On the public host the durability step restarts the systemd
+  unit over SSH and leaves it running; a local run owns the relay lifecycle on
+  :8787, sweeps stray relays, and refuses a poisoned gate.
 - `agent/record_beat_narrated.py` — just the 0:20–1:10 beat against a
   self-started relay on :8787 (`ZIV_FAKE_MODEL_SECONDS=8`) →
   `demo_beat_narrated.mp4`.
+
+`ZIV_TAKE=live` on `record_full_demo.py` records the shorter four-beat live
+cut → `demo_live_narrated.mp4` (54 s): cold open, channel, live NVIDIA compose,
+closing. It reads the live claim from the relay's health record, not the local
+`.env`, and leaves the deployed relay running. Both modes use the installed
+Chrome channel for capture (the headless shell crashed its renderer after
+~90 s) and count wire events in page state, because the client's log trims at
+60 lines.
 
 `record_beat.py` alone still emits a **silent webm**; use a narrated
 pipeline for the upload track. Also treat the video as a pitch per the
@@ -238,11 +248,11 @@ lost:
 
 ## 9. Pre-flight (final)
 
-- [ ] `pytest -m "not e2e"` → 197 passed (4 e2e deselected); `-m e2e` → 4 passed
+- [ ] `pytest -m "not e2e"` → 199 passed (4 e2e deselected); `-m e2e` → 4 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable, and
       Token Factory + Nemotron **named aloud** (§2's narrated pipeline),
       uploaded as MP4/WebM with the audio track present in the file
-- [ ] Every number in the description matches the repo (197 passed / 4 e2e,
+- [ ] Every number in the description matches the repo (199 passed / 4 e2e,
       274-check firmware bench, 49-check ziv_qemu host suite, 27 HAP events
       — JUDGE_REPRO.md is the source of truth)
 - [ ] Both deferral sentences intact (AI-composed replies = next build

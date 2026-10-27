@@ -14,6 +14,34 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only
 
+- **A composed line now fits the band, and health reads as evidence** — the
+  model's answer was sliced by the cell player, so a 13-letter line ("drink
+  water now") played 12 cells and lost its final `w` without a word. The relay
+  now measures a composed line against the same `_spelled()` the player slices
+  with, recomposes when it does not fit, and refuses it as `too_long` rather
+  than play a cut word; the band takes its cap from `/api/ziv/timing` instead of
+  a guessed number. `text.configured` (a key is wired) is now separate from
+  `text.available` (proof from the last real compose, `null` until one runs),
+  and `text.last_compose` records every attempt — an unfunded key reports
+  `available: false, status: 402`, not `true`. The console carries a one-shot
+  panel for a judge's own Nebius key (nothing stored; the relay's compose record
+  is untouched), the suite is **230**, and the shell cache is
+  `ziv-phone-band-v16`.
+
+- **The dev band shows only what this build can do** — the shell dropped the
+  **Wake band**, **Stand by**, and listening-meter screens. They were
+  decoration: no `getUserMedia`, no `MediaRecorder`, no call to `/inject/audio`.
+  The audio seam remains a server-side asset until an audio-capable endpoint is
+  available (health still reports `omni.configured: false`), and the client says
+  so instead of pretending. What remains is the real loop: one tap opens the
+  band and supplies the sticky activation vibration needs, deferring the
+  WebSocket attach until then; **Write a message** posts through the same seam;
+  an incoming turn shows the relay's arrival cue; the reply appears in text and
+  then timed braille; and the ready screen offers only compose, receive, and
+  queue. Every button is wired, and two surface-contract tests fail if a
+  capture API, capture copy, or a dead control returns — the suite is **199**.
+  The shell cache moved to `ziv-phone-band-v7`.
+
 - **The commit gate now enforces the PWA shell cache** — `hooks/pre-commit`
   gained the third check: when the index touches `agent/ziv_client/`, it runs
   `scripts/ziv_client_cache.py --check --staged`. The new `--staged` mode

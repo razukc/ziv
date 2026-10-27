@@ -14,7 +14,7 @@ Hears for people who can't hear, speaks braille on their skin.
 
 ## Short Description (one-liner)
 
-Ziv is a phone-based haptic message channel for deaf-blind users: the wearer's phone plays what arrives as braille patterns a deafblind wearer can feel — no screen, no sound. The demo runs the relay's keyless stub path, so the turn plays without a live provider call. (AI-composed replies are not part of this submission.)
+Ziv is a phone-based haptic message channel for deaf-blind users: the wearer's phone plays what arrives as braille patterns a deafblind wearer can feel — no screen, no sound. A scheduled intent is composed live on Nebius Token Factory when the relay has a key; without one the same intent fires verbatim, labelled `text_echo`. (AI-composed *audio* replies are not part of this submission.)
 
 ---
 
@@ -33,7 +33,7 @@ The gap: **no existing product pairs a haptic braille output channel with an AI 
 
 ### Our Solution
 
-Ziv (working title) is a phone-based haptic message channel for deaf-blind users: the phone's vibration motor plays the words that arrive as braille patterns on the wearer's skin — no screen, no sound, nothing for the room to see or overhear. The demo runs the relay's keyless stub path, so the turn plays without a live provider call.
+Ziv (working title) is a phone-based haptic message channel for deaf-blind users: the phone's vibration motor plays the words that arrive as braille patterns on the wearer's skin — no screen, no sound, nothing for the room to see or overhear. A scheduled intent is composed live on Nebius Token Factory when the relay has a key; without one the same intent fires verbatim, labelled `text_echo`.
 
 1. **Speaks braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
 2. **Acts while they're away.** Scheduled reminders fire unprompted as full haptic turns — the always-on assistant beat, proven by the relay's scheduler. The schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped): a reminder promised for tomorrow survives a restart tonight.
@@ -153,7 +153,7 @@ Ziv (working title) is a private, always-on AI companion for deaf-blind users �
 
 Concretely, the prototype does this now:
 
-- **A demo turn that plays without a live provider call.** The relay's keyless stub path hands a transcript to the relay directly, so the turn plays on the phone without a live provider call — cue, processing ticks, braille cells, felt close, queue release.
+- **A turn that runs with or without a provider.** A typed message never reaches the model; a scheduled intent is composed live when the relay has a key and otherwise fires verbatim, labelled `text_echo` — either way: cue, processing ticks, braille cells, felt close, queue release.
 - **Speaks braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
 - **Acts while they're away.** A scheduled relay job buzzes a reminder unprompted — the always-on assistant beat, proven live: the scheduler loop fires it, and `/api/ziv/ready` + health telemetry record it.
 - **Private by physics.** Nothing to overhear, nothing to glance at: a message vibrates on the phone and is invisible to the room. The mic is push-to-talk (not always-on listening).
@@ -161,7 +161,7 @@ Concretely, the prototype does this now:
 - **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health — never silently swallowed) plus a capped persistent inbox: a message that arrives with no band attached is stored, not dropped, and replayed on the next attach as a self-naming turn — mark first, content after.
 - **Boots its timing from one source.** The phone's vibrate patterns come from `GET /api/ziv/timing` — the serialized generated module — so the phone and the feel-tool play identical patterns by construction, not by convention.
 
-**A scene from the demo.** A sighted helper hands a transcript to the relay through the keyless stub path, and the phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. What was said appears on the wearer's phone as vibro-braille. The wearer replies by text. The helper's side is shown honestly: the reply is visible as text in the relay's wire log (there is no separate helper client yet), and because there is no speaker in the room, the helper does not hear it. The demo shows the friend's side rather than leaving it to the room to guess.
+**A scene from the demo.** A typed message reaches the relay with no provider involved, and a scheduled intent is composed live by the model; either way the phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. What was said appears on the wearer's phone as vibro-braille. The wearer replies by text. The helper's side is shown honestly: the reply is visible as text in the relay's wire log (there is no separate helper client yet), and because there is no speaker in the room, the helper does not hear it. The demo shows the friend's side rather than leaving it to the room to guess.
 
 ---
 
@@ -290,7 +290,7 @@ NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Andro
 ## Demo Video Outline (≤3 min)
 
 1. **0:00–0:20** — the gap: price cards ($4,000 display / $349 keyboard / ~$40 Ziv wrist BOM — held as asset; the demo band is a phone). Who it's for in one sentence.
-2. **0:20–1:10** — the conversation: a friend hands a transcript to the relay through the keyless stub path, the phone plays braille, the wearer replies by text; relay log on screen. **Show the friend's side:** the reply is visible as text in the relay's wire log (there is no separate helper client yet) — there is no speaker in the room, so the friend does not hear it. The demo must not imply the friend heard a spoken reply.
+2. **0:20–1:10** — the conversation: a friend's message reaches the relay (a typed message needs no provider), the phone plays braille, the wearer replies by text; relay log on screen. **Show the friend's side:** the reply is visible as text in the relay's wire log (there is no separate helper client yet) — there is no speaker in the room, so the friend does not hear it. The demo must not imply the friend heard a spoken reply.
 3. **1:10–1:50** — the timing source: the spec is generated from one JSON; the drift guard proves the phone and the feel-tool share the same patterns. The demo beat plays cue, processing ticks, braille cells, felt close, queue release.
 4. **1:50–2:30** — private by physics: a message vibrates on the phone, invisible to the room. Held as asset: the wrist device and the audio-in hearing layer. Show the always-on beat: a scheduled reminder buzzes unprompted, with the relay's ready/health telemetry as the proof.
 5. **2:30–3:00** — the ask: "a new channel for people mass-market product ignores."

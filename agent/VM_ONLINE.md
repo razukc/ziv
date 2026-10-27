@@ -130,6 +130,96 @@ stop/start — an ephemeral IP would silently break it.
   band; the gate is not read-only, which is why it runs before the take and not
   during one.
 
+- **Judge-key build deployed (2026-10-27 05:02 UTC).** `ziv_server.py` is
+  `f8776ebc…` (backup `ziv_server.py.20261027T050135Z.bak`); the client is
+  **`ziv-phone-band-v16`** (`index.html 808c4789…`, `ziv_sw.js eebc5382…`;
+  backup `client-20261027T050201Z`). The first diagnostic call exposed a real
+  deployment gap: the VM venv had no **`httpx`**, so `/api/ziv/model/check`
+  answered `503 no_httpx`; installed `httpx 0.28.1`, after which the same
+  endpoint answered `502` with `provider_status: 402`
+  (`credit_balance_exhausted`) — the provider is reachable, the account has no
+  balance. On the public origin: health carries `sessions` and
+  `text.last_compose`; a one-shot compose with a deliberately bad key answers
+  `502` with `provider_status: 401` (proving the judge's key is the one used);
+  the real client shows that 401 in the panel without writing the key to
+  `localStorage` or `sessionStorage`; a scheduled intent still plays
+  `text_echo` and records why. No relay restart was needed after the `httpx`
+  install (the import is per call).
+
+- **Owner-funded live compose proven (2026-10-27 06:07 UTC).** `ziv_server.py` is
+  `37e2b96a…` (backup `ziv_server.py.20261027T060419Z.bak`), and the VM `.env`
+  now holds the replacement `NEBIUS_API_KEY` from the new trial account (backup
+  `env.20261027T060419Z.bak`); the previous key remains only in the local
+  checkout as `NEBIUS_API_KEY_OLD`, which the relay never reads.
+  `ZIV_TEXT_MODEL` is pinned to `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, and
+  `/api/ziv/model/check` answers **`200`** with `sample: "ok"` (provider latency
+  0.63 s) — the same endpoint answered `402` before this deploy. The compose and
+  probe calls send `chat_template_kwargs: {"enable_thinking": false}`: without
+  it this NVIDIA model spends the token budget in `reasoning` and returns
+  `content: null`, which the relay now reports as a `502` rather than composing
+  the word "None". Two scheduled intents were composed and played on an
+  attached band over `wss://`: `meds at nine` (23 frames) and `tell me to drink
+  water` → **"drink water now"** (25 frames), each ending in the close.
+  Health's `text.last_compose` recorded `{ok: true, status: 200, model: …}` after
+  both. One compose measures ~80 tokens, so the $1 trial credit covers thousands
+  of reminders; the judge-key panel is unchanged and still uses only the
+  caller's key for one call.
+
+- **Live demo cut recorded (2026-10-27 07:14 UTC).** `agent/demo_live_narrated.mp4`
+  (54 s, H.264/AAC, 1280×800; silent master `agent/demo_live.webm`) is the
+  live-model cut: cold open → one typed channel turn → a scheduled intent
+  `tell me to drink` composed into **"drink water now"** → closing card. The
+  intent text never played; the composed line is visibly different. The public
+  relay's `text.last_compose` recorded `{ok: true, status: 200, model:
+  nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B}` for that take. Narration segments and
+  marks are in `agent/narration_live/`. Recorded with the new `ZIV_TAKE=live`
+  mode of [`record_full_demo.py`](../agent/record_full_demo.py); it reads the
+  live claim from health, not from this machine's `.env`, and never restarts the
+  deployed relay. Recording also exposed a real race: an arrival during the
+  name-mark prefix saw a free gate and became a second main turn. The turn now
+  reserves the gate before the prefix; `ziv_server.py` is `31858f71…` on the VM
+  (backup taken before the copy).
+
+- **Full six-beat cut recorded (2026-10-27 08:17 UTC).**
+  `agent/demo_full_narrated.mp4` (**107.3 s**, H.264/AAC, 1280×800; silent
+  master `agent/demo_full.webm`; narration + marks in `agent/narration_full/`)
+  is the §2 outline in one take against the public origin: cold open → typed
+  channel turn → scheduled intent `tell me to drink` composed live into
+  **“drink water now”** (13 cells, visibly not the intent) → eight fills fill
+  the queue, the ninth gets **HTTP 429**, the busy sheet arms the redial → the
+  queue drains, the redial fires on the free close and logs `POST ok` →
+  `pills` is scheduled, the relay is **killed and restarted over SSH**, the
+  schedule reads back unchanged, the client reconnects (`relay hello`), the
+  reminder plays (`reminder: pills`, Z-I-V mark, `triple-pulse`) → closing
+  card naming NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory. The
+  relay's `text.last_compose` recorded `{ok: true, status: 200}` on that model
+  for the take. Two recorder defects had to be fixed first: the headless
+  *shell* crashed its renderer after ~90 s (“Target crashed”), so capture now
+  uses the installed Chrome channel; and the completion wait counted
+  `POST ok` lines in a wire log capped at 60, so the redial's line could be
+  evicted before the poll saw it — the recorder now counts events in page
+  state with a MutationObserver. A 5-minute watchdog bounds any future stall.
+
+- **Compose-cap and honest-health fixes deployed (2026-10-27 18:05 UTC).**
+  `ziv_server.py` is now **`ab558ee2…`** (backup
+  `ziv_server.py.bak-20261027T180511Z`); the VM's `.env` was already on the same
+  funded key (SHA-256 prefix `cb3a87decb9c047b`), so no secret moved. This is
+  HONESTY_CHANGELOG §1.12 + §1.13: a composed line is now measured against the
+  same `_spelled()` the cell player slices with, recomposed when it does not
+  fit, and refused with `too_long` rather than played with its tail cut; health
+  reports `configured` (key wired) separately from `available` (proof from the
+  last real compose, `null` until one runs). The restart was done without root
+  by signalling the unit's `MainPID` — the unit runs as the login user and
+  `Restart=always` brought it back in **3 s** (`75774` → `89681`). Live on the
+  public origin, with a band attached over `wss://`: the intent `tell me to
+  drink` composed **"drink water"**, the wire played **10 of 10** content
+  cells (Z-I-V prefix mark first, then the plain `message:` label), and health
+  recorded `last_compose {ok: true, status: 200, model: nvidia/…}`,
+  `available: true`, `inbox_pending: 0`, `schedule_pending: 0`, `devices: 0`
+  afterwards. Before this deploy the same intent produced the 13-letter
+  **"drink water now"** and the player silently dropped its final `w`, which
+  is what the 08:17 take shows.
+
 ## What runs on the VM
 
 | thing | where |

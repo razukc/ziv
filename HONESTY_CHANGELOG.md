@@ -72,7 +72,7 @@ the timing drift guard are each run directly. The counts were previously
 hand-typed into six files and had already disagreed across three variants
 present in the tree at once; they are now read from the four runs, and the
 version of this file you are reading was last refreshed from a run that read
-197 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
+199 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
 this repository or its history.)
 
 ### 0.5 What is deliberately still not claimed
@@ -408,6 +408,165 @@ absence nobody can see. Four tests pin it:
 `test_schedule_cap_drop_is_counted`, and
 `test_health_reports_cap_evictions`.
 
+### 1.9 The model diagnostic blessed a model that answered `content: null` (fixed)
+
+The live diagnostic asks the configured model to "Reply with the single word:
+ok" with an 8-token budget and reported whatever `choices[0].message.content`
+held as the sample. The default model,
+`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, is a reasoning model: it spent the
+whole budget in `message.reasoning`, returned `content: null`, and the relay's
+`str(content)` turned that into the sample `"None"` **with `ok: true`**. The same
+`str()` in `compose_with_nebius` would have sent the literal word "None" to a
+deafblind wearer's wrist. It surfaced on the first real call with the new trial
+key — the old key's 402 had been hiding it — before it could reach a judge.
+
+Fixed in three parts: both provider seams send
+`chat_template_kwargs: {"enable_thinking": false}` (the NVIDIA model then answers
+`"ok"` and writes `"meds at nine"` in ~80 tokens, zero reasoning); null or empty
+content is a loud `502`, never a string; and three tests pin the wire contract
+(`test_model_check_null_content_is_not_ok`,
+`test_compose_null_content_is_not_the_word_none`,
+`test_compose_sends_the_nvidia_thinking_switch`). Verified on the public origin:
+`/api/ziv/model/check` returns `200 sample "ok"`, and the scheduled intent
+`tell me to drink water` played **"drink water now"**.
+
+### 1.10 The name mark did not hold the gate (fixed)
+
+Recording the live cut exposed a real server race. A turn marked the gate
+"playing" only **after** the name-mark prefix, so messages arriving during that
+~5-second window saw a free gate and each became a second main turn racing the
+turn lock. In the take, eight fills sent at the start of a scheduled reminder
+all played as main turns instead of queueing, and the refusal beat never had a
+full queue. The gate is now reserved before `_play_prefix_mark`, inside the same
+turn lock, and the later duplicate reserve is gone. Targeted server, seam and
+gate suites: **104 passed**, and the full suite is **224 passed, 5 deselected**.
+With the fix, the next take's scheduled reminder recorded `queued: 8` — the
+fills waited their turn, which is what the refusal beat depends on.
+
+### 1.11 The demo recorder said "done" twice when it was not (fixed)
+
+Two full takes were lost after the redial, both with the browser still
+recording an idle page. The cause was not the relay:
+
+1. **The renderer crashed.** Playwright reported `Locator.count: Target
+   crashed` only after the process was killed; the headless *shell* build died
+   after ~90 s of the client's cell animation, freezing the video on its last
+   frame. Capture now launches the installed **Chrome** channel
+   (`ZIV_BROWSER_CHANNEL`, default `chrome`), which recorded all 107 s of the
+   final take without a crash.
+2. **The completion signal could be erased.** The redial wait counted
+   `POST ok` lines in the client's wire log, which keeps only the newest **60**
+   lines. The eight replays pushed the baseline out, so the post-redial count
+   could equal the old one and the wait never completed. The recorder now
+   installs a `MutationObserver` that counts events in page state
+   (`window.__zivSeen`), where trimming cannot reach them, and waits on those
+   counts. A 5-minute watchdog bounds any future stall instead of leaving a
+   ten-minute recording.
+
+The final artifact is `agent/demo_full_narrated.mp4` (**107.3 s**, H.264/AAC,
+1280×800): live compose **"drink water now"** from the intent `tell me to
+drink` (`last_compose {ok: true, status: 200}`, NVIDIA
+Nemotron-3-Nano-30B-A3B), eight fills + a **429**, the redial's `POST ok` after
+the free close, a real systemd **restart** with the schedule read back
+unchanged, `relay hello` on reconnect, `reminder: pills` on the band, and the
+NVIDIA/Nebius closing card. The server code was not changed for this take, so
+the 224-pass suite in §1.10 still stands; the recorder changes are outside the
+pytest suite and are covered by the take's own assertions.
+
+### 1.12 The composed line lost its last letter on the wrist (fixed)
+
+`tell me to drink` was composed into **"drink water now"** — thirteen letters
+for a twelve-cell band. The cell player slices the spelled letters at
+`SPELL_MAX_LETTERS`, so the take played `drinkwaterno`: the final `w` was never
+felt, and nothing on screen said so. The prompt asked for "at most 30
+characters", which is not the cap the band enforces.
+
+The compose path now owns the cap end to end:
+
+1. the system prompt states the real budget — **12 letters**, spaces and
+   punctuation free — and shows the *operation* ("16 letters of 'remember to
+   buy milk' become the 7 letters of 'buy milk'"), never an answer. A content
+   example was copied into an unrelated reminder in a live run: `meds at 9`
+   came back `pills at nine`;
+2. every reply is measured with the same `_spelled()` the cell player slices
+   with, so the check cannot drift from the playback;
+3. an over-cap reply gets one corrective call naming the count and the room,
+   then a last rung that asks for **two words** (a count this model follows
+   where "twelve letters" fails), then a loud **502** carrying counts only.
+   The scheduled path turns that into `text_echo` of the intent, so the promise
+   still fires; the BYOK path reports `too_long` and plays nothing;
+4. digits are spelled out (`9` → `nine`, `9am` → `nine am`), which is what the
+   console already promised ("digits are spoken out"). Without it `meds at 9`
+   lost the time entirely, and the model kept writing the digit on all three
+   rungs.
+
+Live check against NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory,
+**10 of 10** intents returned a line the band can spell whole:
+
+```
+tell me to drink              -> "drink water"      10/12  1 call
+meds at 9                     -> "nine am meds"     10/12  1 call
+call the pharmacy before noon -> "call pharmacy"    12/12  1 call
+the bus leaves at seven       -> "leaves seven"     11/12  3 calls
+```
+
+Targeted compose tests: **17 passed**; the relay server suite: **92 passed**.
+
+**The recorded 107 s take (§1.11) predates this fix** and still shows the
+pre-fix behaviour: **"drink water now"** on the band, with the final `w`
+missing from the cells. It needs a re-record before upload if the video is to
+show the code as it now stands.
+
+### 1.13 Health said "available" when only a key string existed (fixed)
+
+`text.available` returned `agent_path_available()`, which was
+`bool(NEBIUS_API_KEY and ZIV_TEXT_MODEL)` — a wiring check wearing a success
+name. A relay whose key had no credit, or whose model id was retired, still
+reported `available: true`; the only trace of the real failure was a log line
+and a reminder that quietly fell back to `text_echo`.
+
+- **`text.configured`** now owns the wiring answer
+  (`agent_path_configured()`), and the scheduler's pre-call check reads it, so
+  `text_live` vs `text_echo` is still decided before the call.
+- **`text.available`** reads the last compose record instead
+  (`agent_path_available()` → `compose_health.last_ok()`): `null` until a real
+  attempt is made, then `true`/`false` from that attempt. A key string can
+  never set it.
+- **`text.last_compose`** is the record itself — `{ok, status, error, detail,
+  model, at}` — written on every scheduled compose attempt (success, provider
+  refusal, transport failure, or the keyless `no_key` echo) and carrying status
+  and counts only, never the line.
+- The one-shot judge path deliberately does not write this record: a
+  stranger's dead key is not evidence about the relay's own key. The BYOK
+  refusal test pins that (health stays `null`).
+
+Pinned by `test_health_surfaces_the_model_wiring` (key added → `configured:
+ true`, `available` still `null`), the failed-compose test (`configured: true`,
+`available: false`, `status: 402`, `at` present), the successful-compose test
+(`available: true`), and the BYOK refusal test (relay record untouched).
+
+---
+
+### 1.14 The archived take was called the submission video (fixed)
+
+`README.md` described `agent/demo_full_narrated.mp4` as "the submission video"
+and said it was recorded keyless. By this entry both halves were wrong: the
+Devpost video field is empty while the clip is re-recorded, and the archived
+take predates §1.12 — its band spells a 13-letter line and the player drops the
+final `w`, the exact defect the cap fix removes. Calling that file the
+submission video would have shipped the bug this changelog says is fixed.
+
+- The README now states the status plainly: the field is empty until the
+  re-record lands, the take runs the live path against the public origin
+  (`source: text_live`), and the earlier keyless take is withdrawn with its
+  reason.
+- The Devpost paste copies lost their "the demo runs the keyless stub path"
+  sentences; they describe the intent path as composed when a key is present
+  and `text_echo` when it is not.
+- The recorder that produces the take is named as the recorder
+  (`agent/record_full_demo.py`, driven by `ZIV_BASE`/`ZIV_REMOTE`/`ZIV_SSH`),
+  no longer listed as archival beside the older beat scripts.
+
 ---
 
 ## 2. Claims corrected
@@ -468,6 +627,14 @@ What's-next list lost the items this work built.
   `abort`), *and* from the idle side: a stampede on an idle gate must
   produce exactly one winner, so the claim rests on the composition, not
   only the unit.
+- ~~**"Braille is a literacy many in this population already hold"**~~ —
+  corrected: braille literacy is **not universal** among deaf-blind adults
+  (it is often low), which is exactly why the channel has two layers — the
+  attention vocabulary works from minute one for anyone, and braille text is
+  the layer for readers. The old line implied a braille-literate majority the
+  sources do not support, and it contradicted the submission's own named
+  learnability risk. Fixed in `DEVPOST_PROJECT_STORY.md` and
+  `DEVPOST_HAPTIC_GENERIC.md`.
 - ~~**External statistics need source links**~~ — closed: both DEVPOST files
   now carry a "Sources (every external claim, checkable)" block before the
   License: the 2.4M figure (HKNC DeafBlind Awareness Week 2026), the 45–70k
@@ -493,13 +660,13 @@ What's-next list lost the items this work built.
 Last refreshed by direct runs of the four suites — do not hand-edit the numbers:
 
 ```
-PASS  hermetic relay suite            197 checks
+PASS  hermetic relay suite            199 checks
 PASS  haptic bench                    274 checks
 PASS  QEMU host suite                  49 checks
 PASS  drift guard                     7 consumers in sync
 ```
 
-- **Suite:** `python -m pytest -q` → **197 passed, 4 deselected**
+- **Suite:** `python -m pytest -q` → **199 passed, 4 deselected**
   (deselected = e2e, needs a browser; collection is clean with no ignore
   flags). With a browser installed: `python -m pytest -m e2e` → **4 passed**
   in a real chromium — the full redial, give-up, and busy-sheet queue

@@ -7,16 +7,17 @@ From the repo root:
     cd agent
     python ziv_server.py
 
-The relay serves the real client page at:
-
-    /ziv_client/index.html
-
-so the full demo URL on this machine is:
+The relay serves the real client page at
+`/ziv_client/index.html`, so the full demo URL on this machine is:
 
     http://127.0.0.1:8787/ziv_client/index.html
 
 For a phone on the same WiFi, replace `127.0.0.1` with this machine’s LAN IPv4
 address. `127.0.0.1` means “this device” on the phone itself.
+
+The client page is a real phone-shaped PWA page, not a static mockup. Its ZIP and
+the hero / gallery images are separate, Devpost-facing visuals; this page is the
+actual full demo client.
 
 ## One-command launcher
 

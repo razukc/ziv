@@ -69,16 +69,16 @@ This submission ships as **a phone-based demo**.
 
 ## See it (recorded)
 
-**The submission video** — the full narrated take is the external submission
-video; it is not stored in this repo. It is recorded keyless — no API
-key, no credit, no model call — so the soundtrack narrates what the relay
-actually did on that take: the promise fired verbatim, labelled `text_echo`, and
-the wire log named the path it took rather than claiming a model ran. (With a
-funded Nebius Token Factory key, the same beat runs a live model call and the
-log says `source: text_live`; the beat is otherwise identical.) The recording
-script that produced that take was sized for Devpost's three-minute cap and
-covers the cold open, the channel, the model-path beat, the refusal + drain, the
-relay kill/restart durability beat, and the closing card.
+**The submission video** — hosted on the Devpost project page, not stored in
+this repo; **the field is empty until the re-record lands.** That take runs
+against the public origin with the VM's funded key, so the model-path beat is a
+live call: `tell me to drink` → the line the model writes, wire `source: text_live`
+(without a key the same beat fires the intent verbatim, `text_echo`). The
+earlier keyless take is withdrawn: it predates the 12-cell cap fix, and its
+13-letter line lost the final `w` on the band. The recorder is sized for
+Devpost's three-minute cap and covers the cold open, the channel, the
+model-path beat, the refusal + drain, the relay kill/restart durability beat,
+and the closing card.
 
 **The silent beat (released asset, no narration)** —
 **[demo_beat.webm](https://github.com/razukc/ziv/releases/download/submission-v1/demo_beat.webm)** —
@@ -86,11 +86,11 @@ a 37-second silent excerpt, recorded from the then-current dev-band page: a
 starter turn, the queue filled to `8/8`, a refused message with the redial
 armed, the auto-resend when the freeing close lands, and the badge draining
 back to `queue 0/8`. Silent (no voiceover), so it carries no model claim at all.
-The dev-band recorder scripts in `agent/` (`record_full_demo.py`,
-`record_beat.py`, `record_beat_narrated.py`) are archival: they were written
-against the earlier page shown in that clip, are not part of the judge repro,
-and expect a relay on `127.0.0.1:8787`. (`record_gallery.py` starts its own
-relay on an ephemeral port and is separate.)
+`agent/record_full_demo.py` records the submission take: it drives the public
+origin over `ZIV_BASE` + `ZIV_REMOTE` + `ZIV_SSH`, restarts the systemd unit
+for the durability beat, and derives the narration from what that run actually
+did. `record_beat.py` and `record_beat_narrated.py` are archival, written
+against the earlier page shown above; none is part of the judge repro.
 
 ---
 
@@ -150,9 +150,11 @@ The built things are the submission. The rest is held as asset.
 ## For judges
 
 - **Live demo: <https://35-224-56-20.sslip.io>** — this repo's relay, on HTTPS behind
-  Caddy and managed by systemd, so it comes back on its own after a reboot. Nothing to
-  install to try it: open it on a phone and install the PWA, or drive it with the curl
-  calls in `JUDGE_REPRO.md`.
+  Caddy and managed by systemd, so it comes back on its own after a reboot. Open it on
+  Android Chrome — vibration needs the Vibration API, and the page says so where it is
+  missing — tap **Open the band**, or drive it with the curl calls in `JUDGE_REPRO.md`.
+  The console also takes **your own Nebius key** for one compose: nothing is stored,
+  and the VM's credit is not spent on it.
 - **[JUDGE_REPRO.md](JUDGE_REPRO.md)** — every behavioral claim → the test or
   command that proves it, plus a live run-through against that origin and a
   local durability beat (schedule a reminder → kill the relay → restart → it survives).
@@ -166,7 +168,7 @@ The built things are the submission. The rest is held as asset.
 
 | Path | What it is |
 |------|------------|
-| `agent/ziv_server.py` | The relay server — WS transport + HTTP API (`/api/ziv/message`, `/api/ziv/schedule`, `/api/ziv/ready`, `/api/ziv/inbox`, `/api/ziv/prefs`, `/api/ziv/timing`, `/api/ziv/health`), serves the PWA |
+| `agent/ziv_server.py` | The relay server — WS transport + HTTP API (`/api/ziv/message`, `/api/ziv/compose`, `/api/ziv/schedule`, `/api/ziv/ready`, `/api/ziv/model/check`, `/api/ziv/inbox`, `/api/ziv/prefs`, `/api/ziv/timing`, `/api/ziv/health`), serves the PWA |
 | `agent/ziv_client/index.html` | The phone PWA (queue badge, refusal note, auto-redial) |
 | `agent/ziv_store.py` | Per-wearer memory files + inbox + durable reminder schedule (atomic JSON, corrupt-file recovery, capped); its data lives in the gitignored `agent/ziv_data/` |
 | `agent/ziv_relay.py` | The relay seam: `MessageGate`, `TurnTimeline`, lifecycle constants, `TelemetryRing` |
@@ -174,7 +176,7 @@ The built things are the submission. The rest is held as asset.
 | `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events |
 | `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo; rung 1 is proven on the host, while rung 2's QEMU boot is still pending an IDF install (`docs/QEMU_SIMULATION_LADDER.md`) |
 | `tools/haptic_timing.py` | The timing spec's generator + drift guard (7 generated consumers) |
-| `agent/tests/` | The 15 test modules (197 hermetic tests; the 4 browser-tier tests are marked `e2e`) |
+| `agent/tests/` | The 18 test modules (230 hermetic tests; the 5 browser-tier tests are marked `e2e`) |
 | `tools/build_ziv_demo.py` | The demo-chain single source — one `DEMO_STAGES` generates app, fixture, and docs |
 | `tools/qemu_timeline.py` | The rung-2 differ (bench/boot HAP logs vs the derived fixture) |
 | `docs/` | Plan, timing spec, QEMU ladder, hardware bring-up + shopping |
@@ -225,7 +227,7 @@ python firmware/app/ziv_qemu/run_ziv_tests.py    # rung-1 host demo (not a QEMU 
 Last run on this tree:
 
 ```
-PASS  hermetic relay suite            197 checks
+PASS  hermetic relay suite            199 checks
 PASS  browser tier                      4 checks
 PASS  haptic bench                    274 checks
 PASS  rung-1 host demo                 49 checks
@@ -237,12 +239,13 @@ concurrent admits losing/duplicating nothing), the server endpoints, the agent
 path (a scheduled intent composed by the model and played as its own words; the
 keyless echo; the loud failure), the durable store (schedule round-trip across
 instances, corrupt recovery, cap), the two-sided PWA badge contract, the
-busy-sheet compose contract, the demo pre-flight gate's exit codes and
-reminder cleanup, and the loud redial give-up contract. The four browser-tier tests are marked `e2e` and
-deselected by default; they are not part of the 197 verified tests above, but
+busy-sheet compose contract, the client-surface contract (no capture path and
+no dead controls), the demo pre-flight gate's exit codes and reminder cleanup,
+and the loud redial give-up contract. The four browser-tier tests are marked `e2e` and
+deselected by default; they are not part of the 199 verified tests above, but
 they run on this tree against the current visible compose flow — the idle
 compose screen and the mid-turn busy-sheet:
-`cd agent && python -m pytest -m e2e` → **4 passed** (~62 s).
+`cd agent && python -m pytest -m e2e` → **4 passed** (~65 s).
 
 The PWA shell has a fail-closed guard of its own:
 `python scripts/ziv_client_cache.py --check` fails when a shell file changed
@@ -288,13 +291,32 @@ interfaces by default (a LAN dev relay).
 
 Setting `ZIV_RELAY_TOKEN` locks the relay down: the WS handshake must present
 it as `?token=`, and every route that can carry or reveal the wearer's content
-(`/api/ziv/message`, `/inject/audio`, `/api/ziv/schedule`, `/api/ziv/ready`,
-`/api/ziv/inbox`, `/api/ziv/prefs`) must send `Authorization: Bearer` — the
+(`/api/ziv/message`, `/api/ziv/compose`, `/inject/audio`, `/api/ziv/schedule`,
+`/api/ziv/ready`, `/api/ziv/model/check`, `/api/ziv/inbox`, `/api/ziv/prefs`)
+must send `Authorization: Bearer` — the
 reader routes share one declared auth dependency; the two write routes carry
 the same check explicitly.
 `/api/ziv/timing` (the generated spec), `/api/ziv/health` (counts and telemetry,
 no message text) and the client page stay open, because the PWA bootstraps from
 them before it can hold a credential.
+
+`GET /api/ziv/model/check` is the explicit model probe: one small Token Factory
+call, `200` with a `sample` when the key answers, `502` with the provider's own
+status and words when it refuses (`401`/`402`/`404`), `503` when no key is
+wired. It is bearer-gated like the content routes. `health.text.last_compose`
+records the same status for the last *reminder* compose, without the intent or
+the composed line — so a reminder that fell back to `text_echo` says why.
+`health.text.configured` is the wiring check (key + model present);
+`health.text.available` is proof — `null` until a real compose runs, then that
+attempt's outcome — so an unfunded key reads `available: false, status: 402`
+rather than `true`.
+
+`POST /api/ziv/compose` is the judge-key path: the console's collapsed "Use your
+own Nebius key" panel sends a key in `X-Nebius-Key` for one model call, and the
+composed line plays on that tab's band as `text_live`. The key is used once,
+never stored, never logged, and scrubbed from any provider error. It is
+one-shot on purpose — a key is not attached to a reminder that fires later.
+This lets a judge verify the live model path without the relay owner's credit.
 
 **Known gap, stated plainly:** the PWA itself sends no token — it opens `/ws`
 without `?token=` and posts without an `Authorization` header. So with a token

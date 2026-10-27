@@ -10,6 +10,11 @@ exercised without a live provider call. With a key and a funded account, post an
 call when the reminder fires and the turn is labelled `text_live` (`text_echo`
 when no key is set, and also when the provider refuses).
 
+The public origin is keyed: its `.env` carries a funded Token Factory key, the
+model is pinned, and `text.last_compose` records the last real call — so the
+same intent can be driven end-to-end by hand, with no key of your own (the
+console also takes your key for a one-shot call; nothing is stored).
+
 Quick index — claim → where it's proven:
 
 | Claim | Proof |
@@ -39,7 +44,7 @@ Quick index — claim → where it's proven:
 | Honesty audit trail | `HONESTY_CHANGELOG.md` |
 
 > **Reproducibility in this checkout.** The full tree frozen at tag
-> `submission-v1` is present: all 15 test modules plus `conftest.py` (under `agent/tests/`), the
+> `submission-v1` is present: all 16 test modules plus `conftest.py` (under `agent/tests/`), the
 > `firmware/` tree, the `docs/` timing spec, and the generated consumers. Every row
 > above is reproducible from this working tree. The firmware rows were re-run for
 > this checkout: 274 checks and 49 checks, 0 failures, 27 HAP events matched.
@@ -55,10 +60,10 @@ Green on this checkout, no network and no key. The demo requirements do not pin
 ```bash
 cd agent
 python -m pytest -q
-# -> 197 passed, 4 deselected in about 168 s (2:48), exit 0
+# -> 199 passed, 4 deselected in about 175 s (2:55), exit 0
 ```
 
-That is every hermetic test in the tree: 197 in 13 modules, with the four browser
+That is every hermetic test in the tree: 199 in 14 modules, with the four browser
 tests in the other two modules deselected by their `e2e` marker. The store file
 alone is the quick read:
 
@@ -93,8 +98,8 @@ runner). On Linux CI, plain `python` with `gcc` is enough.
 
 ## Step 1 — the live run-through (live origin)
 
-Nothing to check out, no venv, no key. Open **https://35-224-56-20.sslip.io** — tap the
-power button, then **Wake band** — and drive it with the commands below from any shell.
+Nothing to check out, no venv, no key. Open **https://35-224-56-20.sslip.io** — tap
+**Open the band** — and drive it with the commands below from any shell.
 
 Drive a turn by hand first; this is the request/response shape every other claim rides on:
 
@@ -128,6 +133,22 @@ calls the model. To exercise the agent path, use the same schedule call with
 `"intent": "meds at nine"` in place of `"text"`: the relay composes the line when
 it fires if the key is funded, and otherwise fires the intent verbatim as
 `text_echo`.
+
+Read `text.configured` for "a key is wired" and `text.available` for proof: it
+is `null` until a real compose runs, then mirrors `last_compose.ok`, so an
+unfunded key now reports `available: false, last_compose.status: 402` instead of
+`available: true`.
+
+As of 2026-10-27 the demo VM's key has trial credit and the relay pins
+`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` with thinking disabled, so an intent is a
+real call.
+
+The VM now runs the cap fix (HONESTY_CHANGELOG §1.12), redeployed 2026-10-27
+18:06 UTC. Live, with a band attached: the intent `tell me to drink` composed
+**"drink water"** — 10 cells, all of them played — and health recorded
+`text.last_compose {ok: true, status: 200}`, `text.available: true`. Before the
+fix the same intent produced "drink water now" (13 letters) and the player
+silently dropped its final `w`.
 
 The same call from Python, if shell quoting is fighting you:
 
@@ -192,8 +213,8 @@ curl -X POST http://127.0.0.1:8787/api/ziv/schedule \
 ```
 
 **2. Watch it fire unprompted, name-mark first** — open the dev band in a
-browser: `http://127.0.0.1:8787/ziv_client/index.html`, tap the power
-button then **Wake band**, then feel/read the wire log: `reminder: pills` → Z-I-V cells →
+browser: `http://127.0.0.1:8787/ziv_client/index.html`, tap **Open the band**,
+then feel/read the wire log: `reminder: pills` → Z-I-V cells →
 `triple-pulse` → breath → kind cue → processing ticks → cells → close. (No phone? The wire log
 on the page shows the same journey; `reminder: pills` arrives on its own.)
 
@@ -291,13 +312,13 @@ desktop Chrome renders the wire log, cells box, badge and redial note, but canno
 The four `e2e`-marked tests drive the visible compose surfaces:
 `#btnWrite` → `#composeInput` → `#btnSendCompose` from the idle screen, and
 `#btnWriteDuring` → the busy-sheet → Send while a turn owns the screens. They
-are deselected from the 197-count hermetic run. With Playwright installed they
+are deselected from the 199-count hermetic run. With Playwright installed they
 run separately:
 
 ```bash
 cd agent
 python -m pytest -m e2e -q
-# -> 4 passed, 197 deselected in about 62 s
+# -> 4 passed, 199 deselected in about 65 s
 ```
 
 ---
