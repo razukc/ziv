@@ -201,6 +201,22 @@ def _health_up(base):
         return False
 
 
+@pytest.fixture(autouse=True)
+def _clear_stranded_inbox(relay):
+    """Each case starts with no redelivery owed by the previous case.
+
+    The relay fixture (and so the wearer's durable inbox) is module-scoped.
+    When a case's page closes while its last replay is still playing, the
+    relay correctly stores that undelivered text and replays it on the next
+    attach — which would be *this* case's attach. Clear the wearer's inbox
+    between cases; sessions themselves are per attach and released on close.
+    """
+    import ziv_server
+
+    ziv_server.inbox.clear()
+    yield
+
+
 def test_redial_auto_sends_after_the_close_frame(relay):
     base = relay.base
 
@@ -214,10 +230,10 @@ def test_redial_auto_sends_after_the_close_frame(relay):
         page.on("console", lambda m: console.append(m))
         page.goto(f"{base}/ziv_client/index.html",
                   wait_until="domcontentloaded", timeout=30000)
-        # The band opens powered down; the side-button click also supplies
-        # Chrome's sticky activation for vibration and lands on locked, where
+        # The band opens on one gate; the Open the band tap also supplies
+        # Chrome's sticky activation for vibration and lands on ready, where
         # the compose button lives.
-        e2e_helpers.power_on(page)
+        e2e_helpers.open_band(page)
 
         # --- the starter turn owns the channel --------------------------
         e2e_helpers.send_from_compose(page, STARTER_TEXT)
@@ -388,7 +404,7 @@ def test_busy_sheet_queues_second_message_and_replays(relay):
         page.on("console", lambda m: console.append(m))
         page.goto(f"{base}/ziv_client/index.html",
                   wait_until="domcontentloaded", timeout=30000)
-        e2e_helpers.power_on(page)
+        e2e_helpers.open_band(page)
 
         # --- the starter turn owns the channel --------------------------
         assert e2e_helpers.send_from_compose(page, BUSY_STARTER_TEXT) == "screen"

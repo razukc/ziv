@@ -79,10 +79,6 @@
   #log .sys { color: var(--warn); }
   .vibrate-note { font-size: 11px; color: var(--dim); }
   button.rec { background: #3a1d1d; border-color: #7a2e2e; }
-  #micStatus { display: inline-block; flex: 1 1 auto; margin: 0; align-self: center; }
-  #micStatus.bad { color: var(--warn); }
-  #micStatus.ok { color: var(--accent); }
-  #micStatus.rec { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -105,21 +101,15 @@
     <input type="text" id="msg" value="Taxi arrived" autocomplete="off">
     <div class="row">
       <button id="btnSend" class="primary">Send as message</button>
-      <button id="btnOmniStub">Stub demo</button>
+      <button id="btnStub">Send as stub</button>
     </div>
-    <div class="row" style="margin-top:8px" id="omniRow" hidden>
-      <button id="btnMic">Talk to Omni</button>
-      <p id="micStatus" class="cap"></p>
-    </div>
-    <p class="cap">Mic records → POST /inject/audio → Nemotron-3-Nano-Omni (Token Factory)
-    transcribes → the reply plays as braille. “Stub demo” sends the text field directly
-    (keyless, hermetic). Either way the turn's cue, ticks, cells, close, and queue
-    release come back over /ws. If the wrist is mid-message and its queue is full,
-    a send is refused with a “wrist is busy” note — never a silent drop — and a
-    typed or stub message rearms itself: the client queues its own redial and
-    sends the moment the close lands on the wire (three chances; editing the box
-    or sending manually cancels it — and if all three chances are used up, the
-    note says so instead of going quiet). The badge
+    <p class="cap">“Send as stub” sends the text field directly (keyless, hermetic). Either way the
+    turn's cue, ticks, cells, close, and queue release come back over /ws. If the
+    wrist is mid-message and its queue is full, a send is refused with a “wrist is
+    busy” note — never a silent drop — and a typed or stub message rearms itself: the
+    client queues its own redial and sends the moment the close lands on the wire
+    (three chances; editing the box or sending manually cancels it — and if all three
+    chances are used up, the note says so instead of going quiet). The badge
     below the header shows the live queue depth and refusal rate, plus the
     pending reminder count — or a corrupt-schedule warning — so you can see
     how close the wrist is to refusing, and what it will still fire, before
@@ -421,8 +411,7 @@ async function send(url, body) {
     if (!res.ok) {
       if (res.status === 429) {
         // Arm the redial for any path that carries its payload (typed
-        // message, stub demo). The mic path reports its own 429 — its clip
-        // would need re-transcription, so it stays a manual retry.
+        // message, stub demo).
         const label = typeof body.text === "string" ? body.text
           : (typeof body.simulate === "string" ? body.simulate : "");
         renderWristBusy(
@@ -511,149 +500,6 @@ document.getElementById("btnSend").addEventListener("click", () => {
   disarmRedial("you sent manually");
   send("/api/ziv/message", { text: S.msgEl.value || "Taxi arrived" });
 });
-// --- the Omni spike: mic → /inject/audio → Token Factory -------------------
-// MediaRecorder captures the mic; the clip goes base64 to the relay, which
-// transcribes it with Nemotron-3-Nano-Omni and runs the same turn a typed
-// message takes. No timing lives here — only the wire shape.
-const OMNI = {
-  rec: null,
-  chunks: [],
-  stream: null,
-  mime: "",
-  busy: false,
-  maxTimer: 0,
-  btn: document.getElementById("btnMic"),
-  status: document.getElementById("micStatus"),
-};
-
-function omniStatus(text, cls) {
-  OMNI.status.textContent = text;
-  OMNI.status.className = cls ? "cap " + cls : "cap";
-}
-
-function pickMime() {
-  if (!window.MediaRecorder) return "";
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c)) return c;
-  }
-  return "";
-}
-
-function mimeToFormat(m) {
-  if (m.indexOf("ogg") >= 0) return "ogg";
-  if (m.indexOf("mp4") >= 0) return "mp4";
-  return "webm";
-}
-
-async function omniStart() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia
-      || !window.MediaRecorder) {
-    omniStatus("MediaRecorder/mic not available in this browser", "bad");
-    return;
-  }
-  try {
-    OMNI.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    omniStatus("mic blocked: " + e.name, "bad");
-    return;
-  }
-  OMNI.mime = pickMime();
-  if (!OMNI.mime) {
-    omniStatus("no supported recording mime in this browser", "bad");
-    OMNI.stream.getTracks().forEach((t) => t.stop());
-    return;
-  }
-  OMNI.chunks = [];
-  try {
-    OMNI.rec = new MediaRecorder(OMNI.stream, { mimeType: OMNI.mime });
-  } catch (e) {
-    omniStatus("recorder error: " + e, "bad");
-    OMNI.stream.getTracks().forEach((t) => t.stop());
-    return;
-  }
-  OMNI.rec.ondataavailable = (ev) => {
-    if (ev.data && ev.data.size) OMNI.chunks.push(ev.data);
-  };
-  OMNI.rec.onstop = omniSend;
-  OMNI.rec.start();
-  OMNI.busy = true;
-  OMNI.btn.textContent = "Stop & send";
-  OMNI.btn.classList.add("rec");
-  omniStatus("recording — speak, then tap again (10 s max)", "rec");
-  OMNI.maxTimer = setTimeout(() => {
-    if (OMNI.busy && OMNI.rec && OMNI.rec.state === "recording") omniStop();
-  }, 10000);
-}
-
-function omniStop() {
-  if (!OMNI.busy || !OMNI.rec) return;
-  clearTimeout(OMNI.maxTimer);
-  if (OMNI.rec.state !== "inactive") OMNI.rec.stop(); // onstop fires omniSend
-}
-
-async function omniSend() {
-  OMNI.stream.getTracks().forEach((t) => t.stop());
-  OMNI.btn.textContent = "Talk to Omni";
-  OMNI.btn.classList.remove("rec");
-  OMNI.busy = false;
-  const blob = new Blob(OMNI.chunks, { type: OMNI.mime || "audio/webm" });
-  if (!blob.size) {
-    omniStatus("nothing recorded", "bad");
-    return;
-  }
-  omniStatus("transcribing via Token Factory…", "");
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  log("sys", "mic clip: " + Math.round(blob.size / 1024) + " kB ("
-    + (blob.type || "?") + ") → /inject/audio");
-  try {
-    const res = await fetch("/inject/audio", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        audio_b64: btoa(bin),
-        mime: mimeToFormat(OMNI.mime),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const d = typeof data.detail === "string" ? data.detail : "?";
-      if (res.status === 429) {
-        renderWristBusy(d);
-        omniStatus("wrist is busy — try after the current message", "bad");
-      } else {
-        omniStatus("HTTP " + res.status + ": " + d, "bad");
-        log("sys", "Omni POST failed: " + d);
-      }
-      return;
-    }
-    log("sys", "Omni heard — turn " + (data.event || "?") + ", source " + data.source);
-    omniStatus("sent — the reply plays as braille", "ok");
-  } catch (e) {
-    omniStatus("POST failed: " + e, "bad");
-  }
-}
-
-OMNI.btn.addEventListener("click", () => {
-  if (OMNI.busy) omniStop();
-  else omniStart();
-});
-
-// Keyless stub demo (hermetic): same turn, transcript handed in directly.
-document.getElementById("btnOmniStub").addEventListener("click", () => {
-  disarmRedial("you sent manually");
-  send("/inject/audio", { simulate: S.msgEl.value || "Taxi arrived" });
-});
 S.msgEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     disarmRedial("you sent manually");
@@ -671,27 +517,11 @@ connect();
 loadTiming();
 startBadgePolling();
 
-// The Omni mic button is only usable against a configured audio-capable
-// endpoint. /api/ziv/health reports ``omni.key_set`` — the same gate the
-// server's /inject/audio uses — so the button stays hidden until the relay
-// can actually take a mic clip, and the real tool never ships as an empty,
-// unguarded button.
-function updateOmniVisibility(h) {
-  if (h && h.omni && h.omni.key_set) {
-    document.getElementById("omniRow").hidden = false;
-  }
-}
-let _omniPolled = false;
-function pollOmniVisibility() {
-  if (_omniPolled) return;
-  _omniPolled = true;
-  fetch("/api/ziv/health")
-    .then((r) => r.ok ? r.json() : null)
-    .then(updateOmniVisibility)
-    .catch(() => {});
-}
-pollOmniVisibility();
-setInterval(pollOmniVisibility, 15000);
+// Keyless stub demo (hermetic): same turn, transcript handed in directly.
+document.getElementById("btnStub").addEventListener("click", () => {
+  disarmRedial("you sent manually");
+  send("/inject/audio", { simulate: S.msgEl.value || "Taxi arrived" });
+});
 </script>
 </body>
 </html>

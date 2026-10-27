@@ -69,17 +69,23 @@ def main() -> int:
             return 1
         print(f"relay ready: http://127.0.0.1:{PORT}/ziv_client/index.html", flush=True)
         print(f"pid={proc.pid}", flush=True)
-        proc.wait()
+        while True:
+            time.sleep(60)
+            if proc.poll() is not None:
+                print("relay exited: rc=" + str(proc.returncode), flush=True)
+                return 1
+        return 0
     except KeyboardInterrupt:
-        proc.send_signal(
-            __import__("signal").CTRL_BREAK_EVENT if os.name == "nt" else __import__("signal").SIGINT
-        )
+        print("shutting down relay", flush=True)
         try:
+            proc.send_signal(
+                __import__("signal").CTRL_BREAK_EVENT if os.name == "nt" else __import__("signal").SIGINT
+            )
             proc.wait(timeout=5)
         except Exception:
             proc.kill()
             proc.wait(timeout=3)
-    return 0
+        return 0
 
 
 if __name__ == "__main__":

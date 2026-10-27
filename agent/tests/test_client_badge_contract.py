@@ -19,13 +19,14 @@ _CLIENT = _ROOT / "ziv_client" / "index.html"
 _SERVER = _ROOT / "ziv_server.py"
 
 #: The pinned contract — top-level health keys the badge reads (the queue
-#: line AND the schedule line), plus the one nested read. Exact on the
-#: client side (it may read nothing else); the server may carry extra keys
-#: the badge ignores, but must carry these.
+#: line, the attached-band count and the schedule line), plus the one nested
+#: read. Exact on the client side (it may read nothing else); the server may
+#: carry extra keys the badge ignores, but must carry these.
 PINNED_TOP = {
     "gate_queue",
     "gate_queue_cap",
     "queue_rejections",
+    "sessions",
     "schedule_pending",
     "schedule_cap",
     "schedule_corrupt",
@@ -74,13 +75,31 @@ def test_badge_type_guards_still_protect_the_render():
     turn a wrong-type payload into a NaN badge instead of a blank one.
     The schedule line guards its own pair (pending/cap); the corrupt flag
     is consumed by strict identity (``=== true``), so a string "false" or
-    a missing key can never render a corrupt badge."""
+    a missing key can never render a corrupt badge. The band count is only
+    rendered when ``sessions`` is an array of rows with numeric devices."""
     body = _fn(_client_js(), "renderQueueBadge")
     assert 'typeof depth !== "number"' in body
     assert 'typeof cap !== "number"' in body
     assert 'typeof pending === "number"' in body
     assert 'typeof schedCap === "number"' in body
     assert 'schedCorrupt === true' in body
+    assert 'Array.isArray(sessionRows)' in body
+    assert 'typeof s.devices === "number"' in body
+
+
+def test_band_list_reads_only_the_session_rows():
+    """The drill-down's only wire dependency is ``sessions``.
+
+    It renders the per-band queue from fields the server's health value test
+    pins (id/devices/queue/playing); a rename on either side fails here or
+    there instead of showing an empty popover on a phone.
+    """
+    body = _fn(_client_js(), "renderBandList")
+    top = set(re.findall(r"\bh\.(\w+)\b", body))
+    assert top == {"sessions"}, top
+    for field in ("s.id", "s.devices", "s.queue", "s.playing",
+                  "s.last_frame_age_s"):
+        assert field in body, field
 
 
 def test_badge_polls_the_pinned_endpoint():

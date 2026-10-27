@@ -52,27 +52,27 @@ def browser_page():
             browser.close()
 
 
-def power_on(page, timeout: float = 10.0) -> None:
-    """Bring the band from its off screen to the locked screen.
+def open_band(page, timeout: float = 10.0) -> None:
+    """Open the dev band and wait for its relay link.
 
-    The page opens powered down; ``#offToggle`` is the side button. Clicking
-    it also supplies the sticky user activation Chrome requires before
-    ``navigator.vibrate`` works, which is why the tests do not need a
-    separate unlock gesture.
+    The page opens on a single gate: nothing connects until the wearer taps
+    **Open the band**. That tap attaches the device and supplies the sticky
+    user activation Chrome requires before ``navigator.vibrate`` works, so
+    the tests need no separate unlock gesture.
     """
     page.locator("#queueBadge").wait_for(state="visible", timeout=timeout * 1000)
+    page.locator("#btnOpen").wait_for(state="visible", timeout=timeout * 1000)
+    page.locator("#btnOpen").click()
     page.locator("#state").filter(has_text="connected").wait_for(
         timeout=timeout * 1000
     )
-    if not page.locator("#btnWrite").is_visible():
-        page.locator("#offToggle").click()
     page.locator("#btnWrite").wait_for(state="visible", timeout=timeout * 1000)
 
 
 def open_compose(page, timeout: float = 5.0) -> str:
     """Open the phone's visible compose surface; return ``"screen"`` or ``"sheet"``.
 
-    From the locked screen the large **Write a message** button opens the
+    From the ready screen the large **Write a message** button opens the
     compose screen. While a turn owns the screens, that button is hidden but
     the device bar exposes **Write a message** / ``#btnWriteDuring``, which
     opens the busy-sheet over the still-running turn. Both paths are the

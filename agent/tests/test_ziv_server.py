@@ -67,6 +67,9 @@ def client(tmp_path, monkeypatch):
     # The durable schedule is store-backed now: swap in a fresh one over the
     # same temp DATA_DIR, so tests never touch the real wearer files.
     monkeypatch.setattr(zs, "scheduled", zs.ScheduledReminders())
+    # The last-compose record is process-global; a fresh one per test keeps
+    # one test's provider refusal out of the next test's health payload.
+    monkeypatch.setattr(zs, "compose_health", zs.ComposeHealth())
     zs.hub.devices.clear()
     zs.gate = zs.MessageGate()
     zs.queue_rejections.reset()
@@ -1317,23 +1320,30 @@ def test_message_is_rejected_429_when_replay_queue_is_full(client, monkeypatch):
 
 
 def test_health_surfaces_the_model_wiring(client, monkeypatch):
-    """Health says which model path can actually run right now, so the demo
-    take never claims a model ran when none did: ``text`` is the agent path the
-    demo proves, ``omni`` the audio seam, configured only when an audio-capable
-    endpoint is named."""
+    """Health separates "wired up" from "actually working".
+
+    ``configured`` is the key-present check the old ``available`` claimed to
+    be. ``available`` is proof: ``None`` until a real compose is attempted,
+    then the last attempt's outcome. A key string alone never sets it.
+    """
     h = client.get("/api/ziv/health").json()
     text, omni = h["text"], h["omni"]
     assert text["base_url"].startswith("https://api.tokenfactory.nebius.com")
     assert text["model"] == zs.ZIV_TEXT_MODEL
-    assert text["available"] == zs.agent_path_available()
+    assert text["configured"] == zs.agent_path_configured()
+    assert text["available"] is None
+    assert text["last_compose"] is None
     assert omni["configured"] == bool(zs.ZIV_OMNI_MODEL)
     assert omni["model"] == zs.ZIV_OMNI_MODEL
 
-    # A key plus a model id is what makes the agent path available.
+    # A key plus a model id makes a call POSSIBLE — not successful, not yet
+    # attempted. This is the exact state that used to read available: true.
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "k")
     h2 = client.get("/api/ziv/health").json()
     assert h2["text"]["key_set"] is True
-    assert h2["text"]["available"] is True
+    assert h2["text"]["configured"] is True
+    assert h2["text"]["available"] is None
+    assert h2["text"]["last_compose"] is None
 
 
 def test_scheduled_intent_is_composed_by_the_model_and_played(client, monkeypatch):
@@ -1349,7 +1359,7 @@ def test_scheduled_intent_is_composed_by_the_model_and_played(client, monkeypatc
         text = ""
 
         def json(self):
-            return {"choices": [{"message": {"content": "Meds at nine tonight."}}]}
+            return {"choices": [{"message": {"content": "Take meds"}}]}
 
     class _FakeClient:
         def __init__(self, **kw):
@@ -1393,7 +1403,7 @@ def test_scheduled_intent_is_composed_by_the_model_and_played(client, monkeypatc
     # source field is provenance of what actually played, not of how it was
     # stored — so a keyless or failing-key run must read text_echo, never agent.
     assert fired[0]["source"] == "text_live"
-    assert fired[0]["text"] == "Meds at nine tonight."
+    assert fired[0]["text"] == "Take meds"
 
     # The wire request is the provider contract, not our guess.
     assert captured["url"].endswith("/chat/completions")
@@ -1461,8 +1471,8 @@ def test_scheduled_intent_echoes_verbatim_when_the_provider_refuses(client, monk
             pass
 
     monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
-    # The key IS set, so agent_path_available() is True — this is the case
-    # that used to lose the reminder.
+    # The key IS set, so the call is attempted — this is the case that used to
+    # lose the reminder when the provider refused it.
     monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key-no-credit")
     client.post(
         "/api/ziv/schedule",
@@ -1476,6 +1486,383 @@ def test_scheduled_intent_echoes_verbatim_when_the_provider_refuses(client, monk
     assert fired[0]["source"] == "text_echo"
     # The promise plays the intent verbatim rather than vanishing.
     assert fired[0]["text"] == "meds at nine"
+
+
+def test_compose_null_content_is_not_the_word_none(monkeypatch):
+    """A 200 with content: null is a provider failure, not a composed line.
+
+    A reasoning model can spend its whole token budget before writing the
+    answer and return ``content: null``. ``str(None)`` would put the word
+    "None" on a deafblind wearer's wrist, so the seam must refuse loudly.
+    """
+    import asyncio
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"finish_reason": "length",
+                                 "message": {"content": None,
+                                             "reasoning": "We need a line..."}}]}
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    with pytest.raises(zs.HTTPException) as ei:
+        asyncio.run(zs.compose_with_nebius("meds at nine"))
+    assert ei.value.status_code == 502
+    assert "content: null" in ei.value.detail
+    assert ei.value.detail != "None"
+
+
+def test_an_overlong_line_is_recomposed_to_fit_the_band_cap(monkeypatch):
+    """Thirteen letters is one cell too many: ask again, never cut the tail.
+
+    ``drink water now`` is the take that exposed the defect — the band played
+    ``drink water no`` because the player slices at twelve letters. The fix is
+    a second, corrective call that names the overrun; the returned line is one
+    the player can spell whole.
+    """
+    import asyncio
+
+    sent = []
+
+    class _Resp:
+        def __init__(self, content):
+            self.status_code = 200
+            self.text = ""
+            self._content = content
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    answers = iter(["drink water now", "drink water"])
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            sent.append(json)
+            return _Resp(next(answers))
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+
+    line = asyncio.run(zs.compose_band_line("tell me to drink"))
+    assert line == "drink water"
+    assert len(zs._spelled(line)) <= zs.timing.SPELL_MAX_LETTERS
+    # Two calls: the first fit nothing, the second was told exactly why.
+    assert len(sent) == 2
+    correction = sent[1]["messages"][-1]["content"]
+    assert "13" in correction
+    assert str(zs.timing.SPELL_MAX_LETTERS) in correction
+    assert "tell me to drink" in correction
+    # The prompt itself states the cap now (it used to allow 30 characters).
+    assert str(zs.timing.SPELL_MAX_LETTERS) in zs._COMPOSE_PROMPT
+    assert "letters" in zs._COMPOSE_PROMPT
+    assert "30 characters" not in zs._COMPOSE_PROMPT
+
+
+def test_a_digit_is_spelled_not_retried(monkeypatch):
+    """A digit takes no cell, so it would be silently absent from the wrist.
+
+    The live run for `take the pills at eight` answered `takepillsat8` on the
+    retry and kept answering `9am meds` for `meds at 9` — the time was the part
+    that vanished. The console already promises digits are spoken out, so the
+    number the model wrote is spelled instead of spending another call.
+    """
+    import asyncio
+
+    sent = []
+
+    class _Resp:
+        def __init__(self, content):
+            self.status_code = 200
+            self.text = ""
+            self._content = content
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    answers = iter(["pills at 8"])
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            sent.append(json)
+            return _Resp(next(answers))
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+
+    line = asyncio.run(zs.compose_band_line("take the pills at eight"))
+    assert line == "pills at eight"
+    assert len(zs._spelled(line)) == 12 <= zs.timing.SPELL_MAX_LETTERS
+    # Spelled, not retried: the time the model wrote is kept, not dropped.
+    assert len(sent) == 1
+    assert "numbers as words" in zs._COMPOSE_PROMPT
+
+
+def test_digits_are_spelled_as_words_including_glued_ones():
+    """What the console promises ("digits are spoken out") is what the relay does."""
+    assert zs._spoken_numbers("meds at 9") == "meds at nine"
+    assert zs._spoken_numbers("9am meds") == "nine am meds"
+    assert zs._spoken_numbers("bus at 10") == "bus at ten"
+    # Outside the table there is no honest spelling here: the retry rephrases.
+    assert zs._band_problem("bus at 13") == (
+        "a digit is never felt (the band spells letters only)")
+
+
+def test_a_line_that_never_fits_is_refused_not_truncated(monkeypatch):
+    """Two overlong answers are a loud 502 carrying counts, never the line.
+
+    Playing the first twelve letters would hide the failure on the wrist; the
+    caller (and the operator's health record) gets a reason instead.
+    """
+    import asyncio
+
+    sent = []
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "drink water now"}}]}
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            sent.append(json)
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+
+    with pytest.raises(zs.HTTPException) as ei:
+        asyncio.run(zs.compose_band_line("tell me to drink"))
+    assert ei.value.status_code == 502
+    # Three rungs, then the refusal: the last one asks for two words, a count
+    # this model can follow, rather than a letter count it cannot.
+    assert len(sent) == 3
+    assert "two most useful words" in sent[2]["messages"][-1]["content"]
+    assert "13" in ei.value.detail
+    assert str(zs.timing.SPELL_MAX_LETTERS) in ei.value.detail
+    # Counts, not content: the refusal must not smuggle the line into health.
+    assert "drink water" not in ei.value.detail
+    assert zs._compose_error_kind(ei.value.detail) == "too_long"
+
+
+def test_a_compose_that_never_fits_fires_the_intent_verbatim(client, monkeypatch):
+    """The promise survives a model that cannot fit: text_echo, never a cut line.
+
+    ``take_due`` removes the reminder before composing, so a raised 502 must
+    become the same verbatim echo a dead key gets — otherwise the promise is
+    lost entirely.
+    """
+    import asyncio
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "drink water now"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    client.post(
+        "/api/ziv/schedule",
+        json={"fire_at": time.time() + 3600, "intent": "meds at nine"},
+    )
+    zs.scheduled._save([{**row, "fire_at": time.time() - 1}
+                        for row in zs.scheduled._load()])
+    with _attach(client):
+        fired = asyncio.run(zs.fire_due())
+    assert fired[0]["fired"] is True
+    assert fired[0]["source"] == "text_echo"
+    assert fired[0]["text"] == "meds at nine"
+
+    last = client.get("/api/ziv/health").json()["text"]["last_compose"]
+    assert last["ok"] is False
+    assert last["error"] == "too_long"
+    assert "drink water" not in json.dumps(last)
+
+
+def test_byok_compose_refuses_an_overlong_line(client, monkeypatch):
+    """The judge path holds the same cap: 502 too_long, nothing played.
+
+    A borrowed key does not buy a truncated line either, and both attempts
+    spend exactly that key.
+    """
+    used = []
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "drink water now"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            used.append(headers.get("Authorization"))
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "server-key")
+
+    r = client.post(
+        "/api/ziv/compose",
+        json={"intent": "tell me to drink"},
+        headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-long"},
+    )
+    assert r.status_code == 502
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"] == "too_long"
+    assert "drink water" not in r.text
+    assert "judge-key" not in r.text
+    assert used == ["Bearer judge-key"] * 3
+    # Nothing was composed, so nothing was played on the band.
+    assert client.get("/api/ziv/health").json()["gate_queue"] == 0
+
+
+def test_compose_sends_the_nvidia_thinking_switch(monkeypatch):
+    """The demo runs on NVIDIA Nemotron, which only answers with thinking off.
+
+    Capture the wire payload: removing this flag makes the model spend the
+    budget on `reasoning` and return null, so the composed line must carry it.
+    """
+    import asyncio
+
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Take meds"}}]}
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured.update(url=url, json=json, headers=headers)
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _FakeClient
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    out = asyncio.run(zs.compose_with_nebius("meds at nine", system="one line"))
+    assert out == "Take meds"
+    assert captured["json"]["model"] == zs.ZIV_TEXT_MODEL
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["max_tokens"] <= 64
 
 
 def test_health_reports_cap_evictions(client):
@@ -1605,10 +1992,21 @@ def test_health_payload_serves_the_pwa_badge_contract(client):
     assert numeric(h0["gate_queue_cap"])
     assert h0["gate_queue_cap"] == zs.MessageGate.MAX_QUEUED
     assert numeric(h0["queue_rejections"]["per_minute"])
+    # The badge's band count is the rows whose ``devices`` is numeric; the
+    # sum has to equal the server's own top-level device total.
+    assert isinstance(h0["sessions"], list)
+    assert all(numeric(s["devices"]) for s in h0["sessions"])
+    assert sum(s["devices"] for s in h0["sessions"]) == h0["devices"]
+    assert all(s["last_frame_age_s"] is None
+               or (numeric(s["last_frame_age_s"]) and s["last_frame_age_s"] >= 0)
+               for s in h0["sessions"]), h0["sessions"]
 
     # Real depth, at a non-cap value first: the key must reflect the live
     # queue, not echo the cap.
     with _attach(client):
+        attached = client.get("/api/ziv/health").json()["sessions"]
+        assert any(s["id"] == "default" and s["devices"] == 1
+                   for s in attached), attached
         zs.gate.begin_playback()
         for i in range(3):
             zs.gate.admit("filler-%d" % i)
@@ -2316,3 +2714,489 @@ def test_control_resume_after_pause_is_idempotent(client, monkeypatch):
 
     asyncio.run(resume_and_check())
     zs._schedule_pause.clear()
+
+
+def test_model_check_says_what_to_fix_when_no_key_is_configured(client, monkeypatch):
+    """No key is a 503 that names the fix, never a fake "unreachable" —
+    a diagnostic that invents a provider failure is worse than none."""
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "")
+    r = client.get("/api/ziv/model/check")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"] == "no_key"
+    assert "NEBIUS_API_KEY" in body["detail"]
+    assert body["provider_status"] is None
+
+
+def test_model_check_makes_one_real_wire_call_and_reports_ok(client, monkeypatch):
+    """The success path is the same provider contract the compose call uses:
+    the configured model id, a bearer key, and a tiny token budget."""
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured.update(url=url, json=json, headers=headers)
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    r = client.get("/api/ziv/model/check")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["sample"] == "ok"
+    assert body["provider_status"] == 200
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["json"]["model"] == zs.ZIV_TEXT_MODEL
+    assert captured["json"]["max_tokens"] <= 16
+    # Without this, Nemotron reasons through the probe's budget and returns
+    # content: null — the diagnostic would bless an unusable model.
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert "test-key" not in r.text
+
+
+def test_model_check_null_content_is_not_ok(client, monkeypatch):
+    """The probe must not bless a reasoning-only reply as a working model.
+
+    The old path did ``str(content)``, so ``content: null`` became the sample
+    "None" and the diagnostic reported 200 — exactly the false green light
+    that let an unusable model reach the demo path.
+    """
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"finish_reason": "length",
+                                 "message": {"content": None}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    r = client.get("/api/ziv/model/check")
+    assert r.status_code == 502
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"] == "bad_reply"
+    assert "content: null" in body["detail"]
+    assert "sample" not in body
+    assert "test-key" not in r.text
+
+
+def test_model_check_reports_the_providers_refusal_and_redacts_the_key(client, monkeypatch):
+    """A present-but-unfunded key is the exact failure that currently hides
+    behind text_echo: the provider's 402 and words must survive the report,
+    while the credential must not."""
+    class _Resp:
+        status_code = 402
+        text = '{"error":{"message":"insufficient balance for key test-key"}}'
+
+        def json(self):
+            return {}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    r = client.get("/api/ziv/model/check")
+    assert r.status_code == 502
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"] == "provider_error"
+    assert body["provider_status"] == 402
+    assert "insufficient balance" in body["detail"]
+    assert "test-key" not in r.text
+    assert "[redacted]" in body["detail"]
+
+
+def test_model_check_reports_an_unreachable_provider(client, monkeypatch):
+    """DNS/TLS/timeout failures are named as transport failures, not blamed
+    on the credential."""
+    class _FakeHttpx:
+        class HTTPError(Exception):
+            pass
+
+        class AsyncClient:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **k):
+                raise _FakeHttpx.HTTPError("dns: name not resolved")
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+
+    r = client.get("/api/ziv/model/check")
+    assert r.status_code == 502
+    body = r.json()
+    assert body["error"] == "unreachable"
+    assert "dns" in body["detail"]
+    assert body["provider_status"] is None
+
+
+def test_a_failed_compose_is_visible_in_health_without_the_reminder_text(client, monkeypatch):
+    """The point of the record: a verbatim reminder caused by a provider
+    refusal must not look like a keyless run, and health must still never
+    carry the reminder's words."""
+    class _Resp:
+        status_code = 402
+        # A hostile-ish provider echo: the intent is in the error body, so the
+        # content-free health invariant is tested, not assumed.
+        text = '{"error":{"message":"insufficient balance; prompt: meds at nine"}}'
+
+        def json(self):
+            return {}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    client.post(
+        "/api/ziv/schedule",
+        json={"fire_at": time.time() + 3600, "intent": "meds at nine"},
+    )
+    zs.scheduled._save([{**row, "fire_at": time.time() - 1}
+                        for row in zs.scheduled._load()])
+    with _attach(client):
+        fired = asyncio.run(zs.fire_due())
+    assert fired[0]["source"] == "text_echo"
+
+    health = client.get("/api/ziv/health").json()
+    # The honest flag: a key is wired up, but the model path does NOT work.
+    assert health["text"]["configured"] is True
+    assert health["text"]["available"] is False
+    last = health["text"]["last_compose"]
+    assert last["ok"] is False
+    assert last["status"] == 402
+    assert last["error"] == "provider_error"
+    assert last["at"]
+    assert "insufficient balance" in last["detail"]
+    assert "[redacted]" in last["detail"]
+    assert "meds at nine" not in json.dumps(health)
+
+
+def test_a_successful_compose_is_recorded_without_the_composed_line(client, monkeypatch):
+    """Success is visible as status, not content: health says the last call
+    worked, and the line the wrist will feel stays off the operator payload."""
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Take meds"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "test-key")
+    client.post(
+        "/api/ziv/schedule",
+        json={"fire_at": time.time() + 3600, "intent": "meds at nine"},
+    )
+    zs.scheduled._save([{**row, "fire_at": time.time() - 1}
+                        for row in zs.scheduled._load()])
+    with _attach(client):
+        fired = asyncio.run(zs.fire_due())
+    assert fired[0]["source"] == "text_live"
+
+    health = client.get("/api/ziv/health").json()
+    assert health["text"]["configured"] is True
+    assert health["text"]["available"] is True
+    last = health["text"]["last_compose"]
+    assert last["ok"] is True and last["status"] == 200
+    assert last["error"] is None
+    assert last["at"]
+    assert "Take meds" not in json.dumps(health)
+
+
+def test_byok_compose_requires_a_key_and_never_calls_out(client):
+    """No key is a 422 before any provider work, not a 502 blamed on Nebius."""
+    r = client.post("/api/ziv/compose", json={"intent": "meds at nine"})
+    assert r.status_code == 422
+    assert "X-Nebius-Key" in r.json()["detail"]
+
+
+def test_byok_compose_uses_the_judges_key_and_plays_on_that_band(client, monkeypatch):
+    """The one-shot path is the agent path with a borrowed credential: the
+    request carries the judge's key, the relay's key is never touched, and
+    the composed line plays only on the caller's band."""
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Take meds"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured.update(url=url, json=json, headers=headers)
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "server-key")
+
+    with client.websocket_connect("/ws?session=byok-a") as ws_a:
+        assert ws_a.receive_json()["type"] == "hello"
+        with client.websocket_connect("/ws?session=byok-b") as ws_b:
+            assert ws_b.receive_json()["type"] == "hello"
+            r = client.post(
+                "/api/ziv/compose",
+                json={"intent": "meds at nine"},
+                headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-a"},
+            )
+            assert r.status_code == 200
+            body = r.json()
+            assert body["ok"] is True
+            assert body["source"] == "text_live"
+            assert body["text"] == "Take meds"
+            assert captured["headers"]["Authorization"] == "Bearer judge-key"
+            assert captured["json"]["model"] == zs.ZIV_TEXT_MODEL
+            assert zs.NEBIUS_API_KEY == "server-key"
+            assert "judge-key" not in r.text
+            # One-shot, not scheduled: no reminder survives the call.
+            assert client.get("/api/ziv/schedule").json()["reminders"] == []
+
+            texts = []
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                frame = _receive_json_within(ws_a, 1.0)
+                if frame is None:
+                    continue
+                if frame.get("type") == "text":
+                    texts.append(frame["text"])
+                if any(t.startswith("message:") and "Take meds" in t for t in texts):
+                    break
+            assert any(t.startswith("message:") and "Take meds" in t for t in texts)
+            # The other band heard no content at all. Heartbeats are transport
+            # liveness broadcast to every socket, not part of this turn.
+            other = []
+            end = time.time() + 1.0
+            while time.time() < end:
+                frame = _receive_json_within(ws_b, 0.3)
+                if frame is None:
+                    break
+                if frame.get("type") != "heartbeat":
+                    other.append(frame)
+            assert other == []
+
+    assert "judge-key" not in client.get("/api/ziv/health").text
+
+
+def test_byok_compose_passes_the_provider_refusal_without_the_key(client, monkeypatch):
+    """A dead judge key must produce the provider's own reason, never a
+    generic fallback and never the key itself."""
+    class _Resp:
+        status_code = 402
+        text = '{"error":{"message":"no credit for judge-key"}}'
+
+        def json(self):
+            return {}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "server-key")
+
+    r = client.post(
+        "/api/ziv/compose",
+        json={"intent": "meds at nine"},
+        headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-bad"},
+    )
+    assert r.status_code == 502
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"] == "provider_error"
+    assert body["provider_status"] == 402
+    assert "no credit" in body["detail"]
+    assert "[redacted]" in body["detail"]
+    assert "judge-key" not in r.text
+    # Nothing was composed, so nothing was queued for the band.
+    health = client.get("/api/ziv/health").json()
+    assert health["gate_queue"] == 0
+    # A judge's dead key says nothing about the relay's own path: health still
+    # has no evidence either way, rather than blaming the relay's key for it.
+    assert health["text"]["available"] is None
+    assert health["text"]["last_compose"] is None
+
+
+def test_byok_compose_never_persists_the_key(client, tmp_path, monkeypatch):
+    """The key transits one request; it is not in the stores or health."""
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Take meds"}}]}
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+
+        class HTTPError(Exception):
+            pass
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    monkeypatch.setattr(zs, "NEBIUS_API_KEY", "server-key")
+
+    with client.websocket_connect("/ws?session=byok-p") as ws:
+        assert ws.receive_json()["type"] == "hello"
+        r = client.post(
+            "/api/ziv/compose",
+            json={"intent": "meds at nine"},
+            headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-p"},
+        )
+        assert r.status_code == 200
+
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            assert "judge-key" not in path.read_text(encoding="utf-8", errors="ignore"), path
+    assert "judge-key" not in client.get("/api/ziv/health").text
+    assert zs.NEBIUS_API_KEY == "server-key"

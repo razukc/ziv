@@ -131,11 +131,19 @@ if [ ! -d "${SRC_DIR}" ]; then
   exit 1
 fi
 
-echo "installing deps into ${VENV_DIR}"
+echo "installing deps into ${VENV_DIR} from ${SRC_DIR}/requirements.txt"
 "${VENV_DIR}/bin/python3" -m pip install --quiet --upgrade pip 2>/dev/null || true
-"${VENV_DIR}/bin/python3" -m pip install --quiet starlette uvicorn[standard] 2>&1 | tail -5 || true
+# Install the relay's own manifest, not a hand-picked subset. The 2026-10-27
+# deploy found the VM venv missing httpx because this used to install only
+# starlette/uvicorn; the relay then answered `no_httpx` on every model call.
+if [ -f "${SRC_DIR}/requirements.txt" ]; then
+  "${VENV_DIR}/bin/python3" -m pip install --quiet -r "${SRC_DIR}/requirements.txt" 2>&1 | tail -5 || true
+else
+  echo "WARNING: ${SRC_DIR}/requirements.txt missing; installing the minimum server deps"
+  "${VENV_DIR}/bin/python3" -m pip install --quiet starlette uvicorn[standard] 2>&1 | tail -5 || true
+fi
 echo "pip install exit: $?"
-"${VENV_DIR}/bin/python3" -c "import starlette, uvicorn; print('starlette', starlette.__version__, 'uvicorn', uvicorn.__version__)" 2>&1 || true
+"${VENV_DIR}/bin/python3" -c "import httpx, starlette, uvicorn; print('httpx', httpx.__version__, 'starlette', starlette.__version__, 'uvicorn', uvicorn.__version__)" 2>&1 || true
 REMOTE_EOF
 echo "pip deps exit: ${PIPESTATUS[0]}"
 

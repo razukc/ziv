@@ -21,15 +21,18 @@ What this server owns (relay v1 — the loop the plan's MVP needs):
   ``{"type": "haptic", "pattern": "<pattern id>", "ms": [...]}`` where ``ms``
   is the exact ``vibrate()`` pattern computed from the timing module. A
   ``{"type": "text", ...}`` frame carries narration for the demo's on-screen
-  log.
+  log. ``?session=<id>`` joins that band's private stream: each id gets its
+  own hub, gate and turn lock, so two open clients never share turns. No id
+  joins ``default`` (the original single-band behaviour).
 * ``POST /api/ziv/message`` — one inbound message through the real seam:
-  the process-wide ``MessageGate`` decides play-now vs cue-and-queue
+  the target session's ``MessageGate`` decides play-now vs cue-and-queue
   (invariant 4 — a message arriving mid-turn queues, it never barges) and
   ``message:play`` **reserves the channel for the whole turn**, model wait
   and all, so the queue-don't-interrupt policy covers the quiet stretches
   too. An arrival when the replay queue is full (``MessageGate.MAX_QUEUED``)
   is rejected with 429 — bounded memory; the sender is told no, loudly.
-  ``TurnTimeline`` emits the journey (cue → ``processing`` → playing →
+  The body's ``session`` picks the stream; only that session's devices see
+  the turn. ``TurnTimeline`` emits the journey (cue → ``processing`` → playing →
   ``end-of-message`` → release), and the pump pushes each event's pattern to
   the WS. Fake-model mode sleeps ``ZIV_FAKE_MODEL_SECONDS`` (default 3 s) so
   the phone visibly feels the ``processing`` ellipsis instead of a turn that
@@ -77,12 +80,14 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
 import weakref
 from collections import deque
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -202,13 +207,18 @@ async def fire_due() -> list[dict[str, Any]]:
     inbox's rule, and now the schedule's too). No phone attached: the
     reminder is offered to the inbox (never lost, same contract as an
     inbound message) and reported as a misfire reason, not an error.
+
+    The reminder is wearer-level, so it goes to ONE session: the band in use
+    (``SessionRegistry.active`` — the legacy default when an unnamed client
+    is attached, else the newest band). Playing it on every open client would
+    be the duplicate delivery sessions exist to stop.
     """
     fired: list[dict[str, Any]] = []
     for r in scheduled.take_due():
         try:
             text, source = (r['text'], r['source'])
             if source == 'agent':
-                if agent_path_available():
+                if agent_path_configured():
                     try:
                         composed = await compose_reminder_line(r['text'])
                     except Exception as exc:
@@ -222,7 +232,14 @@ async def fire_due() -> list[dict[str, Any]]:
                             text, source = (r['text'], 'text_echo')
                 else:
                     source = 'text_echo'
-            await run_message_turn(text, source=source, prefix_mark='reminder')
+                    compose_health.record(
+                        ok=False, error='no_key',
+                        detail='NEBIUS_API_KEY is not set; the intent played verbatim.',
+                    )
+            await run_message_turn(
+                text, source=source, prefix_mark='reminder',
+                session=sessions.active(),
+            )
             fired.append({**r, 'text': text, 'source': source, 'fired': True, 'fired_at': time.time()})
         except _NoDevices:
             fired.append({**r, 'fired': False, 'reason': 'no_device_attached_stored_in_inbox'})
@@ -376,7 +393,30 @@ NEBIUS_BASE_URL = os.environ.get('NEBIUS_BASE_URL') or 'https://api.tokenfactory
 ZIV_TEXT_MODEL = os.environ.get('ZIV_TEXT_MODEL') or 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B'
 ZIV_OMNI_MODEL = os.environ.get('ZIV_OMNI_MODEL', '')
 _OMNI_PROMPT = 'Transcribe this audio clip. Reply with only the words that were spoken, nothing else.'
-_COMPOSE_PROMPT = 'You write the single line a vibro-braille channel plays to a deafblind wearer. Reply with that line only — no quotes, no preamble, no markdown, at most 30 characters, plain everyday words.'
+# The band spells SPELL_MAX_LETTERS cells and nothing else, so the cap has to
+# live in the prompt *and* be measured on the reply: a thirteen-letter line is
+# sliced at twelve by `_play_cells_and_close`, which loses its last letter at
+# the far end of the turn where the wearer — not the caller — finds out.
+_COMPOSE_LETTERS = timing.SPELL_MAX_LETTERS
+_COMPOSE_PROMPT = (
+    'You compress one reminder into the single line a vibro-braille band plays to a '
+    'deafblind wearer. '
+    f'The band has {_COMPOSE_LETTERS} cells; spaces and punctuation take none, so the whole '
+    f'line must be {_COMPOSE_LETTERS} letters at most. Reply with 2 or 3 short words and '
+    'nothing else. If the line you want is too long, drop whole words until what is left '
+    'fits: 16 letters of "remember to buy milk" become the 7 letters of "buy milk". '
+    'Write numbers as words. Reply only with the line.'
+)
+# The worked example shows the *operation*, not an answer: a concrete reminder in
+# the system prompt gets copied verbatim for unrelated intents (a live take turned
+# "meds at 9" into "pills at nine" when the example mentioned pills).
+_CORRECTION_PROMPT = (
+    'That line cannot play whole: {problem}. Cut it to 2 or 3 words, {cap} letters or '
+    'fewer, dropping words — not letters, not spaces. Write numbers as words. '
+    'Intent: {intent}'
+)
+_SHORTEST_PROMPT = 'Reply with only the two most useful words, nothing else. Intent: {intent}'
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -455,6 +495,23 @@ async def clear_schedule() -> JSONResponse:
     """Cancel all scheduled reminders."""
     n = scheduled.clear()
     return JSONResponse({'cleared': n})
+
+@app.get('/api/ziv/model/check', dependencies=AUTHENTICATED)
+async def model_check() -> JSONResponse:
+    """Ask the provider, right now, whether the configured model answers.
+
+    200: the model replied (``sample`` shows what it said).
+    502: the provider answered with an error, or was unreachable; ``detail``
+         carries its own words with the key redacted.
+    503: nothing to test — no key, no model id, or httpx missing.
+
+    One small call per request. It is not part of ``/health`` because a
+    health poll must not spend credit, and because the point is an explicit
+    operator check, not a number that silently ages.
+    """
+    report = await probe_text_model()
+    return JSONResponse(report, status_code=int(report['http_status']))
+
 
 @app.get('/api/ziv/ready', dependencies=AUTHENTICATED)
 async def ready() -> dict[str, Any]:
@@ -537,7 +594,7 @@ def haptic_frame(pattern_id: str, why: str='') -> dict[str, Any]:
     """One wearer-visible haptic event as a wire frame."""
     return {'type': 'haptic', 'pattern': pattern_id, 'ms': vibrate_pattern(pattern_id), 'why': why}
 
-async def _announce_error(why: str) -> None:
+async def _announce_error(why: str, *, session: RelaySession | None = None) -> None:
     """The error long-buzz for a turn that dies before it starts.
 
     The spike's loud-not-silent rule: a failed transcription is not dead
@@ -545,21 +602,22 @@ async def _announce_error(why: str) -> None:
     as the queue cue) and the wire log gets the words. No band attached:
     nothing to play on; the HTTP error still answers the sender.
     """
-    try:
-        await _push(haptic_frame(PATTERN_ERROR, why=why))
-        await _push({'type': 'text', 'text': f'error: {why}'})
-    except _NoDevices:
-        pass
+    target = session or _current_session()
+    if target.hub.count == 0:
+        return
+    await target.hub.broadcast(haptic_frame(PATTERN_ERROR, why=why))
+    await target.hub.broadcast({'type': 'text', 'text': f'error: {why}'})
+    target.note_frame('haptic')
 
 @dataclass
 class DeviceHub:
-    """Attached dev-band phones and the send discipline.
+    """The devices attached to one session, and the send discipline.
 
-    One wrist, one playback loop — but during the dev phase a laptop browser
-    may be attached next to the phone, so frames fan out to every connected
-    device. Haptic frames are fire-and-forget by design: haptics are not
-    request/response, and one slow or dead client must never stall the turn
-    pump.
+    One wrist, one playback loop. Frames fan out to every device attached to
+    *this* session — the same browser/session opened twice is still one band —
+    but never to another session's devices. Haptic frames are fire-and-forget
+    by design: haptics are not request/response, and one slow or dead client
+    must never stall the turn pump.
     """
     devices: list[WebSocket] = field(default_factory=list)
 
@@ -591,16 +649,233 @@ class DeviceHub:
         for ws in dead:
             self.detach(ws)
 hub = DeviceHub()
+gate = MessageGate()
+_turn_lock = _LoopBoundLock()
+
+class RelaySession:
+    """One band's private playback stream: hub, gate and turn lock.
+
+    The relay used to keep one process-wide hub and gate, which meant every
+    open client felt every message: two phones, two browsers, one wrist. A
+    session gives each connected band its own attached devices, its own
+    queue-don't-interrupt gate and its own turn lock, so a message posted for
+    session A plays on A's wires only. The timing spec, the wearer's inbox,
+    preferences and the reminder schedule stay wearer-level (see the module
+    docstring) — only *playback* is per session.
+
+    The ``default`` session is the compatibility seam: it delegates to the
+    module-level ``hub`` / ``gate`` / ``_turn_lock``, so drivers written
+    before sessions (the hermetic suite, curl, the demo scripts) keep working
+    unchanged and a request with no session id lands there.
+    """
+
+    def __init__(self, session_id: str, *, hub: 'DeviceHub | None' = None,
+                 gate: 'MessageGate | None' = None,
+                 lock: '_LoopBoundLock | None' = None) -> None:
+        self.session_id = session_id
+        self._hub = hub if hub is not None else DeviceHub()
+        self._gate = gate if gate is not None else MessageGate()
+        self.lock = lock if lock is not None else _LoopBoundLock()
+        self.attached_at = time.monotonic()
+        self.last_frame_mono: float | None = None
+
+    @property
+    def hub(self) -> 'DeviceHub':
+        return self._hub
+
+    @property
+    def gate(self) -> 'MessageGate':
+        return self._gate
+
+    def note_frame(self, frame_type: str | None) -> None:
+        """Stamp the last wearer-visible frame pushed to this band.
+
+        Heartbeats are transport liveness, not content: counting them would
+        make every attached band look active forever. The badge popover uses
+        this stamp to show when the band last actually felt something.
+        """
+        if frame_type == 'heartbeat':
+            return
+        self.last_frame_mono = time.monotonic()
+
+    def idle(self) -> bool:
+        """Nothing attached and nothing in flight — safe to forget."""
+        return self.hub.count == 0 and not self.gate.playing and len(self.gate) == 0
+
+class _DefaultSession(RelaySession):
+    """The unnamed session: the module-level hub, gate and turn lock.
+
+    Reading ``hub``/``gate`` through properties (not copies) is deliberate:
+    the test fixture replaces ``zs.gate`` between cases and clears
+    ``zs.hub.devices``, and a turn with no session id must see exactly that
+    state.
+    """
+
+    def __init__(self) -> None:
+        super().__init__('default', hub=hub, gate=gate, lock=_turn_lock)
+
+    @property
+    def hub(self) -> 'DeviceHub':
+        return hub
+
+    @property
+    def gate(self) -> 'MessageGate':
+        return gate
+
+class SessionIdError(ValueError):
+    """A session id the relay will not create (unbounded or unsafe input)."""
+
+class SessionLimit(RuntimeError):
+    """Too many live sessions; the caller has to wait for one to go idle."""
+
+_SESSION_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$')
+
+def _clean_session_id(raw: Any) -> str:
+    """Normalize a requested session id; empty means the default session.
+
+    Client-generated ids are UUIDs, but the id is caller input: it is bounded
+    to 64 characters and a safe alphabet so it can be logged and shown without
+    becoming a memory/identity hole.
+    """
+    sid = str(raw or '').strip()
+    if not sid:
+        return 'default'
+    if not _SESSION_ID_RE.match(sid):
+        raise SessionIdError(
+            'session must be 1-64 characters of letters, digits, dot, colon, '
+            'underscore or dash'
+        )
+    return sid
+
+class SessionRegistry:
+    """The live sessions, bounded and reclaimable.
+
+    A session is forgotten when its last device detaches and its gate is idle.
+    Creating a new one first drops every idle session, so a tab that closes
+    without a clean detach cannot accumulate forever; the hard cap is the
+    backstop for a flood of genuinely live sessions.
+    """
+
+    MAX_SESSIONS = 32
+
+    def __init__(self, default: RelaySession) -> None:
+        self._sessions: dict[str, RelaySession] = {default.session_id: default}
+        self._lock = threading.Lock()
+        self.default = default
+
+    @staticmethod
+    def _reap_locked(store: dict[str, RelaySession]) -> None:
+        for sid, session in list(store.items()):
+            if sid != 'default' and session.idle():
+                del store[sid]
+
+    def get(self, raw: Any = None, *, create: bool = True) -> RelaySession:
+        sid = _clean_session_id(raw)
+        with self._lock:
+            session = self._sessions.get(sid)
+            if session is not None or not create:
+                return session  # type: ignore[return-value]
+            if sid != 'default':
+                self._reap_locked(self._sessions)
+                if len(self._sessions) >= self.MAX_SESSIONS:
+                    raise SessionLimit(
+                        f'{self.MAX_SESSIONS} live sessions — close an idle band first'
+                    )
+            session = RelaySession(sid)
+            self._sessions[sid] = session
+            return session
+
+    def touch(self, session: RelaySession) -> None:
+        """Mark a session as the most recently attached band."""
+        session.attached_at = time.monotonic()
+
+    def release(self, session: RelaySession) -> None:
+        """Forget a session once it is genuinely idle (never the default)."""
+        if session.session_id == 'default':
+            return
+        with self._lock:
+            if self._sessions.get(session.session_id) is session and session.idle():
+                del self._sessions[session.session_id]
+
+    def active(self) -> RelaySession:
+        """The band an unnamed POST or unsolicited turn should use.
+
+        Three cases, in order:
+
+        1. A legacy client (one that connected without a session id) is
+           attached: it is the ``default`` band, and unnamed traffic is what
+           it has always received.
+        2. Otherwise the most recently attached session. A sender that does
+           not know a tab's id (curl, the demo scripts, a webhook, the
+           scheduler) is addressing the wearer, not a particular window —
+           playing on every open tab would be exactly the duplicate delivery
+           sessions exist to stop.
+        3. Nothing attached: ``default``, whose caller stores the message in
+           the wearer's inbox.
+        """
+        with self._lock:
+            default = self._sessions.get('default')
+            if default is not None and default.hub.count:
+                return default
+            attached = [s for s in self._sessions.values() if s.hub.count]
+        if not attached:
+            return self.default
+        return max(attached, key=lambda s: s.attached_at)
+
+    def total_devices(self) -> int:
+        with self._lock:
+            return sum(s.hub.count for s in self._sessions.values())
+
+    def total_queued(self) -> int:
+        with self._lock:
+            return sum(len(s.gate) for s in self._sessions.values())
+
+    def describe(self) -> list[dict[str, Any]]:
+        """Content-free session view for health.
+
+        Ids, device count, queue depth, playing state and the age of the last
+        wearer-visible frame. Not named ``snapshot``: that name belongs to the
+        health payload's rejection stats, and a second one earlier in the file
+        would shadow it for the source-level badge contract.
+        """
+        now = time.monotonic()
+        with self._lock:
+            rows = sorted(self._sessions.values(), key=lambda s: s.attached_at, reverse=True)
+        return [
+            {'id': s.session_id, 'devices': s.hub.count,
+             'queue': len(s.gate), 'playing': s.gate.playing,
+             'last_frame_age_s': (round(now - s.last_frame_mono, 1)
+                                  if s.last_frame_mono is not None else None)}
+            for s in rows
+        ]
+
+sessions = SessionRegistry(_DefaultSession())
+_inbox_lock = _LoopBoundLock()
+
+_SESSION_CTX: ContextVar[RelaySession | None] = ContextVar('ziv_session', default=None)
+
+def _current_session() -> RelaySession:
+    """The session this task's turn belongs to (default when unset).
+
+    A ContextVar, not an argument threaded through every helper: frame
+    pushing, prefix marks, drains and closes all read the same session, and
+    concurrent requests for different sessions each run in their own task
+    with their own context.
+    """
+    return _SESSION_CTX.get() or sessions.default
 
 class _NoDevices(RuntimeError):
     pass
 
 async def _push(frame: dict[str, Any]) -> None:
-    if hub.count == 0:
-        raise _NoDevices('no dev band attached (open /ziv_client/index.html on the phone)')
-    await hub.broadcast(frame)
-gate = MessageGate()
-_turn_lock = _LoopBoundLock()
+    session = _current_session()
+    if session.hub.count == 0:
+        raise _NoDevices(
+            f'no dev band attached to session {session.session_id!r} '
+            '(open /ziv_client/index.html on the phone)'
+        )
+    await session.hub.broadcast(frame)
+    session.note_frame(frame.get('type'))
 
 class _RejectionStats:
     """Operator-visible telemetry for the refusals the relay hands out.
@@ -676,6 +951,17 @@ def _effective_cell_gap_ms() -> int:
         v = timing.CELL_GAP_DEFAULT_MS
     return max(timing.CELL_GAP_MIN_MS, min(timing.CELL_GAP_MAX_MS, v))
 
+def _spelled(text: str) -> str:
+    """Exactly the letters the band spells for ``text`` — one cell each.
+
+    Spaces, punctuation and digits take no cells. This is both the cap measure
+    (``len(_spelled(line))``) and the cell sequence, deliberately the same
+    function for both: the check that a composed line fits cannot drift from
+    the slice that plays it.
+    """
+    return ''.join(ch for ch in str(text).lower() if 'a' <= ch <= 'z')
+
+
 async def _play_cells_and_close(text: str, *, note: str | None=None, free_fn=None) -> int:
     """Content on the motors: the cell frames, the dwell, the close.
 
@@ -693,7 +979,7 @@ async def _play_cells_and_close(text: str, *, note: str | None=None, free_fn=Non
     redial behind the remaining replays, so "the close lands on the wire"
     must mean the *last* one.
     """
-    cells = [{'ch': ch, 'ms': timing.cell_ms(ch)} for ch in text.lower() if 'a' <= ch <= 'z'][:timing.SPELL_MAX_LETTERS]
+    cells = [{'ch': ch, 'ms': timing.cell_ms(ch)} for ch in _spelled(text)][:timing.SPELL_MAX_LETTERS]
     label = f'queued: {text}' if note else f'message: {text}'
     await _push({'type': 'text', 'text': label, 'chars': cells})
     gap = _effective_cell_gap_ms() / 1000.0
@@ -765,43 +1051,314 @@ async def _transcribe_omni(audio_b64: str, mime: str) -> str:
         raise HTTPException(status_code=502, detail='Omni heard nothing (empty transcript)')
     return text
 
-async def compose_with_nebius(prompt: str, *, system: str='') -> str:
+async def compose_with_nebius(prompt: str, *, system: str='',
+                              api_key: str | None = None) -> str:
     """One Token Factory **text** call — the agent path.
 
-    Same endpoint, same key, same OpenAI-compatible wire shape as the audio
-    seam; a text body instead of an ``input_audio`` content part. This is the
-    call the demo actually proves, so it gets the same loud-not-silent
-    discipline: ``HTTPException(502)`` carrying the provider's words, never a
-    silent empty string.
+    Same endpoint, same OpenAI-compatible wire shape as the audio seam; a text
+    body instead of an ``input_audio`` content part. This is the call the demo
+    actually proves, so it gets the same loud-not-silent discipline:
+    ``HTTPException(502)`` carrying the provider's words, never a silent empty
+    string.
+
+    ``api_key`` overrides the relay's own key for exactly this call. It is the
+    one-shot judge path: passed in, used once, never assigned to a module
+    global and never stored. Unset means the configured ``NEBIUS_API_KEY``.
     """
+    key = api_key or NEBIUS_API_KEY
     try:
         import httpx
     except ImportError as exc:
         raise HTTPException(status_code=500, detail='httpx unavailable') from exc
-    payload = {'model': ZIV_TEXT_MODEL, 'messages': ([{'role': 'system', 'content': system}] if system else []) + [{'role': 'user', 'content': prompt}], 'max_tokens': 64, 'temperature': 0.0}
+    # Nemotron 3 is a reasoning model. Without this switch it spends the
+    # whole 64-token budget inside ``reasoning`` and returns content: null;
+    # the provider honours the vLLM switch, and the null guard below still
+    # refuses loudly if a model ignores it.
+    payload = {'model': ZIV_TEXT_MODEL, 'messages': ([{'role': 'system', 'content': system}] if system else []) + [{'role': 'user', 'content': prompt}], 'max_tokens': 64, 'temperature': 0.0, 'chat_template_kwargs': {'enable_thinking': False}}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(NEBIUS_BASE_URL.rstrip('/') + '/chat/completions', json=payload, headers={'Authorization': f'Bearer {NEBIUS_API_KEY}'})
+            resp = await client.post(NEBIUS_BASE_URL.rstrip('/') + '/chat/completions', json=payload, headers={'Authorization': f'Bearer {key}'})
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f'Token Factory unreachable: {exc}') from exc
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f'Token Factory error {resp.status_code}: {resp.text[:300]}')
     try:
-        out = str(resp.json()['choices'][0]['message']['content']).strip()
+        content = resp.json()['choices'][0]['message']['content']
     except (KeyError, IndexError, ValueError) as exc:
         raise HTTPException(status_code=502, detail='Token Factory reply had no text') from exc
+    if content is None:
+        # A reasoning model that spends its whole budget before writing the
+        # answer returns 200 with content: null. ``str(None)`` would play the
+        # word "None" on the band, so this is a loud provider failure instead.
+        raise HTTPException(
+            status_code=502,
+            detail='Token Factory answered 200 with content: null — the model produced reasoning only, not a line',
+        )
+    out = str(content).strip()
     if not out:
         raise HTTPException(status_code=502, detail='model composed nothing')
     return out
 
-def agent_path_available() -> bool:
-    """Can the relay actually reach the model? Key present *and* a model id.
 
-    Used to decide ``source`` before the call, so the wire log says
-    ``text_live`` only when a real model call ran, and ``text_echo`` when the
-    stored line is played verbatim instead. Never guesses.
+def _band_line(raw: str) -> str:
+    """The model's reply as the one line that would play: cleaned, never cut.
+
+    No character limit here on purpose — truncating a reply is the defect this
+    path exists to prevent; the cap is enforced by re-asking, not by slicing.
+    """
+    lines = [ln.strip() for ln in str(raw).strip().splitlines() if ln.strip()]
+    return (lines[0] if lines else '').strip('"').strip("'").strip()
+
+
+_NUMBER_WORDS = {
+    '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five',
+    '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine', '10': 'ten',
+    '11': 'eleven', '12': 'twelve',
+}
+
+
+def _spoken_numbers(text: str) -> str:
+    """Digits as words — the rule the console already states ("digits are spoken out").
+
+    The band has no cell for a digit, so ``meds at 9`` would play ``meds at`` and
+    lose the time; the model keeps writing the digit however firmly it is asked
+    (a live run failed all three rungs on ``meds at 9``). This spells the number
+    the model wrote — it never chooses or changes one — and leaves anything
+    outside the table (``13``, ``9:30``) to the retry, which can rephrase.
+    """
+    def spell(match: re.Match) -> str:
+        word = _NUMBER_WORDS.get(match.group())
+        if word is None:
+            return match.group()
+        # "9am" reads as "nine am", not "nineam".
+        glued = match.end() < len(text) and text[match.end()].isalpha()
+        return word + (' ' if glued else '')
+
+    return re.sub(r'\d+', spell, text)
+
+
+def _band_problem(line: str) -> str | None:
+    """Why ``line`` cannot play whole, in the model's own terms, or ``None``.
+
+    Three ways a composed line loses content on the wrist, measured by the same
+    ``_spelled`` the player uses: nothing spellable at all, a digit that no
+    cell carries (``_spoken_numbers`` spells the common ones first), or more
+    letters than there are cells. The sentence is reused as the retry's reason,
+    so the correction names the real defect instead of just "shorter".
+    """
+    if not _spelled(line):
+        return 'no letter in it can be felt'
+    if any(ch.isdigit() for ch in line):
+        return 'a digit is never felt (the band spells letters only)'
+    letters = len(_spelled(line))
+    if letters > _COMPOSE_LETTERS:
+        return f'{letters} letters, and the band has room for {_COMPOSE_LETTERS}'
+    return None
+
+
+async def compose_band_line(intent: str, *, api_key: str | None=None) -> str:
+    """The reminder line, guaranteed to fit the band's spell cap in full.
+
+    ``intent`` is what the caller promised; the model writes what plays. The
+    reply is measured with the same ``_spelled`` the cell player slices with,
+    so "fits" means "no cell is dropped":
+
+    * playable whole — returned as written (digits spelled out, since the band
+      has no cell for one and a dropped "9" loses the time);
+    * not playable — one corrective call that names the defect (a
+      thirteen-letter answer for twelve cells was the take that exposed this);
+    * still not playable — one last rung asking for two words, then a loud 502
+      carrying counts only, never the line.
+      The scheduled path turns that into ``text_echo`` of the intent, so the
+      promise still fires and the log names the path it took.
+
+    ``api_key`` is the one-shot judge credential, used for every attempt and
+    never stored.
+    """
+    cap = _COMPOSE_LETTERS
+
+    async def ask(prompt: str) -> str:
+        return _spoken_numbers(_band_line(await compose_with_nebius(
+            prompt, system=_COMPOSE_PROMPT, api_key=api_key,
+        )))
+
+    line = await ask(f'Write the reminder line for this intent: {intent}')
+    problem = _band_problem(line)
+    if problem is None:
+        return line
+    line = await ask(_CORRECTION_PROMPT.format(problem=problem, cap=cap, intent=intent))
+    problem = _band_problem(line)
+    if problem is None:
+        return line
+    # The last rung asks for a word *count* rather than a letter count: this
+    # model follows "two words" far more reliably than "twelve letters", and
+    # two short words almost always fit. Measured live at 10/10 intents.
+    line = await ask(_SHORTEST_PROMPT.format(intent=intent))
+    problem = _band_problem(line)
+    if problem is None:
+        return line
+    raise HTTPException(
+        status_code=502,
+        detail=(f'model answered a line the band cannot spell in full after 3 tries: '
+                f'{problem} — refusing to play a line with its tail cut off'),
+    )
+
+def agent_path_configured() -> bool:
+    """Can a live call be ATTEMPTED? Key present *and* a model id.
+
+    This is a wiring check, not a success claim: a present-but-unfunded key is
+    configured and still fails every call. Used to decide ``source`` before the
+    call, so the wire log says ``text_live`` only when a real model call ran,
+    and ``text_echo`` when the stored line is played verbatim instead.
     """
     return bool(NEBIUS_API_KEY and ZIV_TEXT_MODEL)
+
+
+def agent_path_available() -> bool | None:
+    """Did the model path actually work? ``None`` until a real compose is tried.
+
+    Read from the last compose record, not from the key. Health used to answer
+    this with ``agent_path_configured()`` — so a relay whose key had no credit
+    still reported ``available: true`` and today's failure was invisible.
+    """
+    return compose_health.last_ok()
+
+
+def _redact(text: str, secret: str = '') -> str:
+    """Provider words are useful in a diagnostic; the credential is not.
+
+    Both the configured key and an explicitly supplied one are scrubbed, so a
+    provider that echoes part of an Authorization header cannot turn a
+    diagnostic response into a credential leak.
+    """
+    for value in (secret, NEBIUS_API_KEY):
+        if value and value in text:
+            text = text.replace(value, '[redacted]')
+    return text
+
+
+def _compose_error_kind(detail: str) -> str:
+    """Name the failure from the words ``compose_with_nebius`` raises."""
+    if detail.startswith('Token Factory unreachable'):
+        return 'unreachable'
+    if detail.startswith('Token Factory error'):
+        return 'provider_error'
+    if detail.startswith('model answered'):
+        return 'too_long'
+    return 'bad_reply'
+
+
+class ComposeHealth:
+    """What happened on the last model compose — never what was composed.
+
+    ``text.configured`` in health answers only "is a key wired up?"; it cannot
+    tell an operator whether the provider accepts that key. This is the other
+    half: status, provider words and time of the last real attempt, with no
+    intent and no composed line — and ``text.available`` reads this record, so
+    the flag can only be true after a call that actually worked. One assignment
+    per record, so a reader never sees a half-written entry.
+    """
+
+    def __init__(self) -> None:
+        self._last: dict[str, Any] | None = None
+
+    def record(self, *, ok: bool, status: int | None = None,
+               error: str | None = None, detail: str | None = None,
+               secret: str = '') -> None:
+        self._last = {
+            'ok': ok,
+            'status': status,
+            'error': error,
+            'detail': _redact(detail, secret)[:300] if detail else None,
+            'model': ZIV_TEXT_MODEL,
+            'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
+
+    def snapshot(self) -> dict[str, Any] | None:
+        return dict(self._last) if self._last else None
+
+    def last_ok(self) -> bool | None:
+        """The last attempt's outcome, or ``None`` if none has been made."""
+        return None if self._last is None else bool(self._last['ok'])
+
+
+compose_health = ComposeHealth()
+
+
+async def probe_text_model() -> dict[str, Any]:
+    """One tiny live Token Factory call, reported as a status not a guess.
+
+    The demo's compose failures currently fall back to ``text_echo`` and leave
+    only a server-side warning: an operator can see that the model did not run
+    but not why. This makes the provider's own answer visible in one request —
+    401/402/404, an empty reply, or a DNS/timeout failure — with the key
+    redacted. It is deliberately a separate, explicit call: a diagnostic must
+    not spend credit on every health poll, and it must not overwrite the
+    last-compose record that explains a real reminder.
+    """
+    started = time.monotonic()
+
+    def report(status: int, **fields: Any) -> dict[str, Any]:
+        return {
+            'ok': status == 200,
+            'http_status': status,
+            'model': ZIV_TEXT_MODEL,
+            'base_url': NEBIUS_BASE_URL.rstrip('/'),
+            'latency_ms': round((time.monotonic() - started) * 1000),
+            'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            **fields,
+        }
+
+    if not NEBIUS_API_KEY:
+        return report(503, error='no_key', provider_status=None,
+                      detail='NEBIUS_API_KEY is not set on this relay; scheduled intents fire verbatim as text_echo.')
+    if not ZIV_TEXT_MODEL:
+        return report(503, error='no_model', provider_status=None,
+                      detail='ZIV_TEXT_MODEL is empty; the relay has no model id to call.')
+    try:
+        import httpx
+    except ImportError:
+        return report(503, error='no_httpx', provider_status=None,
+                      detail='httpx is not installed; the relay cannot make provider calls.')
+
+    # The same switch the compose path sends: without it the probe's 8-token
+    # budget goes entirely to `reasoning` and the diagnostic reads content:
+    # null (previously reported as the sample "None", a false green light).
+    payload = {
+        'model': ZIV_TEXT_MODEL,
+        'messages': [{'role': 'user', 'content': 'Reply with the single word: ok'}],
+        'max_tokens': 8,
+        'temperature': 0.0,
+        'chat_template_kwargs': {'enable_thinking': False},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                NEBIUS_BASE_URL.rstrip('/') + '/chat/completions',
+                json=payload,
+                headers={'Authorization': f'Bearer {NEBIUS_API_KEY}'},
+            )
+    except httpx.HTTPError as exc:
+        return report(502, error='unreachable', provider_status=None,
+                      detail=_redact(f'{type(exc).__name__}: {exc}'))
+
+    if resp.status_code != 200:
+        return report(502, error='provider_error', provider_status=resp.status_code,
+                      detail=_redact(resp.text[:300]))
+    try:
+        raw = resp.json()['choices'][0]['message']['content']
+    except (KeyError, IndexError, ValueError):
+        return report(502, error='bad_reply', provider_status=resp.status_code,
+                      detail='Token Factory answered 200 without choices[0].message.content.')
+    if raw is None:
+        return report(502, error='bad_reply', provider_status=resp.status_code,
+                      detail='Token Factory answered 200 with content: null — the model produced reasoning only, so no line can play.')
+    sample = str(raw).strip()
+    if not sample:
+        return report(502, error='empty_reply', provider_status=resp.status_code,
+                      detail='The model answered 200 with an empty line.')
+    return report(200, error=None, provider_status=resp.status_code, sample=sample[:80])
+
 
 async def compose_reminder_line(intent: str) -> str:
     """Ask the model for the one line this reminder should play.
@@ -809,13 +1366,36 @@ async def compose_reminder_line(intent: str) -> str:
     The reminder the caller scheduled is an *intent* ("meds at nine"), not a
     finished sentence — turning it into the line a wrist reads is exactly the
     work an agent should do while nobody is chatting. The model's own words
-    are what plays; nothing here invents or templates them.
-    """
-    line = await compose_with_nebius(f'Write the reminder line for this intent: {intent}', system=_COMPOSE_PROMPT)
-    return line.strip().strip('"').splitlines()[0][:60] or intent
+    are what plays; nothing here invents or templates them, and the line is
+    guaranteed to fit the band's spell cap in full (``compose_band_line``).
 
-async def deliver_inbox_one() -> dict[str, Any] | None:
-    """Deliver the oldest pending inbox message as its own full event.
+    Every attempt is recorded content-free for health, including the provider's
+    refusal: a reminder that plays verbatim because the key has no credit must
+    not look like a keyless run.
+    """
+    try:
+        line = await compose_band_line(intent)
+    except HTTPException as exc:
+        detail = str(exc.detail)
+        # Report the provider's own status when there is one (401/402/404);
+        # the relay's 502 only says "compose failed", which is the number the
+        # operator already knows. Transport failures keep the relay status.
+        match = re.match(r'Token Factory error (\d{3}):', detail)
+        compose_health.record(
+            ok=False,
+            status=int(match.group(1)) if match else exc.status_code,
+            error=_compose_error_kind(detail), detail=detail, secret=intent,
+        )
+        raise
+    except Exception as exc:
+        compose_health.record(ok=False, error='exception',
+                              detail=f'{type(exc).__name__}: {exc}', secret=intent)
+        raise
+    compose_health.record(ok=True, status=200)
+    return line
+
+async def deliver_inbox_one(session: RelaySession | None = None) -> dict[str, Any] | None:
+    """Deliver the oldest pending inbox message on one band's stream.
 
     Marked delivered only *after* the close plays — a band vanishing
     mid-delivery leaves the message pending (redelivery, never loss).
@@ -826,8 +1406,10 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
     must not interleave into the middle of a stored message. If the channel
     is already held the delivery declines and returns ``None``, leaving the
     entry pending for the next attach; nothing is lost, because nothing was
-    touched. The turn lock additionally serializes two deliveries racing the
-    same oldest entry, so the peek and the mark cannot straddle each other.
+    touched. Two deliveries racing the same oldest entry are serialized by
+    the relay-wide inbox lock, so the peek and the mark cannot straddle each
+    other — even when the two bands belong to different sessions (the inbox
+    is the wearer's, not a tab's: one entry is delivered exactly once).
 
     After the entry's close it drains the gate queue: texts that arrived
     while a stored backlog played have already cued on the wrist, and this
@@ -838,9 +1420,21 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
     any other stored message with the message's double-tap), so the wrist
     feels who is calling — and what kind of event it was — before the
     stored content arrives.
+
+    ``session`` picks the band that plays it (default: this task's session).
     """
-    async with _turn_lock:
-        if not gate.reserve():
+    token = _SESSION_CTX.set(session or _current_session())
+    try:
+        async with _inbox_lock:
+            return await _deliver_inbox_one()
+    finally:
+        _SESSION_CTX.reset(token)
+
+async def _deliver_inbox_one() -> dict[str, Any] | None:
+    """``deliver_inbox_one``'s work, under its session and the inbox lock."""
+    sess = _current_session()
+    async with sess.lock:
+        if not sess.gate.reserve():
             return None
         owed: list[str] = []
         released = False
@@ -848,7 +1442,7 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
             entry = inbox.peek_one()
             if entry is None:
                 released = True
-                await _play_drained(gate.close_event(), owed)
+                await _play_drained(sess.gate.close_event(), owed)
                 return None
             source = str(entry.get('source', 'message'))
             kind = 'reminder' if source == 'scheduled' else 'message'
@@ -857,14 +1451,14 @@ async def deliver_inbox_one() -> dict[str, Any] | None:
             owed = []
             inbox.mark_delivered(entry)
             released = True
-            await _play_drained(gate.close_event(), owed)
+            await _play_drained(sess.gate.close_event(), owed)
         except BaseException:
-            for stranded in owed if released else [*owed, *gate.abort()]:
+            for stranded in owed if released else [*owed, *sess.gate.abort()]:
                 inbox.offer(stranded, source='queued')
             raise
     return entry
 
-async def run_message_turn(text: str, *, source: str='message', prefix_mark: str | None=None) -> dict[str, Any]:
+async def run_message_turn(text: str, *, source: str='message', prefix_mark: str | None=None, session: RelaySession | None=None) -> dict[str, Any]:
     """One inbound message through the real seam, out over the WS.
 
     The ordering is TurnTimeline's, not this function's: the opening kind
@@ -883,26 +1477,45 @@ async def run_message_turn(text: str, *, source: str='message', prefix_mark: str
     cancellation) releases the gate and hands every undelivered text to the
     inbox before re-raising: the channel is freed for the next arrival and
     nothing the wearer never felt is lost. Redelivery, never a silent drop.
+
+    ``session`` chooses whose hub/gate this turn drives — a message posted for
+    tab A plays on A's wires only. Unset means this task's session, else the
+    default session (the pre-session behaviour, kept for direct drivers).
     """
-    if hub.count == 0:
+    token = _SESSION_CTX.set(session or _current_session())
+    try:
+        return await _run_message_turn(text, source=source, prefix_mark=prefix_mark)
+    finally:
+        _SESSION_CTX.reset(token)
+
+async def _run_message_turn(text: str, *, source: str='message', prefix_mark: str | None=None) -> dict[str, Any]:
+    """The turn pump itself; ``run_message_turn`` owns the session context."""
+    sess = _current_session()
+    if sess.hub.count == 0:
         entry = inbox.offer(text, source=source)
         return {'event': 'inbox:stored', 'stored': True, 'inbox_pending': inbox.count(), 'at': entry['at']}
-    decision = gate.admit(text)
+    decision = sess.gate.admit(text)
     if decision.event_type == 'message:rejected':
         queue_rejections.record(str(decision.payload.get('reason', 'queue_full')))
         cap = int(decision.payload.get('cap', MessageGate.MAX_QUEUED))
         raise HTTPException(status_code=429, detail=f'message rejected: the replay queue is full ({cap} queued) — the wearer releases it after the current turn; try again later')
     if decision.event_type != 'message:play':
         await _push(haptic_frame(PATTERN_MESSAGE_CUE, why='queued'))
-        return {'event': decision.event_type, 'queued': True, 'queue_len': len(gate)}
+        return {'event': decision.event_type, 'queued': True, 'queue_len': len(sess.gate)}
     owed: list[str] = [text]
     turn: TurnTimeline | None = None
     released = False
     try:
-        async with _turn_lock:
+        async with sess.lock:
+            # Hold the channel for the whole turn, prefix mark included. Without
+            # this an arrival during the name mark sees a free gate and becomes
+            # a second main turn racing the turn lock — the recording's 8 fills
+            # exposed it (they played one by one instead of queueing).
+            if decision.event_type == 'message:play':
+                sess.gate.reserve()
             if prefix_mark is not None:
                 await _play_prefix_mark(prefix_mark, text)
-            turn = TurnTimeline(gate, text=text)
+            turn = TurnTimeline(sess.gate, text=text)
 
             def frame_for(ev: Any) -> dict[str, Any]:
                 et = ev.event_type
@@ -917,8 +1530,6 @@ async def run_message_turn(text: str, *, source: str='message', prefix_mark: str
                 return {'type': 'text', 'text': et}
             t0 = time.monotonic()
             await _push(frame_for(turn.events[0]))
-            if decision.event_type == 'message:play':
-                gate.reserve()
             turn.begin_processing(now_s=0.0)
             await _push(frame_for(turn.events[-1]))
             tick = 0.05
@@ -931,7 +1542,7 @@ async def run_message_turn(text: str, *, source: str='message', prefix_mark: str
                     await _push(frame_for(ev))
             turn.begin_playback()
             await _push(frame_for(turn.events[-1]))
-            await _play_cells_and_close(text, free_fn=lambda: len(gate) == 0)
+            await _play_cells_and_close(text, free_fn=lambda: len(sess.gate) == 0)
             owed.pop(0)
             replay = turn.finish_playback(now_s=round(time.monotonic() - t0, 1))
             drained = replay[1:]
@@ -941,7 +1552,7 @@ async def run_message_turn(text: str, *, source: str='message', prefix_mark: str
             return {'event': 'turn_complete', 'seconds': turn.seconds, 'events': [ev.event_type for ev in turn.events], 'drained': len(drained)}
     except BaseException as exc:
         if not released:
-            owed.extend(gate.abort())
+            owed.extend(sess.gate.abort())
         for pending_text in owed:
             inbox.offer(pending_text, source=source)
         _telemetry.record(label='message_turn_aborted', seconds=0.0, retries=turn.retries if turn is not None else 0, source=source, reason=type(exc).__name__, stranded=len(owed))
@@ -949,8 +1560,15 @@ async def run_message_turn(text: str, *, source: str='message', prefix_mark: str
         raise
 
 @app.websocket('/ws')
-async def ws_device(ws: WebSocket, token: str | None=Query(default=None)) -> None:
+async def ws_device(ws: WebSocket, token: str | None=Query(default=None),
+                    session: str | None=Query(default=None)) -> None:
     """The device transport: attach, greet, drain, detach.
+
+    ``?session=<id>`` selects which band's stream this socket joins. The
+    client makes one id per tab, so two open tabs have two independent gates
+    and never hear each other's turns; omitting the id joins the ``default``
+    session (one-band behaviour, used by curl, the demo scripts and the
+    pre-session tests).
 
     Held-as-asset additions (announced in the narrative, not yet proven end
     to end on the real device):
@@ -969,15 +1587,24 @@ async def ws_device(ws: WebSocket, token: str | None=Query(default=None)) -> Non
     if not _authorized_websocket(token):
         await ws.close(code=4401)
         return
+    try:
+        relay_session = sessions.get(session)
+    except SessionIdError:
+        await ws.close(code=4400)
+        return
+    except SessionLimit:
+        await ws.close(code=4429)
+        return
     await ws.accept()
-    await hub.attach(ws)
+    await relay_session.hub.attach(ws)
+    sessions.touch(relay_session)
     try:
         pending = inbox.count()
         control_state = {'loop_running': _schedule_task is not None and (not _schedule_task.done()), 'loop_started': _schedule_loop_started, 'iface': _schedule_loop_iface is not None}
-        await ws.send_text(json.dumps({'type': 'hello', 'spec_version': timing.SPEC_VERSION, 'patterns': list(timing.PATTERN_IDS), 'mark': timing.PREFIX_MARK, 'inbox_pending': pending, 'control': control_state}, ensure_ascii=False))
+        await ws.send_text(json.dumps({'type': 'hello', 'session': relay_session.session_id, 'devices': relay_session.hub.count, 'spec_version': timing.SPEC_VERSION, 'patterns': list(timing.PATTERN_IDS), 'mark': timing.PREFIX_MARK, 'inbox_pending': pending, 'control': control_state}, ensure_ascii=False))
         if pending:
             try:
-                while await deliver_inbox_one() is not None:
+                while await deliver_inbox_one(relay_session) is not None:
                     pass
             except _NoDevices:
                 pass
@@ -985,29 +1612,126 @@ async def ws_device(ws: WebSocket, token: str | None=Query(default=None)) -> Non
             try:
                 await asyncio.wait_for(ws.receive_text(), timeout=WS_HEARTBEAT_S)
             except asyncio.TimeoutError:
-                await _push({'type': 'heartbeat', 'control': control_state})
-            except _NoDevices:
-                pass
+                await relay_session.hub.broadcast({'type': 'heartbeat', 'control': control_state})
     except WebSocketDisconnect:
         pass
     finally:
-        hub.detach(ws)
+        relay_session.hub.detach(ws)
+        sessions.release(relay_session)
+
+def _http_session(raw: Any) -> RelaySession:
+    """Resolve the session a content request targets, or fail loudly.
+
+    No session id means the band currently in use (``active``), not the
+    empty ``default``: an anonymous sender is addressing the wearer. An
+    explicit id is honored exactly, and only that band hears the turn.
+    """
+    if not str(raw or '').strip():
+        return sessions.active()
+    try:
+        return sessions.get(raw)
+    except SessionIdError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SessionLimit as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 @app.post('/api/ziv/message')
-async def post_message(body: dict[str, Any], authorization: str | None=Header(default=None)) -> JSONResponse:
-    """One inbound message → gate → timeline → WS frames → the wrist."""
+async def post_message(body: dict[str, Any], authorization: str | None=Header(default=None),
+                       session: str | None=Query(default=None),
+                       x_ziv_session: str | None=Header(default=None)) -> JSONResponse:
+    """One inbound message → that session's gate → its WS frames only.
+
+    The browser sends its id in ``X-Ziv-Session``; ``session`` is accepted in
+    the query string or the body too, so curl/API callers can choose a band.
+    Without one, the band in use gets the message (see
+    ``SessionRegistry.active``) — an anonymous sender targets the wearer.
+    """
     _authorized_http(authorization)
     text = str(body.get('text', '')).strip()
     if not text:
         raise HTTPException(status_code=422, detail='text is required')
+    relay_session = _http_session(
+        x_ziv_session or session or body.get('session')
+    )
     try:
-        result = await run_message_turn(text, source='message')
+        result = await run_message_turn(text, source='message', session=relay_session)
     except _NoDevices as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse(result)
 
+
+@app.post('/api/ziv/compose')
+async def compose_once(body: dict[str, Any], authorization: str | None = Header(default=None),
+                       x_nebius_key: str | None = Header(default=None),
+                       session: str | None = Query(default=None),
+                       x_ziv_session: str | None = Header(default=None)) -> JSONResponse:
+    """One live model compose paid for by the caller's own key.
+
+    The judge pastes a Nebius Token Factory key in the console; the browser
+    sends it in ``X-Nebius-Key`` for this request only. The key is used for
+    exactly one provider call, never written to the environment, the stores,
+    the logs or health, and scrubbed from any provider text before it is
+    returned. The model's line then takes the ordinary turn path on the
+    caller's own band, labelled ``text_live`` — the proof a scheduled intent
+    gives, without needing the relay owner's credit.
+
+    This is deliberately one-shot: a key supplied now is not attached to a
+    reminder that fires later, because that would mean holding a stranger's
+    credential in memory for minutes or hours.
+    """
+    _authorized_http(authorization)
+    key = str(x_nebius_key or '').strip()
+    intent = str(body.get('intent') or '').strip()
+    if not key:
+        raise HTTPException(status_code=422, detail='X-Nebius-Key is required — paste a Nebius Token Factory key in the console')
+    if not intent:
+        raise HTTPException(status_code=422, detail='intent is required')
+    if len(intent) > 200:
+        raise HTTPException(status_code=422, detail='intent is too long (200 characters max)')
+    relay_session = _http_session(
+        x_ziv_session or session or body.get('session')
+    )
+    started = time.monotonic()
+
+    def report(status: int, **fields: Any) -> JSONResponse:
+        return JSONResponse(
+            {'ok': status == 200, 'model': ZIV_TEXT_MODEL,
+             'latency_ms': round((time.monotonic() - started) * 1000), **fields},
+            status_code=status,
+        )
+
+    try:
+        line = await compose_band_line(intent, api_key=key)
+    except HTTPException as exc:
+        detail = _redact(str(exc.detail), key)
+        match = re.match(r'Token Factory error (\d{3}):', detail)
+        kind = ('unreachable' if detail.startswith('Token Factory unreachable')
+                else 'provider_error' if match
+                else 'too_long' if detail.startswith('model answered')
+                else 'compose_failed')
+        return report(502, error=kind,
+                      provider_status=int(match.group(1)) if match else None,
+                      detail=detail)
+    except Exception as exc:
+        return report(502, error='exception', provider_status=None,
+                      detail=_redact(f'{type(exc).__name__}: {exc}', key))
+
+    text = line
+    result = await run_message_turn(
+        text, source='text_live', prefix_mark='reminder', session=relay_session,
+    )
+    return JSONResponse({
+        'ok': True, 'text': text, 'source': 'text_live',
+        'session': relay_session.session_id, 'model': ZIV_TEXT_MODEL,
+        'latency_ms': round((time.monotonic() - started) * 1000),
+        'result': result,
+    })
+
+
 @app.post('/inject/audio')
-async def inject_audio(body: dict[str, Any], authorization: str | None=Header(default=None)) -> JSONResponse:
+async def inject_audio(body: dict[str, Any], authorization: str | None=Header(default=None),
+                       session: str | None=Query(default=None),
+                       x_ziv_session: str | None=Header(default=None)) -> JSONResponse:
     """The Omni spike's seam (week 1), now real: mic audio → transcript → turn.
 
     The PWA records the mic (MediaRecorder) and posts
@@ -1018,6 +1742,9 @@ async def inject_audio(body: dict[str, Any], authorization: str | None=Header(de
     cells, close and the queue are all exercised either way.
     """
     _authorized_http(authorization)
+    relay_session = _http_session(
+        x_ziv_session or session or body.get('session')
+    )
     simulate = str(body.get('simulate') or '').strip()
     audio_b64 = str(body.get('audio_b64') or '').strip()
     if not simulate and (not audio_b64):
@@ -1036,11 +1763,12 @@ async def inject_audio(body: dict[str, Any], authorization: str | None=Header(de
         try:
             text = await _transcribe_omni(audio_b64, mime)
         except HTTPException as exc:
-            await _announce_error(f'transcription failed ({exc.status_code})')
+            await _announce_error(f'transcription failed ({exc.status_code})',
+                                  session=relay_session)
             raise
         source = 'audio_omni'
     try:
-        result = await run_message_turn(text, source=source)
+        result = await run_message_turn(text, source=source, session=relay_session)
     except _NoDevices as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse({'source': source, **result})
@@ -1092,7 +1820,7 @@ def health() -> dict[str, Any]:
     inbox_pending = inbox.count()
     prefs = {'cell_gap_ms': _effective_cell_gap_ms()}
     corrupt = memory.take_corrupt_files() + inbox.take_corrupt_files() + scheduled.take_corrupt_files()
-    return {'status': 'ok', 'service': 'Ziv relay v1 (dev band + memory)', 'devices': hub.count, 'spec_version': timing.SPEC_VERSION, 'fake_model_seconds': FAKE_MODEL_SECONDS, 'auth': bool(ZIV_RELAY_TOKEN), 'text': {'key_set': bool(NEBIUS_API_KEY), 'base_url': NEBIUS_BASE_URL.rstrip('/'), 'model': ZIV_TEXT_MODEL, 'available': agent_path_available()}, 'omni': {'key_set': _omni_configured(), 'model': ZIV_OMNI_MODEL, 'configured': bool(ZIV_OMNI_MODEL)}, 'queue_rejections': queue_rejections.snapshot(), 'gate_queue': len(gate), 'gate_queue_cap': MessageGate.MAX_QUEUED, 'inbox_pending': inbox_pending, 'inbox_cap': INBOX_CAP, 'inbox_evicted': inbox.evictions(), 'schedule_pending': schedule_pending, 'schedule_cap': SCHEDULE_CAP, 'schedule_evicted': scheduled.evictions(), 'schedule_corrupt': 'schedule' in corrupt, 'prefs': prefs, 'store_problems': corrupt, 'turns': _telemetry.stats(), 'schedule_loop': {'running': _schedule_task is not None and (not _schedule_task.done()), 'poll_s': 1.0, 'last_fire_at': _telemetry.last('scheduled_reminder_fired')}}
+    return {'status': 'ok', 'service': 'Ziv relay v1 (dev band + memory)', 'devices': sessions.total_devices(), 'sessions': sessions.describe(), 'spec_version': timing.SPEC_VERSION, 'fake_model_seconds': FAKE_MODEL_SECONDS, 'auth': bool(ZIV_RELAY_TOKEN), 'text': {'key_set': bool(NEBIUS_API_KEY), 'base_url': NEBIUS_BASE_URL.rstrip('/'), 'model': ZIV_TEXT_MODEL, 'configured': agent_path_configured(), 'available': agent_path_available(), 'last_compose': compose_health.snapshot()}, 'omni': {'key_set': _omni_configured(), 'model': ZIV_OMNI_MODEL, 'configured': bool(ZIV_OMNI_MODEL)}, 'queue_rejections': queue_rejections.snapshot(), 'gate_queue': sessions.total_queued(), 'gate_queue_cap': MessageGate.MAX_QUEUED, 'inbox_pending': inbox_pending, 'inbox_cap': INBOX_CAP, 'inbox_evicted': inbox.evictions(), 'schedule_pending': schedule_pending, 'schedule_cap': SCHEDULE_CAP, 'schedule_evicted': scheduled.evictions(), 'schedule_corrupt': 'schedule' in corrupt, 'prefs': prefs, 'store_problems': corrupt, 'turns': _telemetry.stats(), 'schedule_loop': {'running': _schedule_task is not None and (not _schedule_task.done()), 'poll_s': 1.0, 'last_fire_at': _telemetry.last('scheduled_reminder_fired')}}
 
 
 @app.get('/')

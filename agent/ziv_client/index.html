@@ -1,29 +1,19 @@
 <!DOCTYPE html>
 <!--
-  Ziv phone band — a phone-shaped installable client for the relay's dev band.
+  Ziv dev band — an installable client for the relay's one-turn braille channel.
 
-  Phone-shaped PWA shell that plays the relay's attention vocabulary as timed
-  vibro-braille and exposes the device lifecycle screens a wearer actually
-  passes through:
+  The band column is the wearer's surface: open it once, then it cues, spells
+  the reply in cells, closes, and settles. The console beside it is the
+  operator's surface: message history and replay, a delivery trigger, and the
+  live wire. Nothing in the band column is a diagnostic control.
 
-    off       — powered down
-    locked    — standby / wrist asleep
-    unlocking — waking the wrist
-    listening — capturing the wearer's cue
-    processing— relay is running one turn
-    transcription — spoken reply turning into text
-    compose   — text turning into braille
-    sending   — the reply going back over the wire
-    reply     — playing the braille rhythm, one cell at a time
-    cooldown  — just finished; a short settle before the next listen
+  The composer is capped by the relay's own timing spec (GET /api/ziv/timing),
+  not by a character count or a literal in this page. The cap backs up to the
+  last whole word so a refused word cannot turn into a different message.
 
-  Everything timing-related still arrives from the relay (GET /api/ziv/timing —
-  the serialized generated module). This client contains zero duration
-  literals; pattern ids only.
-
-  Open http://<lan-ip>:8787/ziv_client/index.html on Android Chrome.
-  Buttons are for the demo bench; the wearer-visible loop (cue -> ticks ->
-  cells -> close -> queue release) runs on its own, driven by the server.
+  There is no microphone path here. The held server-side seam stays server-side
+  until an audio-capable endpoint exists; this client only composes, receives,
+  queues and replays text.
 -->
 <html lang="en">
 <head>
@@ -34,789 +24,1588 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./ziv_icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./ziv_icon.png">
-<script>
-  (function () {
-    function log(kind, text) {
-      var d = document.createElement("div");
-      if (kind === "haptic") d.className = "haptic";
-      if (kind === "sys") d.className = "sys";
-      var now = new Date();
-      var hh = String(now.getHours()).padStart(2, "0");
-      var mm = String(now.getMinutes()).padStart(2, "0");
-      var ss = String(now.getSeconds()).padStart(2, "0");
-      d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
-      var host = document.getElementById("log");
-      if (host) {
-        host.prepend(d);
-        while (host.children.length > 60) host.removeChild(host.lastChild);
-      }
-    }
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./ziv_sw.js", { scope: "./" })
-          .then(function (r) { log("sys", "service worker ready — scope " + r.scope); })
-          .catch(function (e) { log("sys", "service worker skipped: " + e); });
-      });
-    }
-  })();
-</script>
 <style>
+
   :root {
-    --bg: #0e1116; --panel: #161c24; --line: #263041;
-    --fg: #e8edf4; --dim: #8b98ab; --accent: #6ee7b7; --warn: #fbbf24;
+    color-scheme: dark;
+    --bg: #0b0e14;
+    --panel: #121821;
+    --panel-2: #0f141c;
+    --ink: #0c1118;
+    --line: #24303f;
+    --line-2: #1b2531;
+    --fg: #e8edf4;
+    --dim: #8b98ab;
+    --faint: #647184;
+    --accent: #6ee7b7;
+    --accent-bg: #123127;
+    --accent-line: #1f5c49;
+    --warn: #fbbf24;
+    --warn-bg: #2a2210;
+    --bad: #f87171;
+    --bad-bg: #2a1517;
   }
+
   * { box-sizing: border-box; }
-  html, body {
-    margin: 0; padding: 0;
-    background: var(--bg); color: var(--fg);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-    min-height: 100dvh;
-  }
+  html, body { margin: 0; padding: 0; }
   body {
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  ::selection { background: rgba(110, 231, 183, .25); }
+
+  .app {
+    max-width: 1220px;
+    margin: 0 auto;
+    padding: 0 22px 34px;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 0;
+    background: rgba(11, 14, 20, .93);
+    border-bottom: 1px solid var(--line-2);
+    backdrop-filter: blur(12px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .mark {
+    width: 36px; height: 36px;
+    flex: 0 0 auto;
+    border-radius: 11px;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-line);
+    display: grid;
+    grid-template-columns: repeat(3, 4px);
+    grid-template-rows: repeat(2, 4px);
+    gap: 3px;
+    place-content: center;
+  }
+  .mark span { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .brand h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: .2px;
+    display: inline;
+  }
+  .brand-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .brand-line .dev {
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .proto {
+    font: 9px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--warn);
+    border: 1px solid #5c4a1a;
+    background: var(--warn-bg);
+    border-radius: 999px;
+    padding: 3px 7px;
+    white-space: nowrap;
+  }
+  .brand p {
+    margin: 3px 0 0;
+    font-size: 11px;
+    color: var(--faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .top-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-2);
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .pill b { color: var(--fg); font-weight: 600; }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(110, 231, 183, .6);
+    flex: 0 0 auto;
+  }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(251, 191, 36, .45); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 8px 13px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #1a2330;
+    color: var(--fg);
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: #34445a; }
+  .btn:active { transform: translateY(1px); }
+  .btn.ghost { background: transparent; color: var(--dim); }
+  .btn.ghost:hover { color: var(--fg); }
+  .btn.primary {
+    background: var(--accent-bg);
+    border-color: var(--accent-line);
+    color: #d9fbe9;
+  }
+  .btn.primary:hover { background: #164033; }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .btn.blocked:disabled {
+    opacity: .9;
+    background: var(--bad-bg);
+    border-color: #7a2e2e;
+    color: #fca5a5;
+  }
+  .btn.icon { width: 38px; padding: 0; font-size: 16px; }
+  .btn.tiny { min-height: 30px; padding: 4px 9px; font-size: 11px; }
+
+  /* ---------- layout ---------- */
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    align-items: start;
+    gap: 24px;
+    margin-top: 20px;
+  }
+  .band-col { min-width: 0; }
+  .col-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 2px;
+    margin-bottom: 10px;
+  }
+  .col-head h2 {
+    margin: 0;
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .col-head p { margin: 3px 0 0; font-size: 11px; color: var(--faint); }
+  /* ---------- band device ---------- */
+  .device-wrap { display: flex; justify-content: center; }
+  .device {
+    position: relative;
+    width: 100%;
+    max-width: 360px;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #090c11;
+    border: 1px solid #2a3646;
+    border-radius: 36px;
+    box-shadow: 0 26px 60px rgba(0, 0, 0, .58), inset 0 0 0 1px rgba(255, 255, 255, .03);
+  }
+  .d-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 20px 7px;
+    font: 10.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
+  }
+  .d-status .net { display: inline-flex; align-items: center; gap: 6px; }
+  .d-status .net i {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(110, 231, 183, .7);
+  }
+  .d-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 20px 10px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 12.5px;
+    color: #cfd6e2;
+  }
+  .d-head span:last-child {
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
+  }
+  .d-screen {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 18px;
+    scrollbar-width: thin;
+    scrollbar-color: #2a3646 transparent;
+  }
+  .screen {
+    display: none;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+  }
+  .screen.active { display: flex; }
+  .screen h3 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: .1px;
+  }
+  .screen p {
+    margin: 0;
+    max-width: 268px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+  .screen .fine {
+    max-width: 260px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--faint);
+  }
+  .screen .btn { min-width: 180px; }
+  .eyebrow {
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .frame-tag {
+    font: 9px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--faint);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+
+  .start-mark {
+    width: 78px; height: 78px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    gap: 9px;
+    border: 1px solid var(--accent-line);
+    border-radius: 50%;
+    background: var(--accent-bg);
   }
-
-  /* ---------- phone shell ---------- */
-  .phone {
-    position: relative;
-    width: min(100vw, 420px);
-    background: #0b0e14;
-    border-radius: 44px;
-    border: 1px solid #263041;
-    box-shadow: 0 24px 50px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.02);
-    overflow: hidden;
+  .start-mark i {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px rgba(110, 231, 183, .55);
+    animation: beat 1.6s ease-in-out infinite;
+  }
+  .start-mark i:nth-child(2) { animation-delay: .22s; }
+  @keyframes beat {
+    0%, 100% { opacity: .3; transform: scale(.82); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+  .ready-shell { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .ready-ring {
+    width: 74px; height: 74px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: #10161e;
+  }
+  .ready-ring i {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: .85;
+    animation: beat 1.8s ease-in-out infinite;
+  }
+  .ready-ring i:nth-child(2) { animation-delay: .25s; }
+  .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+  .chips span {
+    font: 9px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--faint);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+  .cue-dots { display: flex; gap: 15px; }
+  .cue-dots i {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: cue 1.4s ease-in-out infinite;
+  }
+  .cue-dots i:nth-child(2) { animation-delay: .18s; }
+  @keyframes cue {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(110, 231, 183, .45); }
+    50% { box-shadow: 0 0 0 13px rgba(110, 231, 183, 0); }
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bubble {
+    max-width: 268px;
+    min-height: 50px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--panel);
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .play-screen {
+    width: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    max-height: 100dvh;
+    justify-content: center;
+    gap: 12px;
+    text-align: left;
   }
-
-  .statusbar {
-    flex: 0 0 auto;
-    background: #0b0e14;
-    border-bottom: 1px solid #263041;
-    color: #9aa4b2;
-    font-size: 12px;
-    padding: 12px 22px 8px;
+  .play-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cell-count {
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
+  }
+  .braille-cells { display: flex; flex-wrap: wrap; gap: 4px; }
+  .braille-cells .cell {
+    width: 21px; height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #10161e;
+    color: var(--faint);
+    font: 12px/28px ui-monospace, "SF Mono", Menlo, monospace;
+    text-align: center;
+    transition: background .1s ease, border-color .1s ease, color .1s ease;
+  }
+  .braille-cells .cell.on {
+    background: #12291f;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .braille-cells .cell.done {
+    background: #0f141b;
+    border-color: var(--line);
+    color: #6b7787;
+  }
+  .felt-line {
+    min-height: 18px;
+    font: 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--dim);
+    letter-spacing: .5px;
+    word-break: break-word;
+  }
+  .screen .felt-line { max-width: none; }
+  .close-mark {
+    width: 46px; height: 46px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    letter-spacing: .2px;
+    justify-content: center;
+    border: 1px solid var(--accent-line);
+    border-radius: 50%;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-size: 18px;
   }
-  .statusbar .time { color: #cfd6e2; font-weight: 600; }
-  .statusbar .topstat { display: flex; gap: 8px; align-items: center; }
-  .statusbar .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7;
-  }
-  .statusbar .dot.off { background: #f87171; box-shadow: 0 0 6px #f87171; }
-  .statusbar .dot.busy { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
-
-  .devicebar {
+  .d-foot {
     flex: 0 0 auto;
-    background: #0b0e14;
-    border-bottom: 1px solid #263041;
-    padding: 12px 22px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--line-2);
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
   }
-  .devicebar .brand {
-    font-size: 15px; color: #cfd6e2; letter-spacing: .3px;
+  .d-foot .queue { color: var(--dim); }
+  .d-foot .queue.has { color: var(--warn); }
+
+  .under-device { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .last-frame {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    background: var(--panel-2);
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
   }
-  .devicebar .brand .mark {
-    color: #9aa4b2; font-size: 12px; margin-left: 6px;
+  .last-frame code {
+    max-width: 68%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--dim);
+    font: inherit;
   }
-  .devicebar .tag {
-    color: #8b98ab; font-size: 12px; margin-top: 3px;
+  .band-note {
+    margin: 0 2px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--faint);
   }
+
+  /* ---------- console ---------- */
+  .console {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 118px);
+    min-height: 570px;
+    max-height: 760px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+  }
+  .console-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .tabs { display: flex; gap: 2px; }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 15px 12px 12px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--dim);
+    font-size: 12.5px;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+  .tab .count {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #1b2532;
+    color: var(--dim);
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .console-meta {
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .tab-panel { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+  .tab-panel.active { display: flex; }
+
+  /* messages */
+  .inbox-status {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--line-2);
+    background: #0f141c;
+    color: var(--dim);
+    font-size: 11.5px;
+  }
+  .inbox-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-left: auto; }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: 11.5px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .link:hover { color: #a7f3d0; }
+  .history {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2px 16px 18px;
+    scrollbar-width: thin;
+    scrollbar-color: #2a3646 transparent;
+  }
+  .history::-webkit-scrollbar,
+  .wire::-webkit-scrollbar,
+  .deliver::-webkit-scrollbar,
+  .d-screen::-webkit-scrollbar { width: 8px; }
+  .history::-webkit-scrollbar-thumb,
+  .wire::-webkit-scrollbar-thumb,
+  .deliver::-webkit-scrollbar-thumb,
+  .d-screen::-webkit-scrollbar-thumb {
+    background: #2a3646;
+    border-radius: 8px;
+  }
+  .history::-webkit-scrollbar-track,
+  .wire::-webkit-scrollbar-track,
+  .deliver::-webkit-scrollbar-track,
+  .d-screen::-webkit-scrollbar-track { background: transparent; }
+  .day-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 0 7px;
+    background: linear-gradient(var(--panel) 72%, rgba(18, 24, 33, 0));
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .day-head .rule { flex: 1; height: 1px; background: var(--line-2); }
+  .msg {
+    margin-bottom: 8px;
+    padding: 9px 11px 8px;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+  .msg:hover { border-color: #2a3646; }
+  .msg-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .msg-time { font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); }
+  .status {
+    padding: 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: 8.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .status.played { color: var(--accent); border-color: var(--accent-line); background: rgba(18, 49, 39, .45); }
+  .status.queued { color: var(--warn); border-color: #5c4a1a; background: rgba(42, 34, 16, .55); }
+  .status.playing { color: var(--warn); border-color: #5c4a1a; background: rgba(42, 34, 16, .8); }
+  .status.failed { color: var(--bad); border-color: #7a2e2e; background: rgba(42, 21, 23, .55); }
+  .msg-text {
+    margin: 6px 0 7px;
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: var(--fg);
+    word-break: break-word;
+  }
+  .msg-note {
+    margin: -1px 0 7px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--warn);
+  }
+  .msg-note.bad { color: var(--bad); }
+  .msg-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .felt-mini {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--faint);
+  }
+  .replay {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dim);
+    font-size: 10.5px;
+  }
+  .replay:hover { color: var(--accent); border-color: var(--accent-line); }
+  .replay:disabled { opacity: .4; cursor: default; }
+
+  /* deliver */
+  .deliver {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+  .field-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .field-head label { font-size: 13px; font-weight: 600; }
+  .budget { font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); }
+  .budget.full { color: var(--accent); }
+  .budget.over { color: var(--bad); }
+  #msgInput {
+    width: 100%;
+    min-height: 76px;
+    max-height: 160px;
+    resize: vertical;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    outline: none;
+    background: var(--ink);
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  #msgInput:focus { border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(110, 231, 183, .08); }
+  #msgInput.cap-hit { border-color: var(--bad); box-shadow: 0 0 0 2px rgba(248, 113, 113, .12); }
+  #msgInput::placeholder { color: #556274; }
+  .cap-note { margin: 0; font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); }
+  .cap-note.full { color: var(--accent); }
+  .cap-note.over { color: var(--bad); }
+  .cap-note.locked { color: var(--warn); }
+  .preview {
+    padding: 10px 11px;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: #0d131a;
+  }
+  .preview.over { border-color: #4a2428; background: #120e12; }
+  .preview.over .preview-head { color: var(--bad); }
+  #fitNote.over { color: var(--bad); }
+  .preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    font: 9px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .cells-preview { display: grid; grid-template-columns: repeat(var(--cells), minmax(0, 1fr)); gap: 4px; }
+  .cells-preview .slot {
+    aspect-ratio: 3 / 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #0f1a16;
+    color: var(--accent);
+    font: 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .cells-preview .slot.empty {
+    border-style: dashed;
+    border-color: #1c2633;
+    background: #0b0f15;
+    color: #394555;
+  }
+  .warn-line { margin: 9px 0 0; font-size: 11px; line-height: 1.45; color: var(--warn); }
+  .warn-line.over { color: var(--bad); }
+  .digit-line { margin: 8px 0 0; font-size: 10.5px; line-height: 1.45; color: var(--faint); }
+  .digit-line b { color: var(--dim); font-weight: 600; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--dim);
+    font-size: 10.5px;
+  }
+  .chip:hover { border-color: var(--accent-line); color: var(--fg); }
+  .deliver-actions { display: flex; gap: 8px; }
+  .deliver-actions .btn { flex: 1; }
+  .deliver-status { min-height: 16px; margin: 0; font-size: 11px; color: var(--dim); }
+  .deliver-status.ok { color: var(--accent); }
+  .deliver-status.warn { color: var(--warn); }
+  .deliver-status.bad { color: var(--bad); }
+
+  /* one-shot judge key (BYOK): collapsed, in the operator column only */
+  .byok { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+  .byok > summary {
+    cursor: pointer; list-style: none; color: var(--dim);
+    font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .byok > summary::-webkit-details-marker { display: none; }
+  .byok > summary::before { content: "+ "; color: var(--faint); }
+  .byok[open] > summary::before { content: "− "; }
+  .byok > summary:focus-visible { outline: 1px solid var(--accent-line); outline-offset: 2px; }
+  .byok-note { margin: 8px 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; }
+  .byok input[type="password"], .byok input[type="text"] {
+    width: 100%; margin: 0 0 8px; padding: 8px 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .byok input:focus { outline: 1px solid var(--accent-line); border-color: var(--accent-line); }
+
+  /* wire */
+  .wire-tools {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 13px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .filters { display: flex; gap: 2px; }
+  .filter {
+    padding: 4px 7px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--faint);
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .filter:hover { color: var(--fg); }
+  .filter.on { background: #1a2330; color: var(--fg); }
+  .wire-spacer { margin-left: auto; }
+  .autoscroll {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--faint);
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .autoscroll input { accent-color: var(--accent); }
+  .wire {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 7px 13px 18px;
+    font: 10.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--dim);
+    scrollbar-width: thin;
+    scrollbar-color: #2a3646 transparent;
+  }
+  .wline {
+    display: grid;
+    grid-template-columns: 58px 48px minmax(0, 1fr);
+    gap: 7px;
+    padding: 2px 0;
+    border-bottom: 1px dotted #18212c;
+  }
+  .wt { color: #556274; font-size: 9.5px; padding-top: 1px; }
+  .wk { color: var(--faint); font-size: 9px; letter-spacing: .4px; text-transform: uppercase; padding-top: 2px; }
+  .wx { word-break: break-word; }
+  .wline[data-kind="haptic"] .wk { color: var(--accent); }
+  .wline[data-kind="text"] .wk { color: #93c5fd; }
+  .wline[data-kind="cell"] .wk { color: #c4b5fd; }
+  .wline[data-kind="error"] .wk { color: var(--bad); }
+  .wline[data-kind="inbox"] .wk { color: var(--warn); }
+  .wline[data-kind="error"] .wx { color: #fca5a5; }
+  .wire-empty { padding: 18px 4px; color: var(--faint); font-size: 10.5px; }
+
+  .console-foot {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--line-2);
+    font: 9px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .5px;
+    color: var(--faint);
+  }
+  .console-foot .ok { color: var(--accent); }
+
+  /* ---------- focus mode ---------- */
+  .app.focus .console { display: none; }
+  .app.focus .layout {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 520px;
+    margin: 20px auto 0;
+  }
+  .app.focus .band-col { width: 100%; }
+  .app.focus .device { max-width: 420px; height: calc(100dvh - 190px); min-height: 520px; }
+  .app.focus .device-wrap { justify-content: center; }
+
+  /* ---------- toast ---------- */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    z-index: 90;
+    max-width: min(92vw, 420px);
+    padding: 9px 15px;
+    border-radius: 999px;
+    background: #e8edf4;
+    color: #0b0e14;
+    font-size: 11.5px;
+    text-align: center;
+    opacity: 0;
+    transform: translate(-50%, 10px);
+    pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .45);
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 899px) {
+    .app { padding: 0 14px 30px; }
+    .topbar { flex-wrap: wrap; gap: 10px; }
+    .top-actions { justify-content: flex-start; }
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 16px; }
+    .device-wrap { justify-content: flex-start; }
+    .device { max-width: 380px; height: min(62dvh, 560px); min-height: 460px; }
+    .console { height: auto; min-height: 0; max-height: none; }
+    .history { overflow: visible; }
+    .tab-panel { min-height: 0; }
+    .wire { max-height: 54dvh; }
+    .deliver { overflow: visible; }
+    .console-meta { display: none; }
+    .app.focus .device { height: calc(100dvh - 170px); }
+  }
+  @media (max-width: 540px) {
+    .brand p { display: none; }
+    .pill.quiet { display: none; }
+    .top-actions { gap: 5px; }
+    .btn.ghost.install { padding: 8px 10px; font-size: 11.5px; }
+    .console-head { padding: 0 8px; }
+    .tab { padding: 13px 8px 10px; font-size: 12px; }
+    .history { padding-left: 12px; padding-right: 12px; }
+    .inbox-status { padding-left: 12px; padding-right: 12px; }
+    .deliver { padding: 13px 12px; }
+    .wire-tools { padding-left: 10px; padding-right: 10px; }
+    .wire { padding-left: 10px; padding-right: 10px; }
+    .wline { grid-template-columns: 50px 42px minmax(0, 1fr); gap: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+
+  /* ================================================================
+     Real PWA additions and overrides
+     ================================================================ */
+
+  body { min-height: 100dvh; }
+
+  /* connection + queue live in the top bar, not in the band surface */
+  #state { color: var(--dim); }
+  #state.ok { color: var(--accent); }
+  #state.bad { color: var(--warn); }
+  #connDot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(110,231,183,.6); }
+  #connDot.off { background: var(--bad); box-shadow: 0 0 8px rgba(248,113,113,.45); }
+  .d-status .net i.off { background: var(--bad); box-shadow: 0 0 6px rgba(248,113,113,.45); }
+  #queueBadge { margin: 0; border-color: var(--line); background: var(--panel-2); color: var(--dim); cursor: pointer; }
+  #queueBadge.warn { color: var(--warn); border-color: #5c4a1a; }
+  #queueBadge.full { color: var(--bad); border-color: #7a2e2e; }
+  #queueBadge[hidden] { display: none; }
+  #queueBadge:hover, #queueBadge[aria-expanded="true"] { color: var(--fg); border-color: var(--accent-line); }
+  .badge-wrap { position: relative; display: inline-flex; }
+  #bandList {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 50;
+    width: max-content;
+    min-width: 220px;
+    max-width: min(86vw, 340px);
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .55);
+  }
+  #bandList[hidden] { display: none; }
+  #bandList h3 {
+    margin: 0 0 6px;
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .band-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-top: 1px solid var(--line-2);
+    font: 10.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .band-row:first-of-type { border-top: 0; padding-top: 2px; }
+  .band-row .bid { color: var(--fg); padding-top: 1px; }
+  .band-row .bstats { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .band-row .bmeta { color: var(--dim); text-align: right; }
+  .band-row .bwhen { color: var(--faint); text-align: right; }
+  .band-row.playing .bid, .band-row.playing .bwhen { color: var(--accent); }
+  .band-empty { margin: 2px 0 0; max-width: 220px; font-size: 11px; color: var(--dim); }
+  @media (max-width: 540px) {
+    #bandList { right: auto; left: 0; max-width: 82vw; }
+  }
+
+  /* the redial note is an operating message, so it sits above the tabs */
+  #redialNote {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    border-bottom: 1px solid #5c4a1a;
+    background: var(--warn-bg);
+    color: var(--warn);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  #redialNote.dead { border-bottom-color: #7a2e2e; background: var(--bad-bg); color: #fca5a5; }
+  #redialNote[hidden] { display: none; }
+
+  /* busy-sheet trigger, on the band because it is the wearer's action */
+  .devicebar { flex: 0 0 auto; padding: 0 20px 8px; }
   .devicebar .write-during {
     width: 100%;
-    min-height: 36px;
-    margin-top: 8px;
-    padding: 7px 10px;
-    font-size: 12px;
+    min-height: 34px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid #3a4a60;
+    border-radius: 8px;
     background: #10161e;
-    border-color: #3a4a60;
     color: #cfd6e2;
+    font-size: 11.5px;
   }
   .devicebar .write-during[hidden] { display: none; }
 
-  main {
-    flex: 1 1 auto;
-    padding: 14px 16px 10px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 0;
-  }
-
-  .panel {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; padding: 12px 14px;
-  }
-  .panel.focus {
-    background: #131a22;
-    border-color: #1f5c49;
-  }
-  .now {
-    font-size: 13px; color: #8b98ab; margin: 0 0 8px;
-  }
-  .now b { color: #cfd6e2; font-weight: 600; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  button {
-    flex: 1 1 auto; background: #1d2530; color: var(--fg);
-    border: 1px solid var(--line); border-radius: 10px;
-    padding: 11px 12px; font-size: 14px; min-height: 46px;
-    cursor: pointer;
-  }
-  button:active { background: #243041; }
-  button.primary { background: #14342b; border-color: #1f5c49; }
-  button:disabled { opacity: 0.45; cursor: default; }
-  input[type=text] {
-    width: 100%; background: #0f141b; color: var(--fg);
-    border: 1px solid var(--line); border-radius: 10px;
-    padding: 11px 12px; font-size: 15px; margin: 0 0 8px;
-  }
-  .cap { font-size: 12px; color: var(--dim); margin: 6px 0 0; line-height: 1.5; }
-
-  /* ---------- screen system ---------- */
-  .screen {
-    display: none;
-    flex-direction: column;
-    gap: 12px;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .screen.active {
-    display: flex;
-  }
-  .screen h2 {
-    margin: 0 0 6px; font-size: 16px; color: var(--fg);
-    letter-spacing: .2px;
-  }
-  .screen .sub {
-    font-size: 12px; color: var(--dim); margin: 0 0 10px; line-height: 1.5;
-  }
-
-  /* off */
-  .off-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .off-power {
-    width: 74px; height: 74px; border-radius: 50%;
-    background: #131a22; border: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-  }
-  .off-power .stem {
-    position: absolute;
-    top: -10px; left: 50%;
-    transform: translateX(-50%);
-    width: 14px; height: 10px;
-    background: #1d2530; border-radius: 4px;
+  /* compose surface inside the band */
+  #screen-compose .compose-form { width: 100%; display: flex; flex-direction: column; gap: 9px; align-items: stretch; }
+  #composeInput, #composeSheetInput {
+    width: 100%;
+    padding: 10px 11px;
     border: 1px solid var(--line);
-  }
-  .off-power .toggle {
-    width: 30px; height: 30px; border-radius: 50%;
-    background: #1d2530; border: 1px solid var(--line);
-    box-shadow: inset 0 0 0 2px #0b0e14;
-    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
-  }
-  .off-power .toggle.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 10px var(--accent);
-    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
-  }
-
-  /* locked */
-  .locked-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .locked-ring {
-    width: 86px; height: 86px; border-radius: 50%;
-    border: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #10161e;
-    position: relative;
-  }
-  .locked-ring .lock {
-    width: 34px; height: 34px; border-radius: 8px;
-    background: #1d2530; border: 1px solid var(--line);
-    position: relative;
-  }
-  .locked-ring .lock .shackle {
-    position: absolute;
-    top: -8px; left: 50%;
-    transform: translateX(-50%);
-    width: 18px; height: 14px;
-    border: 1px solid var(--line);
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    background: #1d2530;
-  }
-
-  /* unlocking */
-  .unlock-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .unlock-ring {
-    width: 86px; height: 86px; border-radius: 50%;
-    border: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #10161e;
-    position: relative;
-  }
-  .unlock-ring .unlock-dot {
-    width: 18px; height: 18px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 10px var(--accent);
-  }
-
-  /* listening */
-  .listen-shell {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .listen-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .listen-head .row { margin: 0; flex: 1; }
-  .meter {
-    flex: 1;
-    height: 6px;
-    border-radius: 999px;
-    background: #1d2530;
-    overflow: hidden;
-    margin-right: 8px;
-  }
-  .meter .fill {
-    height: 100%;
-    width: 0%;
-    background: var(--accent);
-    border-radius: 999px;
-    transition: width .12s linear;
-  }
-  .meter .fill.clip {
-    background: var(--warn);
-  }
-
-  /* processing */
-  .processing-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .spinner {
-    width: 46px; height: 46px;
-    border-radius: 50%;
-    border: 2px solid var(--line);
-    border-top-color: var(--accent);
-    animation: spin .9s linear infinite;
-    margin: 4px auto;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* transcription */
-  .trans-shell {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .trans-bubble {
-    max-width: 260px;
-    min-height: 48px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 14px;
+    border-radius: 9px;
+    outline: none;
+    background: var(--ink);
     color: var(--fg);
     font-size: 14px;
-    line-height: 1.5;
-    word-break: break-word;
   }
+  #composeInput:focus, #composeSheetInput:focus { border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(110,231,183,.08); }
+  #composeInput.cap-hit, #composeSheetInput.cap-hit, #msgInput.cap-hit {
+    border-color: var(--bad);
+    box-shadow: 0 0 0 2px rgba(248,113,113,.12);
+  }
+  .compose-actions { display: flex; gap: 8px; width: 100%; }
+  .compose-actions .btn { flex: 1; min-width: 0; }
+  .compose-form .cap-note { text-align: left; }
+  #composeCapNote, #sheetCapNote { margin: 0; }
 
-  /* compose */
-  .compose-shell {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .compose-text {
-    max-width: 260px;
-    min-height: 64px;
-    background: var(--panel);
-    border: 1px solid var(--accent);
-    border-radius: 12px;
-    padding: 12px 14px;
-    color: var(--fg);
-    font-size: 14px;
-    line-height: 1.5;
-    word-break: break-word;
-  }
-
-  /* compose without stopping the turn (bottom sheet) */
+  /* the busy sheet overlays the band, never the console */
   #composeSheet {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    z-index: 30;
-    max-height: 82%;
+    z-index: 40;
+    max-height: 86%;
     overflow-y: auto;
     background: #131a22;
-    border-top: 1px solid #1f5c49;
-    border-radius: 20px 20px 0 0;
-    padding: 16px 18px calc(16px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--accent-line);
+    border-radius: 18px 18px 0 0;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
     box-shadow: 0 -18px 42px rgba(0,0,0,.6);
   }
   #composeSheet[hidden] { display: none; }
-  #composeSheet .now { margin: 0 0 2px; }
-  #composeSheet .cap { margin: 0 0 10px; }
-  #composeSheet .sheet-status { min-height: 18px; margin: 8px 0 0; }
+  #composeSheet .sheet-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  #composeSheet .sheet-head .now { margin: 0; }
+  #composeSheet .sheet-status { min-height: 16px; margin: 7px 0 0; }
   #composeSheet .sheet-status.bad { color: var(--warn); }
 
-  /* sending */
-  .send-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
+  /* sending + settle */
   .send-arrow {
-    width: 46px; height: 46px;
-    border-radius: 50%;
-    border: 2px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line); border-radius: 50%;
+    color: var(--accent); background: #10161e;
+    font-size: 18px;
   }
-  .send-arrow::before,
-  .send-arrow::after {
-    content: "";
-    position: absolute;
-    background: var(--line);
-  }
-  .send-arrow::before {
-    width: 2px; height: 18px;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--line);
-  }
-  .send-arrow::after {
-    width: 12px; height: 12px;
-    border-right: 2px solid var(--line);
-    border-top: 2px solid var(--line);
-    transform: translate(6px, -1px) rotate(45deg);
-    background: transparent;
-  }
+  .cooldown-bar { width: 100%; max-width: 230px; height: 7px; border-radius: 999px; background: #1d2530; overflow: hidden; }
+  .cooldown-bar .fill { height: 100%; width: 100%; border-radius: 999px; background: var(--accent); transition: width .25s linear; }
 
-  /* reply — braille cells */
-  .reply-shell {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .cells-reading {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .cells-reading caption {
-    caption-side: top;
-    text-align: left;
-    padding-bottom: 8px;
-    font-size: 12px;
-    color: var(--dim);
-  }
-  .cells-reading td {
-    text-align: center;
-    padding: 2px 6px;
-    width: 30px;
-  }
-  .cells-reading .cell {
-    width: 30px;
-    height: 36px;
-    border-radius: 6px;
-    background: #10161e;
-    border: 1px solid var(--line);
-    margin: 0 auto;
-    transition: background .12s ease, border-color .12s ease, color .12s ease;
-    color: var(--dim);
-    line-height: 36px;
-    font-size: 14px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  .cells-reading .cell.on {
-    background: #12291f;
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .cells-reading .cell.done {
-    background: #0f141b;
-    border-color: var(--line);
-    color: var(--dim);
-  }
-  .cell-row {
-    display: block;
-    min-height: 40px;
-  }
-  .cell-group {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
-  }
-  .cell-row .cell {
-    width: 28px;
-    height: 34px;
-    border-radius: 6px;
-    background: #10161e;
-    border: 1px solid var(--line);
-    line-height: 34px;
-    text-align: center;
-    font-size: 14px;
-    color: var(--dim);
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    transition: background .12s ease, border-color .12s ease, color .12s ease;
-  }
-  .cell-row .cell.on {
-    background: #12291f;
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .cell-row .cell.done {
-    background: #0f141b;
-    color: #6b7787;
-    border-color: var(--line);
-  }
+  /* braille groups inside the play screen */
+  .cell-group { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 4px; }
+  .cell-group:last-child { margin-bottom: 0; }
+  #cellRow { max-height: 188px; overflow-y: auto; align-content: flex-start; }
 
-  /* cooldown */
-  .cooldown-shell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    flex: 1 1 auto;
-    text-align: center;
-    min-height: 0;
-  }
-  .cooldown-bar {
-    width: 100%;
-    max-width: 240px;
-    height: 8px;
-    border-radius: 999px;
-    background: #1d2530;
-    overflow: hidden;
-  }
-  .cooldown-bar .fill {
-    height: 100%;
-    width: 100%;
-    background: var(--accent);
-    border-radius: 999px;
-    transition: width .25s linear;
-  }
-
-  /* ---------- log and install bar ---------- */
-  #log {
-    font-size: 12px;
-    line-height: 1.5;
-    max-height: 160px;
-    overflow-y: auto;
-  }
-  #log div { padding: 1px 0; border-bottom: 1px dotted #1c2431; }
-  #log .t { color: var(--dim); }
-  #log .haptic { color: var(--accent); }
-  #log .sys { color: var(--warn); }
-  .vibrate-note { font-size: 11px; color: var(--dim); }
-
-  .installbar {
+  /* wire dock: the log is always reachable, but never steals the tab panel */
+  .wire-dock {
     flex: 0 0 auto;
-    background: #0b0e14;
-    border-top: 1px solid #263041;
-    padding: 10px 16px 12px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    color: #9aa4b2;
+    flex-direction: column;
+    min-height: 0;
+    border-top: 1px solid var(--line-2);
+    background: var(--panel);
   }
-  .installbar button {
-    background: #14342b;
-    border-color: #1f5c49;
-    padding: 8px 12px;
-    min-height: 36px;
-    font-size: 13px;
-  }
-  .installbar button:disabled { opacity: .5; }
-
-  #state { font-size: 13px; color: var(--dim); }
-  #state.ok { color: var(--accent); }
-  #state.bad { color: var(--warn); }
-  #queueBadge {
-    display: inline-block;
-    margin-top: 6px;
-    padding: 2px 10px;
-    border-radius: 999px;
-    font-size: 12px;
+  .wire-dock .wire-tools { border-bottom: 1px solid var(--line-2); }
+  .wire-label {
+    font: 9.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
     color: var(--dim);
-    border: 1px solid var(--line);
-    background: #10161e;
+    padding-right: 4px;
   }
-  #queueBadge.warn { color: var(--warn); border-color: #5c4a1a; }
-  #queueBadge.full { color: #f87171; border-color: #7a2e2e; }
-  #queueBadge[hidden] { display: none; }
-  #redialNote { font-size: 12px; color: var(--warn); margin-top: 4px; }
-  #redialNote.dead { color: #f87171; }
-  #redialNote[hidden] { display: none; }
+  #wireFilter {
+    min-height: 26px;
+    padding: 2px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--dim);
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  #wireFilter:focus { outline: 1px solid var(--accent-line); }
+  #log { max-height: 96px; }
+  #log .wline[hidden] { display: none; }
+  .console.wire-mode .tab-panel { display: none; }
+  .console.wire-mode .wire-dock { flex: 1 1 auto; min-height: 0; }
+  .console.wire-mode #log { max-height: none; flex: 1 1 auto; }
+  .console.wire-mode .wire-label { color: var(--accent); }
+
+  /* history empty state */
+  .history-empty {
+    padding: 28px 8px;
+    color: var(--faint);
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+  }
+  .history-empty b { display: block; color: var(--dim); font-weight: 600; margin-bottom: 4px; }
+
+  /* last frame under the band */
+  .under-device .last-frame code { direction: ltr; }
+  #lastFrame { min-width: 0; }
+
+  /* match the real band's 12-cell reading rhythm */
+  .braille-cells .cell { font-size: 11px; }
+
+  @media (max-width: 899px) {
+    #log { max-height: 130px; }
+    .console.wire-mode #log { max-height: none; }
+    .console { height: auto; }
+  }
+  @media (max-width: 540px) {
+    .topbar { align-items: flex-start; }
+    .top-actions { width: 100%; justify-content: flex-start; }
+    #btnInstall { margin-left: auto; }
+    .devicebar { padding-left: 16px; padding-right: 16px; }
+    #composeSheet { position: fixed; left: 8px; right: 8px; bottom: 8px; max-height: 82dvh; border: 1px solid var(--accent-line); border-radius: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+  }
 </style>
 </head>
 <body>
-<div class="phone" role="region" aria-label="Ziv phone band">
-  <div class="statusbar">
-    <span class="time" id="clock">--:--</span>
-    <span class="topstat">
-      <span class="dot off" id="connDot" aria-hidden="true"></span>
-      <span id="state">connecting...</span>
-    </span>
-  </div>
-  <div class="devicebar">
-    <div class="brand">Ziv dev band<span class="mark"> — reply as braille rhythm</span></div>
-    <div class="tag" id="timingTag">bootstrapping timing...</div>
-    <div id="queueBadge" hidden>queue 0/0</div>
-    <div id="redialNote" hidden></div>
-    <button id="btnWriteDuring" class="write-during" hidden>Write a message</button>
-  </div>
+<div class="app" id="app">
 
-  <main>
-    <!-- OFF -->
-    <section id="screen-off" class="screen active" aria-label="Powered down">
-      <div class="off-shell">
-        <div class="off-power" id="offPower" aria-hidden="true">
-          <div class="stem"></div>
-          <div class="toggle" id="offToggle"></div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div>
+        <div class="brand-line">
+          <h1>Ziv</h1>
+          <span class="dev">dev band</span>
         </div>
-        <p class="sub" style="margin:0">Ziv is powered down. Tap the power button to wake the band.</p>
+        <p>The band surface, the messages, and the wire.</p>
       </div>
-    </section>
+    </div>
+    <div class="top-actions">
+      <span class="pill" title="Relay connection">
+        <span class="dot off" id="connDot" aria-hidden="true"></span>
+        <span id="state">tap to open</span>
+      </span>
+      <div class="badge-wrap" id="badgeWrap">
+        <button class="pill" id="queueBadge" type="button"
+                aria-expanded="false" aria-controls="bandList"
+                title="Live bands and their queue depth" hidden>queue 0/0</button>
+        <div id="bandList" role="region" aria-label="Live bands" hidden></div>
+      </div>
+      <button class="btn ghost install" id="btnInstall" type="button" disabled>↓ Install app</button>
+    </div>
+  </header>
 
-    <!-- LOCKED -->
-    <section id="screen-locked" class="screen" aria-label="Band locked">
-      <div class="locked-shell">
-        <div class="locked-ring" id="lockedRing" aria-hidden="true">
-          <div class="lock">
-            <div class="shackle"></div>
+  <main class="layout">
+
+    <!-- ================= band ================= -->
+    <section class="band-col" aria-label="Band surface">
+      <div class="col-head">
+        <div>
+          <h2>Band</h2>
+          <p>The wearer's surface only</p>
+        </div>
+      </div>
+
+      <div class="device-wrap">
+        <div class="device" id="device" role="region" aria-label="Ziv dev band">
+          <div class="d-status">
+            <span id="clock">--:--</span>
+            <span class="net"><i id="dDot" class="off"></i><span id="dState">not attached</span></span>
+          </div>
+          <div class="d-head">
+            <span>Ziv dev band</span>
+            <span id="dSpec">spec</span>
+          </div>
+
+          <div class="devicebar">
+            <button id="btnWriteDuring" class="write-during" hidden type="button">Write a message</button>
+          </div>
+
+          <div class="d-screen" id="dScreen">
+            <!-- START -->
+            <section id="screen-start" class="screen active" aria-label="Open the band">
+              <div class="start-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+              <h3>Ziv dev band</h3>
+              <p>Messages arrive as timed braille — felt, not read. The room sees nothing.</p>
+              <button class="btn primary" id="btnOpen" type="button">Open the band</button>
+              <p class="fine">Opening connects this phone to the relay and lets the browser vibrate. Messages sent while it is closed wait in the relay's inbox.</p>
+              <p class="fine">No microphone in this build — compose and receive only.</p>
+            </section>
+
+            <!-- READY -->
+            <section id="screen-ready" class="screen" aria-label="Band ready">
+              <div class="ready-shell">
+                <div class="ready-ring" aria-hidden="true"><i></i><i></i></div>
+                <h3>Band ready</h3>
+                <p>Waiting for a message. The band will cue, spell it in cells, then close.</p>
+                <div class="chips" aria-hidden="true"><span>cue</span><span>cells</span><span>close</span></div>
+                <button class="btn primary" id="btnWrite" type="button">Write a message</button>
+                <p class="fine">Write here, or deliver from the console. A message can also arrive on its own.</p>
+              </div>
+            </section>
+
+            <!-- INCOMING -->
+            <section id="screen-incoming" class="screen" aria-label="Message arriving">
+              <div class="cue-dots" aria-hidden="true"><i></i><i></i></div>
+              <h3>Message arriving</h3>
+              <p>The double-tap cue just played. The cells follow on their own.</p>
+              <span class="frame-tag">message: play</span>
+            </section>
+
+            <!-- PROCESSING -->
+            <section id="screen-processing" class="screen" aria-label="Processing">
+              <div class="spinner" aria-hidden="true"></div>
+              <h3>Working</h3>
+              <p>Three short ticks while the relay prepares the cells.</p>
+              <span class="frame-tag">processing</span>
+            </section>
+
+            <!-- REPLY TEXT -->
+            <section id="screen-reply-text" class="screen" aria-label="Reply text">
+              <span class="eyebrow">The message, in text</span>
+              <div class="bubble" id="replyTextBubble" role="status" aria-label="reply text">—</div>
+              <p class="fine" id="replyTextSub">The reply, in text — braille follows.</p>
+            </section>
+
+            <!-- COMPOSE -->
+            <section id="screen-compose" class="screen" aria-label="Compose">
+              <div class="compose-form">
+                <span class="eyebrow">Write a message</span>
+                <h3>Say it in cells</h3>
+                <input id="composeInput" type="text" maxlength="120" autocomplete="off"
+                       placeholder="e.g. Taxi is close" aria-label="Message to send">
+                <p class="cap-note" id="composeCapNote">Timing spec loading…</p>
+                <div class="compose-actions">
+                  <button id="btnSendCompose" class="btn primary" type="button">Send</button>
+                  <button id="btnCancelCompose" class="btn ghost" type="button">Cancel</button>
+                </div>
+                <p class="fine">Sends through <code>POST /api/ziv/message</code>. The band plays the cells; the console keeps the text.</p>
+              </div>
+            </section>
+
+            <!-- SENDING -->
+            <section id="screen-sending" class="screen" aria-label="Sending">
+              <div class="send-arrow" aria-hidden="true">↑</div>
+              <h3>Sending</h3>
+              <p id="sendSub">Handing the message to the relay…</p>
+            </section>
+
+            <!-- REPLY -->
+            <section id="screen-reply" class="screen" aria-label="Reply">
+              <div class="play-screen">
+                <div class="play-head">
+                  <span class="eyebrow">Braille on the band</span>
+                  <span class="cell-count" id="cellCount">0 / 0</span>
+                </div>
+                <div class="braille-cells" id="cellRow" aria-live="polite"></div>
+                <p class="felt-line" id="feltLine">—</p>
+                <p class="fine">One cell at a time. The close says the message is over.</p>
+              </div>
+            </section>
+
+            <!-- COOLDOWN -->
+            <section id="screen-cooldown" class="screen" aria-label="Cooldown">
+              <div class="close-mark" aria-hidden="true">✓</div>
+              <h3>Message ended</h3>
+              <p>A short settle before the next turn.</p>
+              <div class="cooldown-bar"><div class="fill" id="cooldownFill"></div></div>
+            </section>
+          </div>
+
+          <div class="d-foot">
+            <span class="queue" id="dQueue">inbox 0</span>
+            <span id="dFootState">not attached</span>
+          </div>
+
+          <!-- Compose while the band is busy. A sheet, not a screen: the turn
+               keeps painting behind it and sending queues normally. -->
+          <div id="composeSheet" hidden role="dialog" aria-label="Write a message while the band is busy">
+            <div class="sheet-head">
+              <p class="now" id="composeSheetTitle">Write a message</p>
+              <span class="eyebrow">queued</span>
+            </div>
+            <p class="fine" style="margin:0 0 8px;max-width:none">It waits its turn — the current screen keeps running.</p>
+            <input id="composeSheetInput" type="text" maxlength="120" autocomplete="off"
+                   placeholder="e.g. Taxi is close" aria-label="Message to send">
+            <p class="cap-note" id="sheetCapNote">Timing spec loading…</p>
+            <div class="compose-actions" style="margin-top:9px">
+              <button id="btnSheetSend" class="btn primary" type="button">Send</button>
+              <button id="btnSheetCancel" class="btn ghost" type="button">Cancel</button>
+            </div>
+            <p class="cap-note sheet-status" id="sheetStatus" role="status"></p>
           </div>
         </div>
-        <p class="sub" style="margin:0">The band is locked. Wake it with the side button or a tap to start listening.</p>
-        <div class="row">
-          <button id="btnUnlock" class="primary big-btn">Wake band</button>
-          <button id="btnCancelLocked" class="big-btn">Stand by</button>
+      </div>
+
+      <div class="under-device">
+        <div class="last-frame">
+          <span>last frame</span>
+          <code id="lastFrame">—</code>
         </div>
-        <div class="row">
-          <button id="btnWrite" class="big-btn">Write a message</button>
+        <p class="band-note">Only the band's own surfaces live here. Messages, delivery, and diagnostics stay in the console.</p>
+      </div>
+    </section>
+
+    <!-- ================= console ================= -->
+    <section class="console" id="console" aria-label="Dev band console">
+      <div class="console-head">
+        <div class="tabs" role="tablist" aria-label="Console views">
+          <button class="tab active" id="tab-messages" type="button" role="tab" aria-selected="true" aria-controls="panel-messages">Messages <span class="count" id="msgCount">0</span></button>
+          <button class="tab" id="tab-deliver" type="button" role="tab" aria-selected="false" aria-controls="panel-deliver">Deliver</button>
+          <button class="tab" id="tab-wire" type="button" role="tab" aria-selected="false" aria-controls="wireDock">Wire <span class="count" id="wireCount">0</span></button>
+        </div>
+        <span class="console-meta" id="consoleMeta">newest first · replay any</span>
+      </div>
+
+      <div id="redialNote" hidden></div>
+
+      <div class="tab-panel active" id="panel-messages" role="tabpanel" aria-labelledby="tab-messages">
+        <div class="inbox-status">
+          <span class="dot" id="waitDot"></span>
+          <span id="waitingLine">Nothing waiting.</span>
+          <div class="inbox-actions">
+            <button class="link" id="btnArrive" type="button" title="Send a real test message through the relay">Send a test message</button>
+            <button class="link" id="btnDeliverJump" type="button">Deliver a message</button>
+          </div>
+        </div>
+        <div class="history" id="history"></div>
+      </div>
+
+      <div class="tab-panel" id="panel-deliver" role="tabpanel" aria-labelledby="tab-deliver">
+        <div class="deliver">
+          <div class="field-head">
+            <label for="msgInput">Deliver to band</label>
+            <span class="budget" id="budget">—</span>
+          </div>
+          <textarea id="msgInput" rows="2" placeholder="Taxi is close" autocomplete="off" aria-describedby="capNote"></textarea>
+          <p class="cap-note" id="capNote">Timing spec loading…</p>
+
+          <div class="preview" aria-live="polite">
+            <div class="preview-head">
+              <span id="previewLabel">The band will feel</span>
+              <span id="fitNote">nothing yet</span>
+            </div>
+            <div class="cells-preview" id="previewCells" aria-hidden="true"></div>
+            <p class="warn-line" id="fitWarn" hidden></p>
+            <p class="digit-line" id="digitNote" hidden></p>
+          </div>
+
+          <div class="presets" aria-label="Message presets">
+            <button class="chip" id="preset-taxi" type="button" data-preset="Taxi is close">Taxi is close</button>
+            <button class="chip" id="preset-mum" type="button" data-preset="Mum called">Mum called</button>
+            <button class="chip" id="preset-pills" type="button" data-preset="Pills at 9">Pills at 9</button>
+            <button class="chip" id="preset-dinner" type="button" data-preset="Dinner at six">Dinner at six</button>
+          </div>
+
+          <div class="deliver-actions">
+            <button class="btn primary" id="btnDeliver" type="button" disabled>Deliver to band</button>
+            <button class="btn ghost" id="btnClear" type="button">Clear</button>
+          </div>
+          <p class="deliver-status" id="deliverStatus" role="status">Ready when you are.</p>
+          <p class="band-note" id="limitNote">Timing spec loading. The cap backs up to the last whole word when one fits; spaces and punctuation take no cells; digits are spoken out. If the band is mid-message, delivery queues.</p>
+
+          <details class="byok" id="byok">
+            <summary>Use your own Nebius key</summary>
+            <p class="byok-note">One live Nemotron call on Nebius Token Factory. The key is sent to this relay for that single request, is not stored, and is scrubbed from any error it returns. Use a limited key.</p>
+            <div class="field-head">
+              <label for="byokKey">Token Factory key</label>
+              <span class="budget" id="byokState">not used</span>
+            </div>
+            <input id="byokKey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your Nebius key">
+            <div class="field-head">
+              <label for="byokIntent">Intent</label>
+              <span class="budget" id="byokCount">0/80</span>
+            </div>
+            <input id="byokIntent" type="text" maxlength="80" autocomplete="off" value="meds at nine">
+            <div class="deliver-actions">
+              <button class="btn primary" id="btnByok" type="button">Compose once</button>
+            </div>
+            <p class="deliver-status" id="byokStatus" role="status">The model writes one line; this band plays it.</p>
+          </details>
         </div>
       </div>
-    </section>
 
-    <!-- UNLOCKING -->
-    <section id="screen-unlocking" class="screen" aria-label="Unlocking">
-      <div class="unlock-shell">
-        <div class="unlock-ring" id="unlockRing" aria-hidden="true">
-          <div class="unlock-dot"></div>
+      <div class="wire-dock" id="wireDock" role="region" aria-label="Wire frames">
+        <div class="wire-tools">
+          <span class="wire-label">Wire</span>
+          <select id="wireFilter" aria-label="Filter wire frames">
+            <option value="all">All frames</option>
+            <option value="frames">Frames only</option>
+            <option value="sys">System only</option>
+            <option value="error">Errors only</option>
+          </select>
+          <span class="wire-spacer"></span>
+          <label class="autoscroll"><input type="checkbox" id="autoscroll" checked> auto-scroll</label>
+          <button class="link" id="btnClearWire" type="button">Clear</button>
         </div>
-        <p class="sub" id="unlockSub">Waking the wrist...</p>
+        <div class="wire" id="log" aria-live="off"></div>
+      </div>
+
+      <div class="console-foot">
+        <span><span class="ok">●</span> live relay · band surface only</span>
+        <span id="footSpec">timing spec loading</span>
       </div>
     </section>
-
-    <!-- LISTENING -->
-    <section id="screen-listening" class="screen" aria-label="Listening">
-      <div class="panel focus listen-shell">
-        <div class="listen-head">
-          <p class="now" style="margin:0">Listening for your cue</p>
-          <div class="meter"><div class="fill" id="listenFill"></div></div>
-        </div>
-        <p class="cap">The band is capturing the wearer's cue. As it hears the mic, the meter rises; when the cue clears, the relay picks it up.</p>
-      </div>
-      <div class="row" style="margin-top:-4px">
-        <button class="big-btn" id="btnCancelListen">Cancel</button>
-      </div>
-    </section>
-
-    <!-- PROCESSING -->
-    <section id="screen-processing" class="screen" aria-label="Processing">
-      <div class="panel focus processing-shell">
-        <div class="spinner" aria-hidden="true"></div>
-        <p class="now" style="margin:8px 0 4px">Working on your reply</p>
-        <p class="cap">How would you say this back as timed braille? The relay is running one turn through an open model.</p>
-      </div>
-    </section>
-
-    <!-- TRANSCRIPTION -->
-    <section id="screen-transcription" class="screen" aria-label="Transcription">
-      <div class="trans-shell">
-        <div class="trans-bubble" id="transBubble" aria-label="spoken reply" role="status"></div>
-        <p class="sub" id="transSub">Turning speech into text...</p>
-      </div>
-    </section>
-
-    <!-- COMPOSE -->
-    <section id="screen-compose" class="screen" aria-label="Compose">
-      <div class="compose-shell">
-        <p class="now" style="margin:0">Write the message this band should feel</p>
-        <input id="composeInput" type="text" maxlength="120" autocomplete="off"
-               placeholder="e.g. running ten minutes late" aria-label="Message to send">
-        <div class="row" style="width:100%;max-width:260px">
-          <button id="btnSendCompose" class="primary big-btn">Send</button>
-          <button id="btnCancelCompose" class="big-btn">Cancel</button>
-        </div>
-        <p class="cap" style="margin:0">Sends through <code>POST /api/ziv/message</code> — the same seam the demo uses.</p>
-      </div>
-    </section>
-
-    <!-- SENDING -->
-    <section id="screen-sending" class="screen" aria-label="Sending">
-      <div class="send-shell">
-        <div class="send-arrow" id="sendArrow" aria-hidden="true"></div>
-        <p class="sub" id="sendSub">Sending your message...</p>
-      </div>
-    </section>
-
-    <!-- REPLY -->
-    <section id="screen-reply" class="screen" aria-label="Reply">
-      <div class="panel focus reply-shell">
-        <p class="now" style="margin:0 0 8px">Reply in braille</p>
-        <div id="cellRow" class="cell-row" aria-live="polite"></div>
-        <p class="cap" id="cellCount">Waiting for the relay's first cell…</p>
-        <p class="cap">The phone renders the relay's attention vocabulary: an arrival cue, working ticks while it thinks, one braille cell at a time, then a close that says the message is over. Nothing leaks to the room — this is a display for touch, not eyes.</p>
-      </div>
-    </section>
-
-    <!-- COOLDOWN -->
-    <section id="screen-cooldown" class="screen" aria-label="Cooldown">
-      <div class="cooldown-shell">
-        <p class="now" style="margin:0">Settle</p>
-        <div class="cooldown-bar"><div class="fill" id="cooldownFill"></div></div>
-        <p class="cap" style="margin:0">A short settle before the band listens again.</p>
-      </div>
-    </section>
-
-    <!-- WIRED PANEL -->
-    <div class="panel">
-      <div class="cap" style="margin:0 0 6px">Wire log (server frames)</div>
-      <div id="log" aria-hidden="true"></div>
-    </div>
   </main>
-
-  <div class="installbar">
-    <span id="installHint">Not installed</span>
-    <button id="btnInstall" disabled>Install app</button>
-  </div>
-
-  <!-- Compose while the band is busy. A sheet, not a screen: the current
-       turn keeps painting behind it and sending queues normally. -->
-  <div id="composeSheet" hidden role="dialog" aria-label="Write a message while the band is busy">
-    <p class="now" id="composeSheetTitle">Write a message</p>
-    <p class="cap">It waits its turn — the current screen keeps running, without interrupting the rhythm.</p>
-    <input id="composeSheetInput" type="text" maxlength="120" autocomplete="off"
-           placeholder="e.g. running ten minutes late" aria-label="Message to send">
-    <div class="row">
-      <button id="btnSheetSend" class="primary big-btn">Send</button>
-      <button id="btnSheetCancel" class="big-btn">Cancel</button>
-    </div>
-    <p class="cap sheet-status" id="sheetStatus" role="status"></p>
-  </div>
 </div>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 "use strict";
 /* Everything timing-related arrives from the relay (GET /api/ziv/timing —
    the serialized generated module). This client contains zero duration
-   literals; pattern ids only. */
+   literals; pattern ids only. The cell budget is the spec's value too. */
 var S = {
   ws: null,
+  sessionId: makeSessionId(),
   timing: null,
-  powerOn: false,
-  currentScreen: "off",
+  opened: false,
+  currentScreen: "start",
   now: document.getElementById("clock"),
   connDot: document.getElementById("connDot"),
   stateEl: document.getElementById("state"),
-  timingTag: document.getElementById("timingTag"),
-  offToggleEl: document.getElementById("offToggle"),
+  timingTag: document.getElementById("dFootState"),
   screens: {},
   sheetBusy: false,
+  history: [],
+  queueDepth: 0,
+  queueCap: 8,
+  inboxPending: 0,
+  filter: "all",
+  capLocks: {},
+  activeHistoryId: null,
+  currentPlayId: null,
+  deferredInstall: null,
+  specPromise: null,
+  badgeTimer: 0,
+  toastTimer: 0,
+  bandsOpen: false,
 };
 S.stageTimers = [];
 
-function setPower(on) {
-  S.powerOn = on;
-  S.offToggleEl.classList.toggle("on", on);
-  S.connDot.classList.toggle("off", !on);
-  closeComposeSheet();
-  goScreen(on ? "locked" : "off");
-  setState(on ? "powered on" : "powered down", on ? "ok" : "bad");
+/* One stream per tab. The relay keys its hub, gate and turn lock by this id,
+   so five open clients are five bands, not five windows onto one wrist. It is
+   deliberately in memory only: a duplicated tab must not inherit the original
+   tab's id, and a reload starting a fresh stream is harmless (the durable
+   inbox is still wearer-level). */
+function makeSessionId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  var out = "";
+  var bytes = new Uint8Array(16);
+  if (window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (var i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  for (var j = 0; j < 16; j++) out += (bytes[j] + 256).toString(16).slice(1);
+  return out;
+}
+
+function sessionHeaders(headers) {
+  var out = headers || {};
+  out["X-Ziv-Session"] = S.sessionId;
+  return out;
+}
+
+var HISTORY_KEY = "ziv.history.v1";
+var HISTORY_MAX = 60;
+
+/* The real budget, filled from GET /api/ziv/timing before the band opens.
+   There is deliberately no 12 in this logic: a missing spec leaves the
+   composers uncapped and unsendable rather than guessing a limit. */
+var SPEC = { cells: null, version: "?", source: "loading" };
+
+/* ------------------------------------------------------------------ */
+/* text the band can actually feel                                     */
+/* ------------------------------------------------------------------ */
+
+var ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven",
+  "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+  "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+var TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy",
+  "eighty", "ninety"];
+
+function numberWords(n) {
+  if (n < 20) return ONES[n];
+  if (n < 100) {
+    var t = TENS[Math.floor(n / 10) - 2];
+    var r = n % 10;
+    return r ? t + " " + ONES[r] : t;
+  }
+  if (n < 1000) {
+    var h = ONES[Math.floor(n / 100)] + " hundred";
+    var rest = n % 100;
+    return rest ? h + " " + numberWords(rest) : h;
+  }
+  return String(n).split("").map(function (d) { return ONES[+d]; }).join(" ");
+}
+
+function expandDigits(raw) {
+  return String(raw || "").replace(/\d+/g, function (match) {
+    if (match.length > 1 && match.charAt(0) === "0") {
+      return match.split("").map(function (d) { return ONES[+d]; }).join(" ");
+    }
+    var n = parseInt(match, 10);
+    if (!isFinite(n)) return match;
+    return numberWords(n);
+  });
+}
+
+/* The full draft, normalized to the cells it would occupy. The server keeps
+   only a-z for cells; digits are spoken out before the POST so they are
+   actually felt rather than silently dropped. */
+function fitText(raw) {
+  var expanded = expandDigits(String(raw || "")).toLowerCase();
+  var words = expanded.split(/[^a-z]+/).filter(Boolean);
+  var cells = words.join("").split("");
+  var total = cells.length;
+  return {
+    raw: String(raw || ""),
+    expanded: expanded,
+    words: words,
+    felt: words.join(" "),
+    cells: cells,
+    totalCells: total,
+    overBy: SPEC.cells ? Math.max(0, total - SPEC.cells) : 0,
+    over: SPEC.cells ? total > SPEC.cells : false
+  };
+}
+
+function spokenText(raw) {
+  return expandDigits(String(raw || ""));
+}
+
+function digitPairs(raw) {
+  var seen = {};
+  var pairs = [];
+  (String(raw).match(/\d+/g) || []).forEach(function (m) {
+    if (seen[m]) return;
+    seen[m] = true;
+    pairs.push(m + " → " + numberWords(parseInt(m, 10)));
+  });
+  return pairs;
+}
+
+/* ------------------------------------------------------------------ */
+/* small UI helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+function nowHM() {
+  var d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+function nowHMS() {
+  var d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0") + ":" +
+    String(d.getSeconds()).padStart(2, "0");
+}
+
+function toast(text) {
+  var el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(S.toastTimer);
+  S.toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2400);
+}
+
+function lastFrame(text) {
+  var el = document.getElementById("lastFrame");
+  if (el) el.textContent = text;
 }
 
 function setState(text, kind) {
   S.stateEl.textContent = text;
   S.stateEl.className = kind === "ok" ? "ok" : kind === "bad" ? "bad" : "";
+  var d = document.getElementById("dState");
+  if (d) d.textContent = text;
+  var dot = document.getElementById("dDot");
+  if (dot) dot.className = kind === "ok" ? "" : "off";
 }
 
 function setTimingTag(text) {
-  S.timingTag.textContent = text;
+  if (S.timingTag) S.timingTag.textContent = text;
+}
+
+function footState(name) {
+  var map = {
+    start: "not attached",
+    ready: "ready",
+    incoming: "message arriving",
+    processing: "working",
+    "reply-text": "text",
+    compose: "compose",
+    sending: "sending",
+    reply: "playing",
+    cooldown: "ended"
+  };
+  var el = document.getElementById("dFootState");
+  if (el) el.textContent = map[name] || name;
 }
 
 function goScreen(name) {
@@ -826,6 +1615,7 @@ function goScreen(name) {
   var target = S.screens[name];
   if (target) target.classList.add("active");
   S.currentScreen = name;
+  footState(name);
   syncWriteDuring();
 }
 
@@ -833,11 +1623,282 @@ function syncWriteDuring() {
   var btn = document.getElementById("btnWriteDuring");
   if (!btn) return;
   var sheet = document.getElementById("composeSheet");
-  var isIdle = S.currentScreen === "off"
-    || S.currentScreen === "locked"
+  var isIdle = S.currentScreen === "start"
+    || S.currentScreen === "ready"
     || S.currentScreen === "compose";
-  btn.hidden = !S.powerOn || isIdle || (sheet && !sheet.hidden);
+  btn.hidden = !S.opened || isIdle || (sheet && !sheet.hidden);
 }
+
+/* ------------------------------------------------------------------ */
+/* wire                                                                */
+/* ------------------------------------------------------------------ */
+
+function wireVisible(kind) {
+  if (S.filter === "all") return true;
+  if (S.filter === "frames") return kind === "haptic" || kind === "cell" || kind === "text";
+  if (S.filter === "sys") return kind === "sys" || kind === "inbox" || kind === "http";
+  if (S.filter === "error") return kind === "error";
+  return true;
+}
+
+function applyWireFilter(el) {
+  if (!el) return;
+  el.hidden = !wireVisible(el.getAttribute("data-kind"));
+}
+
+function refilterWire() {
+  var host = document.getElementById("log");
+  if (!host) return;
+  Array.prototype.forEach.call(host.children, applyWireFilter);
+}
+
+function updateWireCount() {
+  var host = document.getElementById("log");
+  var count = document.getElementById("wireCount");
+  if (host && count) count.textContent = host.children.length;
+}
+
+function log(kind, text) {
+  var host = document.getElementById("log");
+  if (!host) return;
+  var d = document.createElement("div");
+  d.className = "wline";
+  d.setAttribute("data-kind", kind);
+  var t = document.createElement("span");
+  t.className = "wt";
+  t.textContent = nowHMS();
+  var k = document.createElement("span");
+  k.className = "wk";
+  k.textContent = kind;
+  var x = document.createElement("span");
+  x.className = "wx";
+  x.textContent = text;
+  d.appendChild(t);
+  d.appendChild(k);
+  d.appendChild(x);
+  host.prepend(d);
+  while (host.children.length > 60) host.removeChild(host.lastChild);
+  updateWireCount();
+  applyWireFilter(d);
+  var auto = document.getElementById("autoscroll");
+  if (!auto || auto.checked) host.scrollTop = 0;
+  lastFrame(kind + " · " + text);
+}
+
+/* ------------------------------------------------------------------ */
+/* history, saved on this device                                       */
+/* ------------------------------------------------------------------ */
+
+function loadHistory() {
+  try {
+    var raw = localStorage.getItem(HISTORY_KEY);
+    var rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) rows = [];
+    S.history = rows.filter(function (m) {
+      return m && typeof m.text === "string" && typeof m.at === "number";
+    }).slice(0, HISTORY_MAX);
+  } catch (e) {
+    S.history = [];
+  }
+  // A session that ended mid-turn cannot vouch for the old status. Keep the
+  // text, mark what was not confirmed, and let the wearer replay it.
+  S.history.forEach(function (m) {
+    if (m.status === "playing") m.status = "played";
+    if (m.status === "queued") {
+      m.status = "failed";
+      m.note = "not confirmed from a previous session — play it again";
+    }
+    if (!m.felt) m.felt = fitText(m.text).felt;
+    if (typeof m.cells !== "number") m.cells = fitText(m.text).totalCells;
+  });
+  saveHistory();
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(S.history.slice(0, HISTORY_MAX)));
+  } catch (e) { /* private mode / full storage: history is best effort */ }
+}
+
+function historyTime(at) {
+  var d = new Date(at);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+function dayKey(at) {
+  var d = new Date(at);
+  var now = new Date();
+  var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (at >= start) return "Today";
+  if (at >= start - 86400000) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function statusLabel(status) {
+  if (status === "playing") return "on band";
+  if (status === "queued") return "queued";
+  if (status === "failed") return "not played";
+  return "played";
+}
+
+function addOutgoing(text) {
+  var fit = fitText(text);
+  var m = {
+    id: "m" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+    text: text,
+    felt: fit.felt,
+    cells: fit.totalCells,
+    at: Date.now(),
+    status: "queued",
+    direction: "out",
+    note: ""
+  };
+  S.history.unshift(m);
+  if (S.history.length > HISTORY_MAX) S.history.length = HISTORY_MAX;
+  saveHistory();
+  renderHistory();
+  return m;
+}
+
+function addIncoming(text, fit) {
+  var m = {
+    id: "m" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+    text: text,
+    felt: fit.felt,
+    cells: fit.totalCells,
+    at: Date.now(),
+    status: "playing",
+    direction: "in",
+    note: ""
+  };
+  S.history.unshift(m);
+  if (S.history.length > HISTORY_MAX) S.history.length = HISTORY_MAX;
+  saveHistory();
+  renderHistory();
+  return m;
+}
+
+function markHistory(id, status, note) {
+  if (!id) return;
+  var m = S.history.filter(function (x) { return x.id === id; })[0];
+  if (!m) return;
+  m.status = status;
+  m.note = note || "";
+  saveHistory();
+  renderHistory();
+}
+
+function matchHistory(felt) {
+  for (var i = 0; i < S.history.length; i++) {
+    var m = S.history[i];
+    if (m.felt === felt && (m.status === "queued" || m.status === "playing")) return m;
+  }
+  return null;
+}
+
+function msgEl(m) {
+  var el = document.createElement("article");
+  el.className = "msg";
+
+  var top = document.createElement("div");
+  top.className = "msg-top";
+  var time = document.createElement("span");
+  time.className = "msg-time";
+  time.textContent = historyTime(m.at) + " · " + (m.direction === "in" ? "received" : "sent")
+    + " · " + m.cells + " cells";
+  var status = document.createElement("span");
+  status.className = "status " + m.status;
+  status.textContent = statusLabel(m.status);
+  top.appendChild(time);
+  top.appendChild(status);
+
+  var text = document.createElement("p");
+  text.className = "msg-text";
+  text.textContent = m.text;
+
+  el.appendChild(top);
+  el.appendChild(text);
+
+  if (m.note) {
+    var note = document.createElement("p");
+    note.className = "msg-note" + (m.status === "failed" ? " bad" : "");
+    note.textContent = m.note;
+    el.appendChild(note);
+  }
+
+  var meta = document.createElement("div");
+  meta.className = "msg-meta";
+  var felt = document.createElement("span");
+  felt.className = "felt-mini";
+  felt.textContent = m.felt + " · felt";
+  felt.title = m.felt;
+  var replay = document.createElement("button");
+  replay.className = "replay";
+  replay.type = "button";
+  replay.textContent = "↻ Play again";
+  replay.disabled = m.status === "playing" || m.status === "queued";
+  replay.addEventListener("click", function () { replayMessage(m.id); });
+  meta.appendChild(felt);
+  meta.appendChild(replay);
+  el.appendChild(meta);
+  return el;
+}
+
+function renderHistory() {
+  var host = document.getElementById("history");
+  if (!host) return;
+  host.innerHTML = "";
+  var lastDay = "";
+  S.history.forEach(function (m) {
+    var day = dayKey(m.at);
+    if (day !== lastDay) {
+      lastDay = day;
+      var head = document.createElement("div");
+      head.className = "day-head";
+      var label = document.createElement("span");
+      label.textContent = day;
+      var rule = document.createElement("span");
+      rule.className = "rule";
+      var count = document.createElement("span");
+      count.textContent = S.history.filter(function (x) { return dayKey(x.at) === day; }).length;
+      head.appendChild(label);
+      head.appendChild(rule);
+      head.appendChild(count);
+      host.appendChild(head);
+    }
+    host.appendChild(msgEl(m));
+  });
+  if (!S.history.length) {
+    var empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.innerHTML = "<b>No messages yet</b>Write from the band or deliver one from the console. This list stays on this device.";
+    host.appendChild(empty);
+  }
+  var count = document.getElementById("msgCount");
+  if (count) count.textContent = S.history.length;
+  updateWaiting();
+}
+
+function updateWaiting() {
+  var pending = typeof S.inboxPending === "number" ? S.inboxPending : 0;
+  var depth = typeof S.queueDepth === "number" ? S.queueDepth : 0;
+  var total = pending + depth;
+  var line = document.getElementById("waitingLine");
+  var dot = document.getElementById("waitDot");
+  if (line) line.textContent = total ? total + " waiting on the band" : "Nothing waiting.";
+  if (dot) dot.className = total ? "dot warn" : "dot";
+  var q = document.getElementById("dQueue");
+  if (q) {
+    q.textContent = S.opened
+      ? "queue " + depth + "/" + (S.queueCap || 8)
+      : "inbox " + pending;
+    q.classList.toggle("has", total > 0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* redial                                                              */
+/* ------------------------------------------------------------------ */
 
 var RD = {
   url: "",
@@ -848,6 +1909,7 @@ var RD = {
   max: 3,
   dead: false,
   el: null,
+  historyId: null,
 };
 
 function redialNoteEl() {
@@ -855,18 +1917,22 @@ function redialNoteEl() {
   return RD.el;
 }
 
-function armRedial(url, body, label) {
+function armRedial(url, body, label, historyId) {
   if (RD.lastLabel !== label) RD.attempts = 0;
   RD.lastLabel = label;
   if (RD.attempts >= RD.max) {
     RD.dead = true;
     RD.body = null;
+    RD.historyId = historyId || null;
     RD.el = redialNoteEl();
     if (RD.el) {
       RD.el.hidden = false;
       RD.el.classList.add("dead");
       RD.el.textContent = "✋ “" + label + "” gave up after " + RD.max
         + " tries — the wrist never freed. Send manually when ready.";
+    }
+    if (RD.historyId) {
+      markHistory(RD.historyId, "failed", "redial gave up after " + RD.max + " tries");
     }
     log("sys", "↹ redial gave up after " + RD.max
       + " chances — send manually when ready");
@@ -875,6 +1941,7 @@ function armRedial(url, body, label) {
   RD.dead = false;
   RD.url = url;
   RD.body = body;
+  RD.historyId = historyId || null;
   RD.el = redialNoteEl();
   if (RD.el) {
     RD.el.hidden = false;
@@ -889,6 +1956,7 @@ function disarmRedial(why) {
   var had = RD.body !== null || RD.dead;
   RD.body = null;
   RD.dead = false;
+  RD.historyId = null;
   if (RD.el) {
     RD.el.hidden = true;
     RD.el.classList.remove("dead");
@@ -902,16 +1970,18 @@ async function fireRedialIfFree() {
   RD.attempts += 1;
   var url = RD.url;
   var body = RD.body;
+  var historyId = RD.historyId;
   RD.body = null;
   if (RD.el) RD.el.hidden = true;
+  S.activeHistoryId = historyId;
   log("sys", "↻ redial — resending “" + RD.label + "” (the close just landed)");
   try {
     await send(url, body);
-    // If the refusal happened in the busy-sheet, the automatic resend is the
-    // wearer's message: close the sheet rather than leave a stale refusal.
     closeComposeSheet();
   } catch (e) {
     // send() re-arms on a 429; any other failure is already logged there.
+  } finally {
+    S.activeHistoryId = null;
   }
 }
 
@@ -923,7 +1993,7 @@ async function send(url, body) {
   try {
     var res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: sessionHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
     var data = await res.json();
@@ -932,7 +2002,7 @@ async function send(url, body) {
       if (res.status === 429) {
         var label = typeof body.text === "string" ? body.text
           : (typeof body.simulate === "string" ? body.simulate : "");
-        if (label) armRedial(url, body, label);
+        if (label) armRedial(url, body, label, S.activeHistoryId || RD.historyId);
       }
       throw data;
     }
@@ -954,27 +2024,98 @@ async function send(url, body) {
   }
 }
 
+function markRecordFromResult(m, data) {
+  if (!m) return;
+  if (data && data.event === "inbox:stored") {
+    m.status = "queued";
+    m.note = "stored in the relay inbox — open the band to feel it";
+    saveHistory();
+    renderHistory();
+    return;
+  }
+  if (data && data.queued) {
+    m.status = "queued";
+    m.note = "queued behind the current turn";
+    saveHistory();
+    renderHistory();
+    return;
+  }
+  if (m.status !== "played") {
+    m.status = "played";
+    m.note = "";
+    saveHistory();
+    renderHistory();
+  }
+}
+
+function sendTracked(url, body, m) {
+  S.activeHistoryId = m ? m.id : null;
+  return send(url, body).then(function (data) {
+    S.activeHistoryId = null;
+    markRecordFromResult(m, data);
+    return data;
+  }).catch(function (err) {
+    S.activeHistoryId = null;
+    if (m && m.status !== "played") {
+      var why = err && err.detail ? err.detail : "send failed";
+      if (/queue is full/i.test(why)) {
+        m.status = "queued";
+        m.note = "queue full — redial armed; it sends when the band frees";
+      } else {
+        m.status = "failed";
+        m.note = why;
+      }
+      saveHistory();
+      renderHistory();
+    }
+    throw err;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* relay transport                                                     */
+/* ------------------------------------------------------------------ */
+
+function openBand() {
+  if (S.opened) return;
+  S.opened = true;
+  closeComposeSheet();
+  goScreen("ready");
+  setState("connecting...", "");
+  setTimingTag("connecting...");
+  var start = function () { connect(); };
+  if (S.specPromise) S.specPromise.then(start); else start();
+}
+
 function connect() {
   var proto = location.protocol === "https:" ? "wss:" : "ws:";
-  var url = proto + "//" + location.host + "/ws";
+  var url = proto + "//" + location.host + "/ws?session="
+    + encodeURIComponent(S.sessionId);
   try {
     var ws = new WebSocket(url);
     S.ws = ws;
-    ws.onopen = function () { setState("connected", "ok"); };
+    ws.onopen = function () {
+      S.connDot.classList.remove("off");
+      setState("connected", "ok");
+      setTimingTag("relay connected");
+    };
     ws.onclose = function () {
+      S.connDot.classList.add("off");
       setState("disconnected — retrying...", "bad");
-      setTimeout(connect, 1500);
+      if (S.opened) setTimeout(connect, 1500);
     };
     ws.onerror = function () { setState("ws error", "bad"); };
     ws.onmessage = function (ev) {
       var frame;
       try { frame = JSON.parse(ev.data); } catch (e) { return; }
       if (frame.type === "hello") {
-        var inbox = typeof frame.inbox_pending === "number" && frame.inbox_pending > 0
-          ? ", " + frame.inbox_pending + " message(s) waiting"
-          : "";
+        if (frame.session) S.sessionId = frame.session;
+        S.inboxPending = typeof frame.inbox_pending === "number" ? frame.inbox_pending : 0;
+        updateWaiting();
+        var inbox = S.inboxPending > 0 ? ", " + S.inboxPending + " message(s) waiting" : "";
         log("sys", "relay hello — spec v" + frame.spec_version
-          + ", " + frame.patterns.length + " patterns, mark: " + frame.mark + inbox);
+          + ", " + frame.patterns.length + " patterns, mark: " + frame.mark
+          + ", stream " + String(frame.session || "default").slice(0, 8) + inbox);
         setTimingTag("spec v" + frame.spec_version + " · "
           + frame.patterns.length + " patterns · mark " + frame.mark);
       } else if (frame.type === "haptic") {
@@ -990,21 +2131,9 @@ function connect() {
   }
 }
 
-function log(kind, text) {
-  var d = document.createElement("div");
-  if (kind === "haptic") d.className = "haptic";
-  if (kind === "sys") d.className = "sys";
-  var now = new Date();
-  var hh = String(now.getHours()).padStart(2, "0");
-  var mm = String(now.getMinutes()).padStart(2, "0");
-  var ss = String(now.getSeconds()).padStart(2, "0");
-  d.innerHTML = '<span class="t">' + hh + ":" + mm + ":" + ss + "</span> " + text;
-  var host = document.getElementById("log");
-  if (host) {
-    host.prepend(d);
-    while (host.children.length > 60) host.removeChild(host.lastChild);
-  }
-}
+/* ------------------------------------------------------------------ */
+/* the turn: cue -> ticks -> text/cells -> close -> settle             */
+/* ------------------------------------------------------------------ */
 
 var PATTERN = {
   cue: "double-tap",
@@ -1022,7 +2151,7 @@ function onHaptic(frame) {
     // A queued message's cue is felt on the wrist, but it is not the wearer
     // starting a cue — do not yank the phone away from the turn that is
     // still playing underneath the busy-sheet.
-    if (String(frame.why || "").indexOf("queued") !== 0) startListening();
+    if (String(frame.why || "").indexOf("queued") !== 0) showIncoming();
   } else if (pattern === PATTERN.processing) {
     goScreen("processing");
     setState("working on your reply", "ok");
@@ -1031,6 +2160,10 @@ function onHaptic(frame) {
     if (frame.free === true) fireRedialIfFree();
     finishReply();
   } else if (pattern === PATTERN.error) {
+    if (S.currentPlayId) {
+      markHistory(S.currentPlayId, "failed", frame.why || "turn failed");
+      S.currentPlayId = null;
+    }
     setState("error — " + (frame.why || "turn failed"), "bad");
     setTimingTag("error");
   }
@@ -1042,17 +2175,49 @@ function clearStageTimers() {
 }
 
 function onText(frame) {
-  var text = frame.text || "";
-  log("sys", "text: " + text);
-  var bubble = document.getElementById("transBubble");
-  if (bubble) bubble.textContent = text;
+  var raw = frame.text || "";
+  log("text", "text: " + raw);
+  var bubble = document.getElementById("replyTextBubble");
+  var felt = document.getElementById("feltLine");
+  var sub = document.getElementById("replyTextSub");
+
+  var content = raw;
+  var colon = raw.indexOf(": ");
+  if (colon > 0) content = raw.slice(colon + 2);
+
+  var markCells = frame.chars && frame.chars.length === 3
+    && frame.chars.map(function (c) { return c.ch; }).join("") === "ziv";
+  var isPrefix = markCells || raw.indexOf("reminder: ") === 0;
+  var isContent = !isPrefix
+    && (raw.indexOf("message: ") === 0 || raw.indexOf("queued: ") === 0);
+
+  if (isContent) {
+    var fit = fitText(content);
+    var known = matchHistory(fit.felt);
+    if (known) {
+      known.status = "playing";
+      known.note = "";
+      S.currentPlayId = known.id;
+      saveHistory();
+      renderHistory();
+    } else {
+      S.currentPlayId = addIncoming(content, fit).id;
+    }
+    if (bubble) bubble.textContent = content;
+    if (felt) felt.textContent = fit.felt || "—";
+    if (sub) sub.textContent = "The message, in text — braille follows.";
+  } else {
+    if (bubble) bubble.textContent = content;
+    if (felt) felt.textContent = content;
+  }
+
   if (frame.chars && frame.chars.length) buildCells(frame.chars);
 
   // The relay's own order is text then cells; the screen follows the frames.
   clearStageTimers();
-  goScreen("transcription");
-  setState("turning speech into text", "ok");
-  setTimingTag("transcribed");
+  goScreen("reply-text");
+  setState("reply received", "ok");
+  setTimingTag("reply text");
 }
 
 function buildCells(chars) {
@@ -1065,6 +2230,7 @@ function buildCells(chars) {
   row.appendChild(group);
   S.cellEls = [];
   S.cellIdx = 0;
+  S.cellBase = document.querySelectorAll("#cellRow .cell").length;
   chars.forEach(function (c) {
     var el = document.createElement("div");
     el.className = "cell";
@@ -1090,16 +2256,21 @@ function onCell(frame) {
   }
   S.cellIdx = idx + 1;
   vibrateNow(frame.ms || 0);
+  log("cell", "cell " + (frame.ch || "?") + " · " + (frame.ms || 0) + " ms");
   goScreen("reply");
   setState("reply in braille", "ok");
   setTimingTag("cell " + S.cellIdx + "/" + els.length);
   var count = document.getElementById("cellCount");
   var total = document.querySelectorAll("#cellRow .cell").length;
-  if (count) count.textContent = "playing " + (S.cellIdx + (S.cellsBefore || 0)) + " of " + total;
+  if (count) count.textContent = "playing " + (S.cellIdx + (S.cellBase || 0)) + " of " + total;
 }
 
 function finishReply() {
   clearStageTimers();
+  if (S.currentPlayId) {
+    markHistory(S.currentPlayId, "played", "");
+    S.currentPlayId = null;
+  }
   (S.cellEls || []).forEach(function (el) { el.className = "cell done"; });
   var count = document.getElementById("cellCount");
   var total = document.querySelectorAll("#cellRow .cell").length;
@@ -1119,7 +2290,7 @@ function finishReply() {
   // frame must cancel it, or the starter's cooldown would blank the screen
   // while the queued message is still playing.
   S.stageTimers.push(setTimeout(function () {
-    goScreen("locked");
+    goScreen("ready");
     setState("ready", "ok");
     setTimingTag("ready");
   }, 3000));
@@ -1131,53 +2302,28 @@ function vibrateNow(ms) {
   } catch (e) { /* noop */ }
 }
 
-function unlock() {
-  if (!S.powerOn) return;
-  goScreen("unlocking");
-  setState("waking the wrist", "ok");
-  setTimingTag("waking...");
+function showIncoming() {
+  // The relay's arrival cue is a display of a turn that already started:
+  // the reply is generated server-side and played back as braille, so
+  // there is nothing for the band to capture here.
+  if (!S.opened) return;
+  goScreen("incoming");
+  setState("message arriving", "ok");
+  setTimingTag("arrival cue");
 }
 
-function cancelListening() {
-  log("sys", "listening cancelled by wearer");
-  goScreen("locked");
-  setState("stand by", "ok");
-}
-
-function cancelLocked() {
-  log("sys", "stand by — staying locked");
-  goScreen("locked");
-  setState("stand by", "ok");
-}
-
-function startListening() {
-  if (!S.powerOn) return;
-  goScreen("listening");
-  setState("listening for your cue", "ok");
-  setTimingTag("listening...");
-  listeningMeter();
-}
-
-window.addEventListener("beforeinstallprompt", function (e) {
-  e.preventDefault();
-  S.deferredInstall = e;
-  document.getElementById("installHint").textContent = "Ready to install";
-  document.getElementById("btnInstall").disabled = false;
-});
-
-document.getElementById("btnInstall").addEventListener("click", function () {
-  if (!S.deferredInstall) return;
-  S.deferredInstall.prompt();
-  S.deferredInstall.userChoice.then(function () {
-    document.getElementById("installHint").textContent = "Install prompt answered";
-    document.getElementById("btnInstall").disabled = true;
-    S.deferredInstall = null;
-  });
-});
+/* ------------------------------------------------------------------ */
+/* compose                                                             */
+/* ------------------------------------------------------------------ */
 
 function openCompose() {
   var input = document.getElementById("composeInput");
-  if (input) { input.value = ""; input.focus(); }
+  if (input) {
+    input.value = "";
+    S.capLocks.composeInput = null;
+    input.focus();
+  }
+  updateComposeCapNote("composeInput");
   goScreen("compose");
   setState("composing", "ok");
   setTimingTag("compose");
@@ -1187,16 +2333,20 @@ function setSheetStatus(text, bad) {
   var el = document.getElementById("sheetStatus");
   if (!el) return;
   el.textContent = text || "";
-  el.className = "cap sheet-status" + (bad ? " bad" : "");
+  el.className = "cap-note sheet-status" + (bad ? " bad" : "");
 }
 
 function openComposeSheet() {
-  if (!S.powerOn) return;
+  if (!S.opened) return;
   var sheet = document.getElementById("composeSheet");
   if (!sheet) return;
   var input = document.getElementById("composeSheetInput");
-  if (input) input.value = "";
+  if (input) {
+    input.value = "";
+    S.capLocks.composeSheetInput = null;
+  }
   setSheetStatus("");
+  updateComposeCapNote("composeSheetInput");
   sheet.hidden = false;
   syncWriteDuring();
   log("sys", "compose opened while the band is busy — the message waits its turn");
@@ -1220,25 +2370,48 @@ function sendSheetComposed() {
   var input = document.getElementById("composeSheetInput");
   var text = input ? input.value.trim() : "";
   if (!text) { if (input) input.focus(); return; }
+  if (SPEC.cells === null) {
+    setSheetStatus("Timing spec is still loading — try again in a moment.", true);
+    return;
+  }
+  var fit = fitText(text);
+  if (fit.over) {
+    setSheetStatus("Over the " + SPEC.cells + "-cell limit — shorten it first.", true);
+    return;
+  }
+  var m = addOutgoing(text);
   var sendBtn = document.getElementById("btnSheetSend");
   var cancel = document.getElementById("btnSheetCancel");
   S.sheetBusy = true;
+  S.activeHistoryId = m.id;
   if (sendBtn) sendBtn.disabled = true;
   if (cancel) cancel.disabled = true;
   setSheetStatus("Sending — it waits its turn...");
   disarmRedial("you sent manually");
-  send("/api/ziv/message", { text: text }).then(function (data) {
-    var queued = !!(data && data.queued);
+  send("/api/ziv/message", { text: spokenText(text) }).then(function (data) {
+    S.activeHistoryId = null;
+    markRecordFromResult(m, data);
     closeComposeSheet();
+    var queued = !!(data && data.queued);
     setState(queued ? "queued behind this turn" : "sent", "ok");
     setTimingTag(queued ? "queued" : "sent");
     log("sys", "sent without stopping the band — "
       + (queued ? "queued behind the current turn" : "accepted"));
   }).catch(function (err) {
+    S.activeHistoryId = null;
     S.sheetBusy = false;
     if (sendBtn) sendBtn.disabled = false;
     if (cancel) cancel.disabled = false;
     var why = err && err.detail ? err.detail : "send failed";
+    if (/queue is full/i.test(why)) {
+      m.status = "queued";
+      m.note = "queue full — redial armed; it sends when the band frees";
+    } else {
+      m.status = "failed";
+      m.note = why;
+    }
+    saveHistory();
+    renderHistory();
     var armed = !!RD.body;
     setSheetStatus(armed
       ? "Refused — " + why + " Redial armed; it will resend when this turn ends."
@@ -1252,91 +2425,613 @@ function sendComposed() {
   var input = document.getElementById("composeInput");
   var text = input ? input.value.trim() : "";
   if (!text) { if (input) input.focus(); return; }
+  if (SPEC.cells === null) {
+    setState("timing spec not loaded", "bad");
+    toast("The timing spec is still loading — try again in a moment.");
+    return;
+  }
+  var fit = fitText(text);
+  if (fit.over) {
+    setState("over the cell limit", "bad");
+    toast("Over " + SPEC.cells + " cells — shorten it first.");
+    return;
+  }
+  var m = addOutgoing(text);
   disarmRedial("you sent manually");
+  if (input) input.value = "";
+  S.capLocks.composeInput = null;
   goScreen("sending");
   setState("sending your message", "ok");
   setTimingTag("sending...");
-  send("/api/ziv/message", { text: text }).then(function (data) {
+  sendTracked("/api/ziv/message", { text: spokenText(text) }, m).then(function (data) {
+    if (S.currentScreen === "sending") {
+      setState("sent", "ok");
+      setTimingTag("sent");
+      goScreen("ready");
+    }
     log("sys", "sent — " + (data.event || "accepted"));
-  }).then(function () {
-    setState("sent", "ok");
-    setTimingTag("sent");
-    goScreen("locked");
   }).catch(function (err) {
     var why = err && err.detail ? err.detail : "send failed";
     log("sys", "send failed: " + why);
     setState("send failed", "bad");
     setTimingTag("error");
-    goScreen("compose");
+    if (S.currentScreen === "sending" || S.currentScreen === "compose") {
+      goScreen("compose");
+    }
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* console delivery                                                    */
+/* ------------------------------------------------------------------ */
+
+function postMessageOnly(spoken, m) {
+  return fetch("/api/ziv/message", {
+    method: "POST",
+    headers: sessionHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ text: spoken }),
+  }).then(function (res) {
+    return res.json().then(function (data) {
+      if (!res.ok) {
+        log("sys", "POST " + res.status + ": " + (data.detail || "?"));
+        throw data;
+      }
+      log("sys", "POST ok — " + JSON.stringify(data));
+      markRecordFromResult(m, data);
+      return data;
+    });
+  }).catch(function (err) {
+    if (m && m.status !== "played") {
+      m.status = "failed";
+      m.note = err && err.detail ? err.detail : "send failed";
+      saveHistory();
+      renderHistory();
+    }
+    throw err;
+  });
+}
+
+function deliverFromConsole(raw) {
+  var text = String(raw || "").trim();
+  if (!text) return false;
+  if (SPEC.cells === null) {
+    setDeliverStatus("Timing spec is still loading — try again in a moment.", "warn");
+    toast("The timing spec is still loading — try again in a moment.");
+    return false;
+  }
+  var fit = fitText(text);
+  if (!fit.cells.length) {
+    setDeliverStatus("Nothing the band can feel in that.", "warn");
+    toast("Nothing the band can feel in that.");
+    return false;
+  }
+  if (fit.over) {
+    setDeliverStatus("Nothing sent — the draft is " + fit.overBy + " cells over the limit.", "warn");
+    toast("Over " + SPEC.cells + " cells — shorten the draft first.");
+    return false;
+  }
+  var m = addOutgoing(text);
+  setDeliverStatus("Sending “" + fit.felt + "” — " + fit.totalCells + " cells…", "");
+  postMessageOnly(spokenText(text), m).then(function (data) {
+    var stored = data && data.event === "inbox:stored";
+    var queued = data && data.queued;
+    if (stored) {
+      setDeliverStatus("Stored in the inbox — open the band to feel it.", "warn");
+      toast("Stored in the relay inbox.");
+    } else if (queued) {
+      setDeliverStatus("Queued “" + fit.felt + "” behind the current message.", "ok");
+      toast("Queued behind the current message.");
+    } else {
+      setDeliverStatus("Delivered “" + fit.felt + "” — " + fit.totalCells + " cells.", "ok");
+      toast("Delivered to the band.");
+    }
+  }).catch(function (err) {
+    var why = err && err.detail ? err.detail : "send failed";
+    setDeliverStatus("Not delivered — " + why, "warn");
+    toast("Not delivered — " + why);
+  });
+  return true;
+}
+
+function replayMessage(id) {
+  var m = S.history.filter(function (x) { return x.id === id; })[0];
+  if (!m) return;
+  if (!S.opened || !S.ws || S.ws.readyState !== WebSocket.OPEN) {
+    toast("Open the band first, then play it again.");
+    return;
+  }
+  if (m.status === "playing" || m.status === "queued") {
+    toast("That one is already waiting.");
+    return;
+  }
+  if (SPEC.cells !== null && fitText(m.text).over) {
+    toast("That message is over the current " + SPEC.cells + "-cell cap.");
+    return;
+  }
+  m.status = "queued";
+  m.note = "";
+  saveHistory();
+  renderHistory();
+  S.activeHistoryId = m.id;
+  send("/api/ziv/message", { text: spokenText(m.text) }).then(function (data) {
+    S.activeHistoryId = null;
+    markRecordFromResult(m, data);
+  }).catch(function (err) {
+    S.activeHistoryId = null;
+    var why = err && err.detail ? err.detail : "send failed";
+    if (/queue is full/i.test(why)) {
+      m.status = "queued";
+      m.note = "queue full — redial armed; it sends when the band frees";
+    } else {
+      m.status = "failed";
+      m.note = why;
+    }
+    saveHistory();
+    renderHistory();
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* spec-driven cell cap                                                */
+/* ------------------------------------------------------------------ */
+
+function flashCap(el) {
+  if (!el) return;
+  el.classList.add("cap-hit");
+  window.clearTimeout(el._capFlash);
+  el._capFlash = window.setTimeout(function () { el.classList.remove("cap-hit"); }, 900);
+}
+
+/* Hard cap at the spec's cell budget. There is no character cap: spaces and
+   punctuation are free, while letters (and digits, once spoken out) each take
+   a cell. Grow the longest prefix that still fits. If that prefix stops inside
+   a letter word, back up to the last word boundary; a single word that cannot
+   fit whole still falls back to the exact prefix. */
+function capInput(el) {
+  if (!el || SPEC.cells === null) return false;
+  var id = el.id || "";
+  var value = el.value;
+  if (!value) {
+    S.capLocks[id] = null;
+    return false;
+  }
+  var lock = S.capLocks[id] || null;
+  if (lock !== null) {
+    if (value === lock) return false;
+    if (value.indexOf(lock) === 0) {
+      el.value = lock;
+      if (typeof el.setSelectionRange === "function") {
+        el.setSelectionRange(lock.length, lock.length);
+      }
+      flashCap(el);
+      if (value.length > lock.length + 1) {
+        toast("Capped at " + SPEC.cells + " cells — backspace to edit.");
+      }
+      return true;
+    }
+    S.capLocks[id] = null;
+  }
+  var fit = fitText(value);
+  if (!fit.over) return false;
+
+  var capped = "";
+  var limit = Math.min(value.length, 512);
+  for (var i = 0; i < limit; i++) {
+    var candidate = capped + value.charAt(i);
+    if (fitText(candidate).cells.length > SPEC.cells) break;
+    capped = candidate;
+  }
+
+  var next = capped.replace(/\s+$/, "");
+  var stoppedAtWord = false;
+  var nextChar = value.charAt(capped.length);
+  if (/[A-Za-z]/.test(nextChar) && /[A-Za-z]/.test(capped.charAt(capped.length - 1))) {
+    var cut = -1;
+    for (var j = capped.length - 1; j >= 0; j--) {
+      if (!/[A-Za-z]/.test(capped.charAt(j))) { cut = j; break; }
+    }
+    if (cut >= 0) {
+      var whole = capped.slice(0, cut + 1).replace(/\s+$/, "");
+      if (whole) whole += " ";
+      if (whole && fitText(whole).cells.length) {
+        next = whole;
+        stoppedAtWord = true;
+      }
+    }
+  }
+  S.capLocks[id] = stoppedAtWord ? next : null;
+  el.value = next;
+  if (typeof el.setSelectionRange === "function") {
+    el.setSelectionRange(next.length, next.length);
+  }
+  flashCap(el);
+  toast(stoppedAtWord
+    ? "Capped at " + SPEC.cells + " cells — stopped at the last whole word."
+    : "Capped at " + SPEC.cells + " cells — extra text was not added.");
+  return true;
+}
+
+function updateComposeCapNote(id) {
+  var lock = S.capLocks[id];
+  var el = document.getElementById(id === "composeSheetInput" ? "sheetCapNote" : "composeCapNote");
+  if (!el) return;
+  if (SPEC.cells === null) {
+    el.textContent = "Timing spec loading…";
+    return;
+  }
+  var input = document.getElementById(id);
+  var used = input ? fitText(input.value).totalCells : 0;
+  if (lock) {
+    el.textContent = "Capped at " + SPEC.cells + " · backspace to edit";
+  } else if (used === SPEC.cells) {
+    el.textContent = SPEC.cells + "-cell cap · " + used + " used";
+  } else {
+    el.textContent = "Up to " + SPEC.cells + " cells · " + used + " used";
+  }
+}
+
+function setDeliverStatus(text, tone) {
+  var el = document.getElementById("deliverStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "deliver-status" + (tone ? " " + tone : "");
+}
+
+function renderPreview(fit) {
+  var host = document.getElementById("previewCells");
+  if (!host) return;
+  host.innerHTML = "";
+  if (SPEC.cells === null) return;
+  for (var i = 0; i < SPEC.cells; i++) {
+    var slot = document.createElement("span");
+    slot.className = "slot";
+    if (fit.cells[i]) {
+      slot.textContent = fit.cells[i];
+    } else {
+      slot.classList.add("empty");
+      slot.textContent = "·";
+    }
+    host.appendChild(slot);
+  }
+}
+
+function updateComposer() {
+  var input = document.getElementById("msgInput");
+  if (!input) return;
+  capInput(input);
+  var n = SPEC.cells;
+  if (n === null) {
+    renderPreview({ cells: [] });
+    var budget = document.getElementById("budget");
+    if (budget) budget.textContent = "spec loading";
+    var cap = document.getElementById("capNote");
+    if (cap) cap.textContent = "Timing spec loading…";
+    var btn = document.getElementById("btnDeliver");
+    if (btn) { btn.disabled = true; btn.textContent = "Deliver to band"; }
+    return;
+  }
+  var fit = fitText(input.value);
+  renderPreview(fit);
+
+  var budgetEl = document.getElementById("budget");
+  if (budgetEl) {
+    budgetEl.textContent = fit.totalCells + " / " + n + " cells";
+    budgetEl.classList.toggle("full", fit.totalCells === n);
+    budgetEl.classList.toggle("over", fit.over);
+  }
+
+  var note = document.getElementById("capNote");
+  var lock = S.capLocks.msgInput;
+  if (note) {
+    note.classList.toggle("locked", !!lock);
+    if (lock) {
+      note.textContent = "Capped at " + n + " · backspace to edit";
+    } else if (fit.totalCells === n) {
+      note.textContent = n + "-cell cap · " + fit.totalCells + " used";
+    } else {
+      note.textContent = "Up to " + n + " cells · " + fit.totalCells + " used";
+    }
+    note.classList.toggle("full", !lock && fit.totalCells === n);
+    note.classList.toggle("over", fit.over);
+  }
+
+  var box = document.querySelector(".preview");
+  if (box) box.classList.toggle("over", fit.over);
+  var label = document.getElementById("previewLabel");
+  if (label) {
+    label.textContent = fit.over
+      ? "First " + n + " cells — not sent"
+      : "The band will feel";
+  }
+  var fitNote = document.getElementById("fitNote");
+  if (fitNote) {
+    fitNote.textContent = fit.totalCells
+      ? fit.totalCells + " cells" + (fit.over ? " · " + fit.overBy + " over" : "")
+      : "nothing yet";
+    fitNote.classList.toggle("over", fit.over);
+  }
+
+  var warn = document.getElementById("fitWarn");
+  if (warn) {
+    if (fit.over) {
+      warn.hidden = false;
+      warn.className = "warn-line over";
+      warn.textContent = "Over by " + fit.overBy + " cells. Nothing is sent — shorten the draft to " + n + " letters or fewer.";
+    } else {
+      warn.hidden = true;
+      warn.className = "warn-line";
+      warn.textContent = "";
+    }
+  }
+
+  var digits = digitPairs(input.value);
+  var digit = document.getElementById("digitNote");
+  if (digit) {
+    if (digits.length) {
+      digit.hidden = false;
+      digit.innerHTML = "Digits are spoken out: <b>" + digits.join(" · ") + "</b>. Each letter takes a cell.";
+    } else {
+      digit.hidden = true;
+      digit.textContent = "";
+    }
+  }
+
+  var deliver = document.getElementById("btnDeliver");
+  if (deliver) {
+    deliver.disabled = fit.totalCells === 0 || fit.over;
+    deliver.classList.toggle("blocked", fit.over);
+    deliver.textContent = fit.over ? "Over the " + n + "-cell limit" : "Deliver to band";
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* timing spec                                                         */
+/* ------------------------------------------------------------------ */
+
+function renderSpecLabels() {
+  var n = SPEC.cells;
+  document.documentElement.style.setProperty("--cells", n || 12);
+  var dspec = document.getElementById("dSpec");
+  if (dspec) dspec.textContent = SPEC.version === "?" ? "spec" : "spec v" + SPEC.version;
+  var foot = document.getElementById("footSpec");
+  if (foot) {
+    foot.textContent = n === null
+      ? (SPEC.source === "unavailable" ? "timing spec unavailable" : "timing spec loading")
+      : n + " cells max · spec v" + SPEC.version + " · " + SPEC.source;
+  }
+  var limit = document.getElementById("limitNote");
+  if (limit) {
+    limit.textContent = n === null
+      ? "Timing spec loading. The cap will follow the relay's spell_max_letters value; there is no guessed limit in this page."
+      : "Up to " + n + " cells. The cap backs up to the last whole word when one fits; spaces and punctuation take no cells; digits are spoken out. If the band is mid-message, delivery queues.";
+  }
+  if (n !== null) {
+    updateComposeCapNote("composeInput");
+    updateComposeCapNote("composeSheetInput");
+  }
+}
+
+function applyTimingSpec(data, source) {
+  if (!data || typeof data !== "object") return false;
+  var cells = (data.ui && data.ui.spell_max_letters) || data.spell_max_letters;
+  if (!Number.isInteger(cells) || cells < 1) return false;
+  SPEC.cells = cells;
+  SPEC.version = data.spec_version || SPEC.version;
+  SPEC.source = source;
+  S.capLocks = {};
+  renderSpecLabels();
+  updateComposer();
+  return true;
+}
+
+function loadTimingSpec() {
+  var fetched = fetch("/api/ziv/timing", { cache: "no-store", credentials: "same-origin" })
+    .then(function (res) {
+      if (!res.ok) throw new Error("timing spec unavailable");
+      return res.json();
+    })
+    .then(function (data) {
+      if (applyTimingSpec(data, "relay")) {
+        log("sys", "timing spec · " + SPEC.cells + " cells · spec v" + SPEC.version + " · relay");
+      }
+      return true;
+    })
+    .catch(function () {
+      SPEC.source = "unavailable";
+      renderSpecLabels();
+      log("sys", "timing spec unavailable — composers stay capped off");
+      return false;
+    });
+  // Opening waits for the spec, but never for a stalled fetch: the relay link
+  // and the spec are separate liveness paths, and connect must not hang.
+  S.specPromise = Promise.race([
+    fetched,
+    new Promise(function (resolve) { setTimeout(function () { resolve(false); }, 2500); })
+  ]);
+  return S.specPromise;
+}
+
+/* ------------------------------------------------------------------ */
+/* tabs, wire controls, install                                        */
+/* ------------------------------------------------------------------ */
+
+var META = {
+  messages: "newest first · replay any",
+  deliver: "one real trigger · spec cap",
+  wire: "newest first · live frames",
+};
+
+function setTab(name) {
+  var wire = name === "wire";
+  var consoleEl = document.getElementById("console");
+  if (consoleEl) consoleEl.classList.toggle("wire-mode", wire);
+  var messages = document.getElementById("panel-messages");
+  var deliver = document.getElementById("panel-deliver");
+  if (messages) messages.classList.toggle("active", name === "messages");
+  if (deliver) deliver.classList.toggle("active", name === "deliver");
+  var tabs = ["tab-messages", "tab-deliver", "tab-wire"];
+  tabs.forEach(function (id) {
+    var tab = document.getElementById(id);
+    if (!tab) return;
+    var on = (id === "tab-" + name);
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  var meta = document.getElementById("consoleMeta");
+  if (meta) meta.textContent = META[name] || "";
+  if (wire) {
+    var logEl = document.getElementById("log");
+    if (logEl) logEl.scrollTop = 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* wiring                                                              */
+/* ------------------------------------------------------------------ */
+
+document.getElementById("btnOpen").addEventListener("click", openBand);
 document.getElementById("btnWrite").addEventListener("click", openCompose);
 document.getElementById("btnWriteDuring").addEventListener("click", openComposeSheet);
+document.getElementById("btnSendCompose").addEventListener("click", sendComposed);
+document.getElementById("btnCancelCompose").addEventListener("click", function () {
+  goScreen("ready");
+  setState("ready", "ok");
+  setTimingTag("ready");
+});
 document.getElementById("btnSheetSend").addEventListener("click", sendSheetComposed);
 document.getElementById("btnSheetCancel").addEventListener("click", function () {
   closeComposeSheet();
   log("sys", "compose closed — the current screen kept running");
 });
+document.getElementById("composeInput").addEventListener("input", function () {
+  disarmRedial("you edited the message");
+  capInput(this);
+  updateComposeCapNote("composeInput");
+});
+document.getElementById("composeInput").addEventListener("blur", function () {
+  if (S.capLocks.composeInput) {
+    S.capLocks.composeInput = null;
+    updateComposeCapNote("composeInput");
+  }
+});
 document.getElementById("composeSheetInput").addEventListener("input", function () {
   disarmRedial("you edited the message");
+  capInput(this);
+  updateComposeCapNote("composeSheetInput");
 });
+document.getElementById("composeSheetInput").addEventListener("blur", function () {
+  if (S.capLocks.composeSheetInput) {
+    S.capLocks.composeSheetInput = null;
+    updateComposeCapNote("composeSheetInput");
+  }
+});
+document.getElementById("msgInput").addEventListener("input", function () {
+  updateComposer();
+});
+document.getElementById("msgInput").addEventListener("blur", function () {
+  if (S.capLocks.msgInput) {
+    S.capLocks.msgInput = null;
+    updateComposer();
+  }
+});
+document.getElementById("btnDeliver").addEventListener("click", function () {
+  var input = document.getElementById("msgInput");
+  if (deliverFromConsole(input ? input.value : "")) {
+    if (input) input.value = "";
+    S.capLocks.msgInput = null;
+    updateComposer();
+  }
+  if (input) input.focus();
+});
+document.getElementById("btnClear").addEventListener("click", function () {
+  var input = document.getElementById("msgInput");
+  if (input) input.value = "";
+  S.capLocks.msgInput = null;
+  updateComposer();
+  setDeliverStatus("Ready when you are.", "");
+  if (input) input.focus();
+});
+document.getElementById("btnDeliverJump").addEventListener("click", function () {
+  setTab("deliver");
+  var input = document.getElementById("msgInput");
+  if (input) input.focus();
+});
+document.getElementById("btnArrive").addEventListener("click", function () {
+  var presets = ["Mum called", "Taxi is close", "Pills at nine"];
+  var pick = presets[Math.floor(Math.random() * presets.length)];
+  if (deliverFromConsole(pick)) toast("Test message — “" + pick + "”");
+});
+document.getElementById("tab-messages").addEventListener("click", function () { setTab("messages"); });
+document.getElementById("tab-deliver").addEventListener("click", function () { setTab("deliver"); });
+document.getElementById("tab-wire").addEventListener("click", function () { setTab("wire"); });
+document.getElementById("btnClearWire").addEventListener("click", function () {
+  var host = document.getElementById("log");
+  if (host) host.innerHTML = "";
+  updateWireCount();
+  lastFrame("—");
+  log("sys", "log cleared");
+});
+document.getElementById("wireFilter").addEventListener("change", function () {
+  S.filter = this.value;
+  refilterWire();
+});
+document.getElementById("autoscroll").addEventListener("change", function () {
+  if (this.checked) {
+    var host = document.getElementById("log");
+    if (host) host.scrollTop = 0;
+  }
+});
+document.getElementById("btnInstall").addEventListener("click", function () {
+  if (!S.deferredInstall) return;
+  S.deferredInstall.prompt();
+  S.deferredInstall.userChoice.then(function () {
+    S.deferredInstall = null;
+    document.getElementById("btnInstall").disabled = true;
+    document.getElementById("btnInstall").textContent = "Install app";
+  });
+});
+function setPreset(id) {
+  var button = document.getElementById(id);
+  if (!button) return;
+  var input = document.getElementById("msgInput");
+  if (!input) return;
+  S.capLocks.msgInput = null;
+  input.value = button.getAttribute("data-preset") || "";
+  updateComposer();
+  input.focus();
+}
+document.getElementById("preset-taxi").addEventListener("click", function () { setPreset("preset-taxi"); });
+document.getElementById("preset-mum").addEventListener("click", function () { setPreset("preset-mum"); });
+document.getElementById("preset-pills").addEventListener("click", function () { setPreset("preset-pills"); });
+document.getElementById("preset-dinner").addEventListener("click", function () { setPreset("preset-dinner"); });
+
 document.addEventListener("keydown", function (e) {
   var sheet = document.getElementById("composeSheet");
   if (e.key === "Escape" && sheet && !sheet.hidden) closeComposeSheet();
 });
-document.getElementById("btnSendCompose").addEventListener("click", sendComposed);
-document.getElementById("composeInput").addEventListener("input", function () {
-  disarmRedial("you edited the message");
+
+window.addEventListener("beforeinstallprompt", function (e) {
+  e.preventDefault();
+  S.deferredInstall = e;
+  document.getElementById("btnInstall").disabled = false;
+  document.getElementById("btnInstall").textContent = "↓ Install app";
 });
-document.getElementById("btnCancelCompose").addEventListener("click", function () {
-  goScreen("locked");
-  setState("ready", "ok");
-});
-document.getElementById("btnUnlock").addEventListener("click", function () {
-  if (!S.powerOn) { setPower(true); return; }
-  unlock();
-  setTimeout(startListening, 400);
-});
-document.getElementById("btnCancelLocked").addEventListener("click", cancelLocked);
-document.getElementById("btnCancelListen").addEventListener("click", cancelListening);
-S.offToggleEl.addEventListener("click", function () { setPower(!S.powerOn); });
 
 function updateClock() {
   var now = new Date();
   var hh = String(now.getHours()).padStart(2, "0");
   var mm = String(now.getMinutes()).padStart(2, "0");
-  S.now.textContent = hh + ":" + mm;
+  if (S.now) S.now.textContent = hh + ":" + mm;
 }
-updateClock();    setInterval(updateClock, 10000);
-
-function listeningMeter() {
-  var fill = document.getElementById("listenFill");
-  if (!fill) return;
-  var w = (window.performance && window.performance.now ? window.performance.now() : Date.now());
-  fill.style.width = "0%";
-  var step = function () {
-    var n = window.performance && window.performance.now ? window.performance.now() : Date.now();
-    var t = (n - w) / 3000;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    fill.style.width = String(100 * t) + "%";
-    if (t >= 1) {
-      fill.classList.add("clip");
-    }
-  };
-  step();
-  S.lm = setInterval(step, 40);
-}
+updateClock();
+setInterval(updateClock, 10000);
 
 S.screens = {
-
-  off: document.getElementById("screen-off"),
-  locked: document.getElementById("screen-locked"),
-  unlocking: document.getElementById("screen-unlocking"),
-  listening: document.getElementById("screen-listening"),
+  start: document.getElementById("screen-start"),
+  ready: document.getElementById("screen-ready"),
+  incoming: document.getElementById("screen-incoming"),
   processing: document.getElementById("screen-processing"),
-  transcription: document.getElementById("screen-transcription"),
+  "reply-text": document.getElementById("screen-reply-text"),
   compose: document.getElementById("screen-compose"),
   sending: document.getElementById("screen-sending"),
   reply: document.getElementById("screen-reply"),
@@ -1348,18 +3043,99 @@ document.addEventListener("DOMContentLoaded", function () {
     var note = document.querySelector(".vibrate-note");
     if (note) note.textContent = "This browser has no Vibration API — open on Android Chrome to feel it.";
   }
-  connect();
+  // Nothing connects until the wearer taps Open the band: that tap is both
+  // the attach gesture and the sticky activation the Vibration API needs.
 });
 
 document.addEventListener("visibilitychange", function () {
   if (document.hidden) {
     if (S.badgeTimer) { clearInterval(S.badgeTimer); S.badgeTimer = 0; }
-    if (S.lm) { clearInterval(S.lm); S.lm = 0; }
   } else if (!S.badgeTimer) {
     pollQueueBadge();
     S.badgeTimer = setInterval(pollQueueBadge, 2000);
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* operator badge                                                      */
+/* ------------------------------------------------------------------ */
+
+function closeBandList() {
+  S.bandsOpen = false;
+  var list = document.getElementById("bandList");
+  var btn = document.getElementById("queueBadge");
+  if (list) list.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleBandList() {
+  var list = document.getElementById("bandList");
+  var btn = document.getElementById("queueBadge");
+  if (!list || !btn) return;
+  S.bandsOpen = !S.bandsOpen;
+  list.hidden = !S.bandsOpen;
+  btn.setAttribute("aria-expanded", S.bandsOpen ? "true" : "false");
+  // Opening is a request for the current state, not the last poll's.
+  if (S.bandsOpen) pollQueueBadge();
+}
+
+function frameAge(sec) {
+  if (sec < 2) return "just now";
+  if (sec < 60) return Math.round(sec) + "s ago";
+  if (sec < 3600) return Math.round(sec / 60) + "m ago";
+  return Math.round(sec / 3600) + "h ago";
+}
+
+function renderBandList(h) {
+  var list = document.getElementById("bandList");
+  if (!list) return;
+  var rows = h.sessions;
+  if (!Array.isArray(rows)) {
+    closeBandList();
+    return;
+  }
+  var live = rows.filter(function (s) {
+    return s && typeof s.devices === "number" && s.devices > 0;
+  });
+  list.innerHTML = "";
+  var head = document.createElement("h3");
+  head.textContent = live.length === 1 ? "Live band" : "Live bands";
+  list.appendChild(head);
+  if (!live.length) {
+    var empty = document.createElement("p");
+    empty.className = "band-empty";
+    empty.textContent = "No band attached — open the band to attach.";
+    list.appendChild(empty);
+    return;
+  }
+  live.forEach(function (s) {
+    var row = document.createElement("div");
+    row.className = "band-row" + (s.playing ? " playing" : "");
+    var id = document.createElement("span");
+    id.className = "bid";
+    id.textContent = String(s.id || "?").slice(0, 8);
+    id.title = String(s.id || "");
+    var devices = typeof s.devices === "number" ? s.devices : 1;
+    var depth = typeof s.queue === "number" ? s.queue : 0;
+    var meta = document.createElement("span");
+    meta.className = "bmeta";
+    meta.textContent = devices + (devices === 1 ? " device" : " devices")
+      + " · queue " + depth + "/" + S.queueCap;
+    var when = document.createElement("span");
+    when.className = "bwhen";
+    when.textContent = typeof s.last_frame_age_s === "number"
+      ? "last frame " + frameAge(s.last_frame_age_s)
+      : "no frames yet";
+    if (s.playing) when.textContent += " · playing";
+    var stats = document.createElement("span");
+    stats.className = "bstats";
+    stats.appendChild(meta);
+    stats.appendChild(when);
+    row.appendChild(id);
+    row.appendChild(stats);
+    list.appendChild(row);
+  });
+}
 
 function renderQueueBadge(h) {
   var depth = h.gate_queue;
@@ -1369,6 +3145,18 @@ function renderQueueBadge(h) {
   // The schedule beside the queue: pending reminders + the drop-oldest cap.
   // A corrupt schedule is the one state the wearer's future depends on, so
   // it turns the badge red even at zero depth — never swallowed.
+  // How many bands are actually attached right now. A session with no
+  // device is a closed tab (or the idle default row), not a band the
+  // operator can see feeling anything — only rows with devices count.
+  var sessionRows = h.sessions;
+  var bands = Array.isArray(sessionRows)
+    ? sessionRows.filter(function (s) {
+        return s && typeof s.devices === "number" && s.devices > 0;
+      }).length
+    : null;
+  var bandSeg = typeof bands === "number"
+    ? " · " + bands + (bands === 1 ? " band" : " bands")
+    : "";
   var pending = h.schedule_pending;
   var schedCap = h.schedule_cap;
   var schedCorrupt = h.schedule_corrupt;
@@ -1383,31 +3171,131 @@ function renderQueueBadge(h) {
   var cls = "";
   var text = "queue " + depth + "/" + cap;
   if (rate > 0) text += " · " + rate + "/min refused";
+  text += bandSeg;
   text += sched;
   if (schedCorrupt === true) {
     cls = "full";
   } else if (depth >= cap) {
     cls = "full";
-    text = "refusing — queue full (" + depth + "/" + cap + ")" + sched;
+    text = "refusing — queue full (" + depth + "/" + cap + ")"
+      + bandSeg + sched;
   } else if (depth >= Math.ceil(cap / 2) || rate > 0) {
     cls = "warn";
   }
   var el = document.getElementById("queueBadge");
   if (el) {
     el.textContent = text;
-    el.className = cls;
+    el.classList.remove("warn", "full");
+    if (cls) el.classList.add(cls);
     el.hidden = false;
   }
+  S.queueDepth = depth;
+  S.queueCap = cap;
+  updateWaiting();
 }
+
+document.getElementById("queueBadge").addEventListener("click", toggleBandList);
+document.addEventListener("click", function (ev) {
+  var wrap = document.getElementById("badgeWrap");
+  if (S.bandsOpen && wrap && !wrap.contains(ev.target)) closeBandList();
+});
+document.addEventListener("keydown", function (ev) {
+  if (ev.key === "Escape") closeBandList();
+});
 
 function pollQueueBadge() {
   fetch("/api/ziv/health")
     .then(function (r) { if (!r.ok) return Promise.resolve(null); return r.json(); })
-    .then(function (h) { if (h) renderQueueBadge(h); })
+    .then(function (h) {
+      if (!h) return;
+      renderQueueBadge(h);
+      renderBandList(h);
+      if (typeof h.inbox_pending === "number") {
+        S.inboxPending = h.inbox_pending;
+        updateWaiting();
+      }
+    })
     .catch(function () { /* keep last known numbers */ });
 }
+
+/* ------------------------------------------------------------------ */
+/* one-shot judge key (BYOK)                                           */
+/* ------------------------------------------------------------------ */
+
+(function () {
+  var wrap = document.getElementById("byok");
+  if (!wrap) return;
+  var keyEl = document.getElementById("byokKey");
+  var intentEl = document.getElementById("byokIntent");
+  var btn = document.getElementById("btnByok");
+  var status = document.getElementById("byokStatus");
+  var count = document.getElementById("byokCount");
+
+  function say(text, cls) {
+    status.textContent = text;
+    status.classList.remove("ok", "warn", "bad");
+    if (cls) status.classList.add(cls);
+  }
+  function tally() { count.textContent = intentEl.value.length + "/80"; }
+  intentEl.addEventListener("input", tally);
+  tally();
+
+  document.getElementById("btnByok").addEventListener("click", async function () {
+    var key = keyEl.value.trim();
+    var intent = intentEl.value.trim();
+    if (!key) { say("Paste a Token Factory key first.", "bad"); keyEl.focus(); return; }
+    if (!intent) { say("Write the intent the model should turn into a line.", "bad"); intentEl.focus(); return; }
+    if (!S.ws || S.ws.readyState !== WebSocket.OPEN) {
+      say("Open the band first — the line has nowhere to play.", "bad");
+      return;
+    }
+    btn.disabled = true;
+    say("Asking Nemotron for one line…", "");
+    try {
+      var res = await fetch("/api/ziv/compose", {
+        method: "POST",
+        headers: sessionHeaders({ "Content-Type": "application/json", "X-Nebius-Key": key }),
+        body: JSON.stringify({ intent: intent }),
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        var why = typeof data.detail === "string" ? data.detail : ("compose failed (" + res.status + ")");
+        say(why, "bad");
+        log("sys", "BYOK compose refused: " + why);
+        return;
+      }
+      say("Composed: “" + data.text + "” — the band is playing it now.", "ok");
+      log("sys", "BYOK compose ok — " + data.model + " · " + data.latency_ms + "ms");
+    } catch (e) {
+      say("Relay unreachable — nothing was composed.", "bad");
+      log("sys", "BYOK compose failed: " + e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/* boot                                                                */
+/* ------------------------------------------------------------------ */
+
+loadHistory();
+renderHistory();
+renderSpecLabels();
+updateComposer();
+setTab("messages");
+goScreen("start");
+updateWaiting();
+loadTimingSpec();
 pollQueueBadge();
 S.badgeTimer = setInterval(pollQueueBadge, 2000);
+log("sys", "console loaded — open the band to attach the relay");
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./ziv_sw.js", { scope: "./" })
+    .then(function (r) { log("sys", "service worker ready — scope " + r.scope); })
+    .catch(function (e) { log("sys", "service worker skipped: " + e); });
+}
 </script>
 </body>
 </html>

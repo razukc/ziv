@@ -155,7 +155,7 @@ def test_redial_giveup_is_a_visible_dead_end(relay):
         page.on("console", lambda m: console.append(m))
         page.goto(f"{base}/ziv_client/index.html",
                   wait_until="domcontentloaded", timeout=30000)
-        e2e_helpers.power_on(page)
+        e2e_helpers.open_band(page)
 
         VICTIM = "call me back"
 

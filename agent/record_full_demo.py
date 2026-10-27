@@ -24,15 +24,26 @@ Checklist §2's six beats, scripted the way the e2e suite scripts a browser:
 
 FAKE_MODEL_SECONDS=2 keeps the whole take under Devpost's 3-minute cap.
 
-Run:  venv/Scripts/python.exe record_full_demo.py     (from agent/)
-Out:  demo_full.webm (silent master), narration_full/ (segments + marks),
-      demo_full_narrated.mp4 (the upload track)
+Run local:
+    venv/Scripts/python.exe record_full_demo.py     (from agent/)
+Run against the deployed relay (no local process; the durability beat restarts
+the systemd unit over SSH and leaves it running):
+    ZIV_BASE=https://<origin> ZIV_REMOTE=1 ZIV_SSH=user@host \
+      venv/Scripts/python.exe record_full_demo.py
+The four-beat live cut (cold open, channel, live NVIDIA compose, closing;
+the claim is read from the relay's own last_compose record):
+    ZIV_BASE=https://<origin> ZIV_REMOTE=1 ZIV_TAKE=live \
+      venv/Scripts/python.exe record_full_demo.py
+Out:  demo_full.webm / demo_live.webm (silent master), narration_*/
+      (segments + marks), demo_full_narrated.mp4 / demo_live_narrated.mp4
 """
 
 from __future__ import annotations
 
 import base64
+import faulthandler
 import json
+from concurrent.futures import ThreadPoolExecutor
 import math
 import os
 import random
@@ -56,29 +67,56 @@ from playwright.sync_api import sync_playwright
 # same pattern as ziv_server.py, so the key export is not a manual step.
 load_dotenv()
 
-BASE = "http://127.0.0.1:8787"
-VIDEO_OUT = Path("demo_full.webm")
-MP4 = Path("demo_full_narrated.mp4")
-NARR = Path("narration_full")
+BASE = os.environ.get("ZIV_BASE", "http://127.0.0.1:8787").rstrip("/")
+REMOTE = bool(os.environ.get("ZIV_REMOTE"))
+SSH_TARGET = os.environ.get("ZIV_SSH", "")
+TAKE = os.environ.get("ZIV_TAKE", "full")
+LIVE_ONLY = TAKE == "live"
+VIDEO_OUT = Path("demo_live.webm" if LIVE_ONLY else "demo_full.webm")
+MP4 = Path("demo_live_narrated.mp4" if LIVE_ONLY else "demo_full_narrated.mp4")
+NARR = Path("narration_live" if LIVE_ONLY else "narration_full")
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 VOICE = "Microsoft Zira Desktop"
 PORT = 8787
+# The headless *shell* crashed its renderer after ~90 s of the client's cell
+# animation (Playwright: "Target crashed"), freezing both long takes on the
+# last frame. The installed Chrome records the same page with a normal
+# renderer; override only if that browser is unavailable.
+BROWSER_CHANNEL = os.environ.get("ZIV_BROWSER_CHANNEL", "chrome")
 
-STACK_MODE = (
-    "real"
-    if os.environ.get("NEBIUS_API_KEY") and os.environ.get("ZIV_TEXT_MODEL")
-    else "stub"
-)  # auto-loaded from agent/.env via load_dotenv()
-# STACK_MODE describes the agent path: "real" when a key and a model id are
-# configured, so the relay makes a live call to Nebius Token Factory and the
-# wire log says source: text_live. "stub" when it is not — the relay still
-# fires the promise, verbatim, labelled text_echo. Either way the log names
-# the path it took, and the take says the same out loud: a demo must not
-# claim a model ran when none did.
+# Persistent, trim-proof event counters. The client's wire log keeps only the
+# newest 60 lines, so a DOM text/count wait can be evicted mid-poll (the
+# redial's POST ok landed, yet the recorder never saw it). A MutationObserver
+# bumps these counters as each line is added, and they survive trimming.
+SEEN_JS = """() => {
+  window.__zivSeen = {};
+  const KEYS = ['POST ok', 'POST 429', 'relay hello', 'reminder: pills',
+                'reminder:', 'triple-pulse', '\u21bb redial \u2014 resending',
+                'end-of-message'];
+  const bump = (text) => {
+    for (const k of KEYS) {
+      if (text.indexOf(k) >= 0) window.__zivSeen[k] = (window.__zivSeen[k] || 0) + 1;
+    }
+  };
+  const host = document.getElementById('log');
+  new MutationObserver((ms) => {
+    for (const m of ms) for (const n of m.addedNodes) {
+      if (n.nodeType === 1 && n.classList && n.classList.contains('wline'))
+        bump(n.textContent || '');
+    }
+  }).observe(host, { childList: true });
+}"""
+
+# ZIV_BASE / ZIV_REMOTE / ZIV_SSH record the same outline against the deployed
+# relay. Remote mode never spawns or kills a local process: the durability beat
+# restarts the systemd unit over SSH, and the relay is left running afterwards.
+# The live-model claim is read from the relay's own health record after the
+# intent fires, never from this machine's .env — the soundtrack must describe
+# the take that was actually captured.
 
 # What the caller schedules. The model writes the line the wrist spells; when
 # no model is reachable the relay plays this text verbatim (source: text_echo).
-MODEL_INTENT = "taxi is here"
+MODEL_INTENT = "tell me to drink"
 
 def _stack_lines() -> list[str]:
     """The stack narration, resolved at runtime from what the stack beat actually did.
@@ -91,12 +129,12 @@ def _stack_lines() -> list[str]:
     return [_STACK_LINE] if _STACK_LINE != _STACK_LINE_FALLBACK else [_STACK_LINE_FALLBACK]
 
 _STACK_LINE_FALLBACK = (
-    "I gave the relay an intent, not a message. With no key set it fired"
-    " the promise verbatim, labelled text_echo, and the log named the path it took."
+    "I gave the relay an intent, not a message. With no live model path it"
+    " fired the promise verbatim, labelled text_echo — the log names the path it took."
 )
 _STACK_LINE = _STACK_LINE_FALLBACK  # set honestly by main() before build_segments()
 
-SCRIPT: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
+SCRIPT_ALL: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
     ("coldopen", [
         "A message only one person receives.",
         "No sound for the room. No screen to glance at. Just touch.",
@@ -109,6 +147,7 @@ SCRIPT: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
         "At the cap the sender gets H T T P four twenty nine:",
         "a plain language refusal, never a silent drop. The refused message",
         "redials itself when the wrist feels the closing pulse.",
+        "Eight messages are already waiting; each one plays in full, oldest first.",
     ]),
     ("stack", _stack_lines),
     ("agent", [
@@ -121,6 +160,12 @@ SCRIPT: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
         "Every claim is reproducible — see judge repro dot M D in the repository.",
     ]),
 ]
+
+# The live take is the four beats that fit its one claim: the public relay,
+# the turn pipeline, the NVIDIA compose, and the ask. The queue/durability
+# beats need their own choreography and are not part of this cut.
+SCRIPT = [row for row in SCRIPT_ALL
+          if not LIVE_ONLY or row[0] in ("coldopen", "channel", "stack", "whoserve")]
 
 _MARKS: dict[str, float] = {}
 _T0 = 0.0
@@ -184,6 +229,33 @@ def wait_log_line_grows(page, text: str, before: int,
     raise AssertionError(f"log line {text!r} never grew past {before}")
 
 
+def install_seen(page) -> None:
+    """Count wire-log events in page state, where trimming cannot erase them."""
+    page.evaluate(SEEN_JS)
+
+
+def seen(page, key: str) -> int:
+    return int(page.evaluate("(k) => (window.__zivSeen && window.__zivSeen[k]) || 0", key))
+
+
+def wait_seen(page, key: str, at_least: int = 1, timeout_ms: int = 60000) -> None:
+    """Wait until the page has counted ``at_least`` occurrences of ``key``."""
+    page.wait_for_function(
+        "([k, n]) => ((window.__zivSeen && window.__zivSeen[k]) || 0) >= n",
+        arg=[key, at_least], timeout=timeout_ms)
+
+
+def start_take_watchdog(seconds: int = 300) -> None:
+    """Bound the take: a stuck driver call must not idle for ten minutes."""
+    def _watch() -> None:
+        time.sleep(seconds)
+        print(f"WATCHDOG: take exceeded {seconds}s — dumping stack and exiting",
+              flush=True)
+        faulthandler.dump_traceback()
+        os._exit(5)
+    threading.Thread(target=_watch, daemon=True).start()
+
+
 # --------------------------------------------------------------- relay
 
 def kill_stray_relays() -> None:
@@ -197,13 +269,32 @@ def kill_stray_relays() -> None:
     time.sleep(0.5)
 
 
+def ssh_run(command: str) -> None:
+    """Run one command on the demo VM; fail loud with SSH's own words."""
+    if not SSH_TARGET:
+        raise SystemExit("remote recording needs ZIV_SSH=user@host")
+    proc = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+         SSH_TARGET, command],
+        capture_output=True, text=True, timeout=90)
+    if proc.returncode != 0:
+        raise SystemExit(f"ssh failed ({proc.returncode}): {proc.stderr[-600:]}")
+
+
 class Relay:
-    """The relay process, owned by this take: spawn, kill -9, restart."""
+    """The relay process, owned by this take: spawn, kill -9, restart.
+
+    Remote mode is the exception: the deployed unit is restarted over SSH and
+    never stopped at the end, so the public demo stays up after the take.
+    """
 
     def __init__(self) -> None:
         self.proc: subprocess.Popen | None = None
 
     def start(self) -> None:
+        if REMOTE:
+            wait_health()
+            return
         env = {**os.environ, "ZIV_PORT": str(PORT),
                "ZIV_FAKE_MODEL_SECONDS": "2"}
         self.proc = subprocess.Popen(
@@ -213,6 +304,8 @@ class Relay:
         wait_health()
 
     def kill(self) -> None:
+        if REMOTE:
+            return
         if self.proc:
             self.proc.kill()
             self.proc.wait(timeout=10)
@@ -227,6 +320,10 @@ class Relay:
         raise AssertionError("relay port never freed")
 
     def restart(self) -> None:
+        if REMOTE:
+            ssh_run("sudo systemctl restart ziv-relay")
+            wait_health(30.0)
+            return
         self.kill()
         self.start()
 
@@ -373,12 +470,21 @@ CARD_COLD = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
   <div class="sub">no sound for the room · no screen to glance at</div>
 </div></body></html>"""
 
-CARD_END = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+def card_end(live: bool) -> str:
+    """The closing card names the path this take actually took.
+
+    A static 'made by NVIDIA on Nebius' line would be a lie in a keyless run,
+    and the whole point of reading last_compose is not to need that lie.
+    """
+    model = ("an agent behind it — NVIDIA Nemotron-3-Nano-30B-A3B\n"
+             "  on <span class=\"em\">Nebius Token Factory</span>"
+             if live else
+             "no live model path on this take — the promise fired verbatim")
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{CARD_CSS}</style></head><body><div class="card">
   <h1>Ziv</h1>
   <h2>Messages you can feel. <span class="em">Nobody else can see.</span></h2>
-  <div class="sub">an agent behind it — NVIDIA Nemotron-3-Nano-30B-A3B
-  on <span class="em">Nebius Token Factory</span></div>
+  <div class="sub">{model}</div>
   <code>github.com/razukc/ziv — every claim reproducible (JUDGE_REPRO.md)</code>
 </div></body></html>"""
 
@@ -386,55 +492,69 @@ CARD_END = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 # --------------------------------------------------------------- main
 
 def main() -> int:
-    global _T0
+    global _T0, _STACK_LINE
     NARR.mkdir(exist_ok=True)
-    kill_stray_relays()
+    if not REMOTE:
+        kill_stray_relays()
     for old in NARR.glob("*"):
         old.unlink()
     relay = Relay()
     relay.start()
     clear_state()
     _STACK_ACTUAL = "(not set — stack beat did not run)"
+    # A recording that stalls must say where. The browser stays alive while a
+    # mis-timed wait burns its timeout, so dump the Python stack every four
+    # minutes; the log then names the exact step instead of 'it hung'.
+    faulthandler.dump_traceback_later(240, repeat=True)
+    print(f"take=full base={BASE} remote={REMOTE}", flush=True)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(headless=True, channel=BROWSER_CHANNEL)
         context = browser.new_context(
             record_video_dir=".",
             record_video_size={"width": 1280, "height": 800},
             viewport={"width": 1280, "height": 800})
         page = context.new_page()
         video = page.video
+        page.on("crash", lambda _: print("PAGE CRASHED", flush=True))
 
         # -- 1. cold open ------------------------------------------
         page.set_content(CARD_COLD)
         _T0 = time.time()
+        start_take_watchdog(300)
         mark("coldopen")
+        print("beat 1: cold open", flush=True)
         page.wait_for_timeout(8000)
 
         # -- 2. the channel ----------------------------------------
+        print("beat 2: channel", flush=True)
         page.goto(f"{BASE}/ziv_client/index.html", wait_until="domcontentloaded")
         page.locator("#queueBadge").wait_for(state="visible", timeout=10000)
-        page.locator("#state").filter(has_text="connected").wait_for(timeout=10000)
-        page.locator("#btnUnlock").click()
+        install_seen(page)
+        page.locator("#btnOpen").click()
+        page.locator("#state").filter(has_text="connected").wait_for(timeout=15000)
         mark("channel")
-        page.locator("#msg").fill("hold that thought")
-        page.locator("#btnSend").click()
+        page.locator("#btnWrite").click()
+        # 12-cell client cap: "hold that thought" is truncated to "hold that thou"
+        # on the wire, so the wait below would never match. Use a line that fits.
+        page.locator("#composeInput").fill("hold that")
+        page.locator("#btnSendCompose").click()
         # The fills fire the instant playback begins (the narrated beat's
         # proven ordering): the starter holds the gate, so all eight QUEUE.
         # Dwelling first would let the starter finish and the gate go idle
         # — then the first fill becomes a main turn and only seven queue.
-        page.wait_for_selector("text=message: hold that thought", timeout=15000)
+        page.wait_for_selector("text=message: hold that", timeout=15000)
         # Camera dwell DURING playback: working ticks, cells spelling.
         page.wait_for_function(
-            "document.querySelectorAll('#cells .cell.on').length >= 1",
+            "document.querySelectorAll('#cellRow .cell.on').length >= 1",
             timeout=20000)
         page.wait_for_timeout(3000)
         # Then wait the starter's CLOSE: the stub below must land on an
         # IDLE gate. A message arriving mid-turn only queues, and a queued
         # message replays under the label `queued: …` — never
         # `message: …` — so its wait would never match.
-        page.locator("#log div").filter(has_text="end-of-message").first \
-            .wait_for(timeout=30000)
+        wait_seen(page, "end-of-message", 1, 30000)
+        print("  channel closed", flush=True)
 
         # -- 3. the stack (the model-path beat — live only with a key) --
         # The relay is idle here, so this turn's `reminder:` frame is a
@@ -444,96 +564,150 @@ def main() -> int:
         # this is a live call to Nemotron on Nebius Token Factory and the wire
         # says text_live; without one the promise still fires verbatim and says
         # text_echo. Either way the log names the path it took.
+        before_compose = (http_json("GET", f"{BASE}/api/ziv/health").get("text") or {}).get("last_compose")
+        # 5 s, not 2: on the public origin the TLS round trip can outlast a
+        # 2 s window and the schedule route refuses a past fire_at with 422.
         rem = http_json(
             "POST", f"{BASE}/api/ziv/schedule",
-            {"intent": MODEL_INTENT, "fire_at": time.time() + 2},
+            {"intent": MODEL_INTENT, "fire_at": time.time() + 5},
         )
-        page.wait_for_selector("text=reminder:", timeout=90000)
-        # What mattered on this take is whether the relay actually had a live
-        # model path, not how the schedule row was stored (an intent row is
-        # stored with source="agent" even when the relay later fires it verbatim
-        # as text_echo on a keyless run). STACK_MODE is computed from the same
-        # env the relay runs with, so it is the honest signal.
-        _live = STACK_MODE == "real" and rem.get("source") == "agent"
+        # last_compose is written at the end of the model call, microseconds
+        # before fire_due starts the turn. On the public origin the client's
+        # reminder log can lag the turn, so this record — not the log — is the
+        # marker that the stack turn is about to hold the gate.
+        deadline = time.time() + 90
+        compose = {}
+        while time.time() < deadline:
+            compose = (http_json("GET", f"{BASE}/api/ziv/health").get("text") or {}).get("last_compose") or {}
+            if compose.get("ok") is True and compose != before_compose:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("no fresh live compose record before the stack beat")
+        print(f"  compose record: {compose}", flush=True)
+
+        # Fill the queue the moment the turn starts holding it: threads, not
+        # eight fresh Python processes, whose interpreter starts outlast the
+        # turn (five queued, three main turns in the failed take).
+        time.sleep(0.2)  # the turn reserves the gate right after the record
+        words = ("alpha", "bravo", "charlie", "delta",
+                 "echo", "foxtrot", "golf", "hotel")
+
+        def push(word: str) -> str:
+            try:
+                http_json("POST", f"{BASE}/api/ziv/message", {"text": word})
+                return "ok"
+            except Exception as exc:  # noqa: BLE001 - reported below, never swallowed
+                return f"{word}: {exc}"
+
+        with ThreadPoolExecutor(max_workers=len(words)) as pool:
+            results = list(pool.map(push, words))
+        failed = [r for r in results if r != "ok"]
+        if failed:
+            raise AssertionError(f"fills failed: {failed}")
+        print(f"  fills sent; gate depth {gate_depth()}", flush=True)
+
+        wait_seen(page, "reminder:", 1, 60000)
+        print("  reminder frame on the band", flush=True)
+        # The relay's own record decides the narration. A scheduled intent row
+        # says source="agent" even when the key failed and the promise fired
+        # verbatim, so only a fresh ok=true compose record proves a live call.
+        # This is also what makes a remote take honest: the local .env is not
+        # evidence about the public relay.
+        _live = bool(
+            rem.get("source") == "agent"
+            and compose.get("ok") is True
+            and compose != before_compose
+        )
         _STACK_ACTUAL = (
-            f"live model call (scheduled source: {rem.get('source')})"
+            f"live model call ({compose.get('model')}, status {compose.get('status')})"
             if _live
-            else f"no key / no live model path — promise fired verbatim (source: {rem.get('source')})"
+            else (f"no live model path — promise fired verbatim "
+                  f"(source: {rem.get('source')}, last_compose: {compose.get('error') or 'none'})")
         )
         # The narration follows what the stack beat actually did on this take:
-        # a live model call when the relay had a key and an intent, the
-        # verbatim-echo truth otherwise. A demo must not claim a model ran when
-        # none did.
+        # a live model call, or the verbatim-echo truth. A demo must not claim
+        # a model ran when none did.
         _STACK_LINE = (
-            "I gave the relay an intent, not a message. It asked Nemotron three Nano on"
-            " Nebius Token Factory for the sentence, and played the answer on my wrist."
+            "I gave the relay an intent, not a message. It asked NVIDIA's Nemotron"
+            " three Nano on Nebius Token Factory to write the sentence, and played"
+            " the answer on my wrist."
             if _live
-            else "I gave the relay an intent, not a message. With no key set it fired"
-            " the promise verbatim, labelled text_echo — the log names the path it took."
+            else "I gave the relay an intent, not a message. With no live model path it"
+            " fired the promise verbatim, labelled text_echo — the log names the path it took."
         )
         mark("stack")
-        # SHORT dwell: the fills below must land while this turn still
-        # plays. Once its close frees the gate, the first fill becomes a
-        # main turn and only seven ever queue.
-        page.wait_for_timeout(800)
-
-        # -- 4. the refusal (the queue drained with the taxi close) -
-        fills = []
-        for w in ("alpha", "bravo", "charlie", "delta",
-                  "echo", "foxtrot", "golf", "hotel"):
-            fills.append(subprocess.Popen(
-                [sys.executable, "-c",
-                 "import sys, urllib.request, json;"
-                 "req=urllib.request.Request("
-                 f"'{BASE}/api/ziv/message',"
-                 "data=json.dumps({'text': sys.argv[1]}).encode(),"
-                 "headers={'Content-Type':'application/json'});"
-                 "urllib.request.urlopen(req, timeout=120)", w],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for p in fills:
-            p.wait(timeout=120)
+        print(f"  stack live={_live}", flush=True)
         wait_gate_full()
-        page.locator("#msg").fill("nine")
-        page.locator("#btnSend").click()
-        page.locator("#state").filter(has_text="wrist is busy").wait_for(timeout=8000)
+        print("  queue full (8/8)", flush=True)
+
+        # -- 4. the refusal (the queue drains behind the stack turn) -
+        # The v16 busy sheet, not the retired #msg/#btnSend composer: a
+        # message sent while the band plays opens the sheet and queues (or is
+        # refused at the cap) without stopping the turn behind it.
+        page.locator("#btnWriteDuring").click()
+        page.locator("#composeSheetInput").fill("nine")
+        page.locator("#btnSheetSend").click()
+        page.locator("#state").filter(has_text="redial armed").wait_for(timeout=8000)
         note = page.locator("#redialNote")
         note.wait_for(state="visible", timeout=5000)
         assert "nine" in note.inner_text() and "3 chances left" in note.inner_text()
-        # POST ok is NOT unique — the stub turn already logged one — so
-        # count and wait for a NEW line (the stale-match lesson).
-        oks = page.locator("#log div").filter(has_text="POST ok").count()
-        page.locator("#log div").filter(has_text="↻ redial — resending") \
-            .first.wait_for(timeout=120000)
-        wait_log_line_grows(page, "POST ok", oks, 120000)
+        wait_seen(page, "POST 429", 1, 8000)
+        # The refusal narration starts here, while the 8 queued replays are
+        # still draining, not after the redial (which fires only at the last
+        # close and would leave the whole drain unnarrated).
         mark("refusal")
-        page.wait_for_timeout(2500)
+        print("  refused; redial armed", flush=True)
+        # Two POST ok lines total: the typed turn, then the redial. Unlike a
+        # DOM count this cannot fall back when the 60-line log trims (the
+        # failure that froze the previous take).
+        wait_seen(page, "↻ redial — resending", 1, 120000)
+        wait_seen(page, "POST ok", 2, 120000)
+        print("  redial delivered (POST ok after the free close)", flush=True)
+        # POST ok is the response to the last turn in the drain: the redial
+        # only fires on the close that carries ``free``, so the queue is empty
+        # and idle here. Assert that instead of watching the badge, which
+        # reads 0/8 during the drain too (finish_playback moves every queued
+        # text into the replay list at once).
+        assert gate_depth() == 0, "redial returned with a non-empty gate"
+        page.wait_for_timeout(800)
 
         # -- 5. the agent (JUDGE_REPRO's durability beat, exactly) --
-        hellos = page.locator("#log div").filter(has_text="relay hello").count()
+        print("beat 5: durability", flush=True)
+        # 18 s: the SSH restart costs a few seconds on the public host, and
+        # the reminder must not fire while the only band is reconnecting — but
+        # a 25 s window left ten seconds of idle screen after the narration.
         fire_at = int(time.time()) + 18
+        mark("agent")
         r = http_json("POST", f"{BASE}/api/ziv/schedule",
                       {"fire_at": fire_at, "text": "pills"})
         assert r.get("scheduled") is True, r
+        print(f"  scheduled pills at {r.get('fire_at_iso')}", flush=True)
+        hellos = seen(page, "relay hello")
         relay.restart()
+        print("  relay restarted", flush=True)
         again = http_json("GET", f"{BASE}/api/ziv/schedule")
         got = again.get("reminders", [])
         assert got and got[0]["text"] == "pills" and not got[0]["fired"], got
-        # "disconnected" contains "connected" — anchor to the exact state.
-        page.locator("#state").filter(has_text=re.compile("^connected$")) \
-            .first.wait_for(timeout=20000)
-        wait_log_line_grows(page, "relay hello", hellos, 30000)
-        page.locator("#log div").filter(has_text="reminder: pills").first \
-            .wait_for(timeout=60000)
+        print("  schedule survived the restart", flush=True)
+        # The reconnect proof is a NEW hello on the wire. The state pill is
+        # transient (connected -> ready within a frame), so waiting on its
+        # text is a race that can miss the only 'connected' frame.
+        wait_seen(page, "relay hello", hellos + 1, 30000)
+        print("  client reconnected", flush=True)
+        wait_seen(page, "reminder: pills", 1, 90000)
+        print("  reminder fired", flush=True)
         page.wait_for_function(
-            "document.querySelectorAll('#cells .cell.on').length >= 1",
+            "document.querySelectorAll('#cellRow .cell.on').length >= 1",
             timeout=30000)
-        page.locator("#log div").filter(has_text="triple-pulse").first \
-            .wait_for(timeout=30000)
-        mark("agent")
-        page.wait_for_timeout(5000)
+        wait_seen(page, "triple-pulse", 1, 30000)
+        # Hold on the reminder, not on the idle band: the closing card used to
+        # arrive while the pills cells were still playing.
+        page.wait_for_timeout(6000)
 
         # -- 6. who it serves --------------------------------------
-        page.set_content(CARD_END)
+        print("beat 6: closing card", flush=True)
+        page.set_content(card_end(_live))
         mark("whoserve")
         page.wait_for_timeout(6000)
 
@@ -544,6 +718,7 @@ def main() -> int:
     if not path:
         print("no video captured")
         return 1
+    faulthandler.cancel_dump_traceback_later()
     os.replace(path, VIDEO_OUT)
     (NARR / "marks.json").write_text(json.dumps(_MARKS, indent=2))
     print("silent master:", VIDEO_OUT.resolve())
@@ -554,12 +729,120 @@ def main() -> int:
     print("muxing with ffmpeg...")
     mux(VIDEO_OUT, segs)
     print(f"saved: {MP4.resolve()} "
-          f"({media_seconds(MP4, is_video=True):.1f} s, stack mode: {STACK_MODE} - take used: {_STACK_ACTUAL})")
+          f"({media_seconds(MP4, is_video=True):.1f} s, take used: {_STACK_ACTUAL})")
     print("full demo recorded: cold open -> channel -> refusal -> stack ->",
           "agent+durability -> who it serves")
     relay.kill()
     return 0
 
 
+def main_live() -> int:
+    """The live cut: public relay, one typed turn, one NVIDIA-composed turn.
+
+    Deliberately no queue/durability choreography — those beats have their own
+    recorder and their own failure modes. This take claims only what it shows:
+    the deployed relay, the turn pipeline, and a scheduled intent the model
+    writes. Output: demo_live.webm / demo_live_narrated.mp4.
+    """
+    global _T0, _STACK_LINE
+    NARR.mkdir(exist_ok=True)
+    for old in NARR.glob("*"):
+        old.unlink()
+    wait_health(30.0)
+    clear_state()
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True, channel=BROWSER_CHANNEL)
+        context = browser.new_context(
+            record_video_dir=".",
+            record_video_size={"width": 1280, "height": 800},
+            viewport={"width": 1280, "height": 800})
+        page = context.new_page()
+        video = page.video
+        page.on("crash", lambda _: print("PAGE CRASHED", flush=True))
+
+        print("beat 1: cold open", flush=True)
+        page.set_content(CARD_COLD)
+        _T0 = time.time()
+        mark("coldopen")
+        page.wait_for_timeout(8000)
+
+        print("beat 2: channel", flush=True)
+        page.goto(f"{BASE}/ziv_client/index.html", wait_until="domcontentloaded")
+        page.locator("#queueBadge").wait_for(state="visible", timeout=15000)
+        page.locator("#btnOpen").click()
+        page.locator("#state").filter(has_text="connected").wait_for(timeout=20000)
+        mark("channel")
+        page.locator("#btnWrite").click()
+        page.locator("#composeInput").fill("hold that")
+        page.locator("#btnSendCompose").click()
+        page.wait_for_selector("text=message: hold that", timeout=20000)
+        page.wait_for_function(
+            "document.querySelectorAll('#cellRow .cell.on').length >= 1",
+            timeout=20000)
+        closes = page.locator("#log div").filter(has_text="end-of-message").count()
+        wait_log_line_grows(page, "end-of-message", closes, 30000)
+        page.wait_for_timeout(800)
+
+        print("beat 3: live NVIDIA compose", flush=True)
+        before_compose = (http_json("GET", f"{BASE}/api/ziv/health").get("text") or {}).get("last_compose")
+        rem = http_json(
+            "POST", f"{BASE}/api/ziv/schedule",
+            {"intent": MODEL_INTENT, "fire_at": time.time() + 5},
+        )
+        page.wait_for_selector("text=reminder:", timeout=90000)
+        reminder_line = page.locator("#log div").filter(has_text="reminder:").last.inner_text()
+        print(f"  reminder frame: {reminder_line!r}", flush=True)
+        after = http_json("GET", f"{BASE}/api/ziv/health")
+        compose = (after.get("text") or {}).get("last_compose") or {}
+        _live = bool(
+            rem.get("source") == "agent"
+            and compose.get("ok") is True
+            and compose != before_compose
+        )
+        print(f"  compose live={_live} record={compose}", flush=True)
+        _STACK_LINE = (
+            "I gave the relay an intent, not a message. It asked NVIDIA's Nemotron"
+            " three Nano on Nebius Token Factory to write the line, and the band"
+            " spelled the answer. The relay's own record says the model call succeeded."
+            if _live
+            else "I gave the relay an intent, not a message. With no live model path"
+            " it fired the promise verbatim, labelled text echo."
+        )
+        mark("stack")
+        page.wait_for_function(
+            "document.querySelectorAll('#cellRow .cell.on').length >= 1",
+            timeout=30000)
+        stack_close = page.locator("#log div").filter(has_text="end-of-message").count()
+        wait_log_line_grows(page, "end-of-message", stack_close, 60000)
+        page.wait_for_timeout(2000)
+
+        print("beat 4: closing card", flush=True)
+        page.set_content(card_end(_live))
+        mark("whoserve")
+        page.wait_for_timeout(6000)
+
+        context.close()
+        path = video.path() if video else None
+        browser.close()
+
+    if not path:
+        print("no video captured")
+        return 1
+    faulthandler.cancel_dump_traceback_later()
+    os.replace(path, VIDEO_OUT)
+    (NARR / "marks.json").write_text(json.dumps(_MARKS, indent=2))
+    print("silent master:", VIDEO_OUT.resolve(), flush=True)
+    print("marks:", json.dumps({k: round(v, 1) for k, v in _MARKS.items()}), flush=True)
+
+    print("synthesizing narration (SAPI)...", flush=True)
+    segs = build_segments()
+    print("muxing with ffmpeg...", flush=True)
+    mux(VIDEO_OUT, segs)
+    print(f"saved: {MP4.resolve()} "
+          f"({media_seconds(MP4, is_video=True):.1f} s, live={_live})", flush=True)
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main_live() if LIVE_ONLY else main())

@@ -99,15 +99,15 @@ def test_busy_sheet_contract_keeps_the_visible_mid_turn_compose_path():
     js = _script(html)
 
     # The screen switcher must keep the device-bar affordance in sync, and
-    # only the idle screens (off/locked/compose) may hide it. Reply,
-    # cooldown, processing, and transcription keep it visible.
+    # only the idle screens (start/ready/compose) may hide it. Reply,
+    # cooldown, processing, and reply-text keep it visible.
     go_screen = _fn(js, "goScreen")
     assert "syncWriteDuring();" in go_screen
     sync = _fn(js, "syncWriteDuring")
-    assert 'S.currentScreen === "off"' in sync
-    assert 'S.currentScreen === "locked"' in sync
+    assert 'S.currentScreen === "start"' in sync
+    assert 'S.currentScreen === "ready"' in sync
     assert 'S.currentScreen === "compose"' in sync
-    assert 'btn.hidden = !S.powerOn || isIdle || (sheet && !sheet.hidden);' in sync
+    assert 'btn.hidden = !S.opened || isIdle || (sheet && !sheet.hidden);' in sync
 
     opened = _fn(js, "openComposeSheet")
     assert "sheet.hidden = false;" in opened
