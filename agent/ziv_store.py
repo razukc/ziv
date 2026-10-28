@@ -244,8 +244,8 @@ class ScheduledReminders:
     ``{"id", "fire_at", "text", "source"}``, soonest first, capped at
     ``SCHEDULE_CAP`` (oldest dropped when full). Every mutation (add,
     clear, take_due) is an atomic rewrite, so a relay restart keeps its
-    pending reminders: the "acts while you're away" beat survives the
-    process that promised it.
+    pending reminders: the "relay acts while the phone is away" beat
+    survives the process that promised it.
 
     A corrupt file is discarded and reported through ``take_corrupt_files()``
     (health surfaces it), never silently swallowed — and the next write

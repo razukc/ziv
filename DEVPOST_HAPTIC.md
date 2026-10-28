@@ -10,7 +10,7 @@ Ziv *(working title — the final name is validated with, or given by, the deaf-
 
 ## Tagline
 
-Hears for people who can't hear, speaks braille on their skin.
+Messages you can feel. No spoken reply.
 
 ## Short Description (one-liner)
 
@@ -22,27 +22,27 @@ Ziv is a phone-based haptic message channel for deaf-blind users: the wearer's p
 
 ### The Problem
 
-~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and almost nothing is built for them:
+~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and the market we surveyed is thin:
 
 - **Refreshable braille displays cost $1,500–$12,000** — and have no microphone, no agent, no always-on awareness.
 - **Braille keyboards (Hable One, $239–$349) are input-only** — no output channel, no brain.
-- **Research prototypes** have played braille through phone vibration for 15 years (V-Braille, HoliBraille, BrailleBand) — prototypes, never products: no brain that could *hear* them, no path to market.
+- **Research prototypes** have played braille through phone vibration for 15 years (V-Braille, HoliBraille, BrailleBand) — prototypes, never products: no model behind them, no path to market.
 - **"AI pins" serve eyes and ears** — useless to someone who cannot see or hear the reply.
 
-The gap: **no existing product pairs a haptic braille output channel with an AI that can hear.**
+The gap, in the five products we surveyed: **we did not find one that pairs a haptic braille output channel with a model behind it.**
 
 ### Our Solution
 
 Ziv (working title) is a phone-based haptic message channel for deaf-blind users: the phone's vibration motor plays the words that arrive as braille patterns on the wearer's skin — no audio output, no spoken reply; the text is visible in the relay console. A scheduled intent is composed live on Nebius Token Factory when the relay has a key; without one the same intent fires verbatim, labelled `text_echo`.
 
-1. **Speaks braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
-2. **Acts while they're away.** Scheduled reminders fire unprompted as full haptic turns — the always-on assistant beat, proven by the relay's scheduler. The schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped): a reminder promised for tomorrow survives a restart tonight.
-3. **Private by touch, not by broadcast.** Nothing is spoken: a message vibrates on the phone and is not read aloud to the room. In this demo the operator view and relay log show the text, and the motor is not silent. The mic is push-to-talk (not always-on listening).
+1. **Plays braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
+2. **The relay acts while the phone is away.** Scheduled reminders fire unprompted as full haptic turns, proven by the relay's scheduler. The schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped): a reminder promised for tomorrow survives a restart tonight. The phone renders a turn only while its page is open and connected; there is no background push or lock-screen delivery in this build.
+3. **No spoken reply, not a broadcast.** The phone plays the message as vibration; Ziv synthesizes no speech and reads nothing aloud. That is the output choice, not a guarantee about everyone nearby: the words are also shown on the phone's reply screen and in the relay log, the motor is not silent, and we have not measured its acoustic level. The mic is push-to-talk (not always-on listening).
 4. **A cheaper device class against a more expensive one.** The wrist hardware (held as asset, not part of this submission) is ~$40 BOM — against $1,500–$12,000 refreshable braille displays.
 
 ### Why It Matters
 
-- **A ~$40 device against a $1,500–$12,000 device class** (wrist BOM, next revision — this submission runs the same channel on a phone), for a population no mass-market product is built for.
+- **A ~$40 device against a $1,500–$12,000 device class** (wrist BOM, next revision — this submission runs the same channel on a phone), for a population mass-market products mostly ignore.
 - **Dignity, not just access:** for people who already depend on others for information, the device that tells you things *without telling the room* is a different kind of assistant.
 - **The channel doubles as the identity:** the generated timing spec defines a haptic name mark — Z-I-V spelled in vibro-braille (heavy-light-heavy) — and the relay plays it today: every scheduled reminder opens as its own turn with the mark spelled in cells, the reminder's triple-pulse tail, then a breath before the content. It is a haptic "name mark," the same way DeafBlind communities identify people by tactile signs rather than descriptions.
 
@@ -78,11 +78,11 @@ The nearest assistive wearables each substitute one missing sense — and pay th
 | [Dot Inc.](https://www.dotincorp.com/) | The closest hardware cousin: Dot Watch put a 4-cell braille display on a wrist (first generation discontinued Jun 2018); today's line is multi-line braille and tactile-graphics pads | A *display*, not an agent: it mirrors phone notifications — no microphone, no hearing, no AI — and static 4-cell pins are slow to read. |
 | [Hable One](https://www.iamhable.com/) | $239–$349 six-key braille keyboard for smartphones | Input in the wearer's own literacy — but the reply comes back as the phone's *spoken* screen reader: no output channel of its own, no haptics, no brain. |
 
-The pattern: **spoken output (OrCam, RAZ Mobility, Hable's screen reader) excludes deaf users; notification mirroring (Dot) excludes agency; abstract vibration (Neosensory) excludes language.** None of the five pairs haptic braille with a device that can hear and act. What only Ziv combines:
+The pattern: **spoken output (OrCam, RAZ Mobility, Hable's screen reader) excludes deaf users; notification mirroring (Dot) excludes agency; abstract vibration (Neosensory) excludes language.** In the five products we surveyed, we did not find one that pairs haptic braille with an agent behind it that can act. What only Ziv combines:
 
 - **Thinks for you** — an NVIDIA open model on Nebius Token Factory composes the line a wrist reads. You set an intent while busy; the reminder fires on its own and the phone spells what the model wrote.
-- **Speaks their literacy** — temporal braille on the skin; no pins, no audio output.
-- **Acts while they're away** — scheduled relay jobs; no competitor ships an agent at all.
+- **Carries their literacy** — temporal braille on the skin; no pins, no audio output.
+- **The relay acts while the phone is away** — scheduled jobs fire unprompted; in the five products we surveyed, none had a model that acts on its own.
 - **At a ~$40 BOM (wrist hardware, next revision)** — against $239–$4,500+ across the table.
 
 None of the five is the enemy — each validates one pillar. The combination is the submission.
@@ -129,37 +129,37 @@ None of the five is the enemy — each validates one pillar. The combination is 
 3. **A haptic name mark.** The timing spec defines the mark — Z-I-V spelled in vibro-braille (Z = four motors, heavy; I = two motors, light; V = four motors, heavy — the mark ends decisive, the same heavy-light-heavy arc "Raz" would have played) — and the phone's timing bootstrap ships it (`/api/ziv/timing`); the relay plays it as the prefix of unsolicited turns — scheduled reminders open with the mark spelled in cells, the kind's triple-pulse tail, and a breath before the content. Grounded in how DeafBlind communities use tactile name signs: the name is a felt pattern, not a label.
 4. **Push-to-talk mic (this prototype).** Audio capture only on the mic button — not always-on listening. The wrist hardware's hardware-gated mic (ESP32 pin) is the next revision.
 5. **The timing spec is generated, never hand-edited.** `docs/haptic-timing.json` is the single source of truth; seven consumers are generated from it (phone feel-tool + firmware header + Python consumer + ladder tables), so the phone's patterns and the wrist firmware come from one source by construction. The drift guard fails on any hand edit.
-6. **Durable wearer state.** Memory files + a persistent, capped inbox: a message arriving with no band attached is stored, not dropped, and delivered on the next attach as a self-naming turn — the Z-I-V mark first, the stored content after. Mark-after-play: below the cap, redelivery is the failure mode.
-7. **Honest scope for the hackathon.** This submission is a phone-based prototype to the Best Apps and Agents track. The full private, wearer-controlled personal AI system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
+6. **Durable wearer state.** Memory files + a persistent, capped inbox: a message arriving with no band attached is stored in the 20-item inbox and delivered on the next attach as a self-naming turn — the Z-I-V mark first, the stored content after; at the cap the oldest is evicted and counted in health. Mark-after-play: below the cap, redelivery is the failure mode.
+7. **Honest scope for the hackathon.** This submission is a phone-based prototype to the Best Apps and Agents track. The full wearer-controlled personal AI system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
 
 ---
 
 ## Inspiration
 
-**Who we built this for.** ~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and almost nothing is built for them. Refreshable braille displays cost $1,500–$12,000 and have no microphone, no agent, no always-on awareness; braille keyboards ($239–$349) are input-only; existing haptic wristbands (Neosensory, Dot) give awareness or pins, not language with a brain. The gap that motivated this project is the gap no product currently fills: **a haptic braille output channel paired with an AI that can hear**.
+**Who we built this for.** ~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and the market we surveyed is thin. Refreshable braille displays cost $1,500–$12,000 and have no microphone, no agent, no always-on awareness; braille keyboards ($239–$349) are input-only; existing haptic wristbands (Neosensory, Dot) give awareness or pins, not language with a brain. The gap that motivated this project, in the five products we surveyed, is the gap we did not find filled: **a haptic braille output channel paired with a model behind it**.
 
 **Where the interaction rules come from.** We did not invent the interaction design by intuition. They come from published early-years deafblind practice — Sense UK's guidance for parents of children with deafblindness (via Insight, Jan 2025), which starts with the exact problem this device exists to solve: a person with deafblindness receives little information from the world, and what does arrive "may be inconsistent and distorted." So events must be cued before they happen, routines must be consistent, waiting must be patient, and the person must stay in control. What serves that child serves Ziv's wearer: an adult with the same sensory reality deserves a device that holds itself to the same rules. Those rules became the four interaction invariants in the plan, and two of them demanded patterns that did not exist yet — which is why the timing spec gained a "working" cue and an end-of-message close.
 
 **Why a phone for the hackathon.** The wrist device (ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-gated mic, ~$40 BOM) is the real product shape — but it is not on hardware for this submission. For the hackathon we built the *constructed channel* first: a phone that plays vibro-braille through its vibration motor using the same timing the firmware would use, connected to a thin relay that calls an NVIDIA open model on Nebius Token Factory. The phone is a dev band, not a compromise we pretend is the product. That framing is deliberate: we would rather submit the honest thing than a wrist-shaped fiction.
 
-**A note on the user.** Deaf-blind is the use case that proves the channel, not the only one. The same output — vibration felt by the wearer, not broadcast to the room — is useful any time a reply should be private, glance-free, and free of spoken output: hands-busy or noisy environments, shared spaces, anywhere a lit screen or a speaker would leak the exchange to the room. The deaf-blind companion is the sharpest version of that claim; the phone is what made it buildable in the time we had.
+**A note on the user.** Deaf-blind is the use case that proves the channel, not the only one. The same output — vibration felt by the wearer, not broadcast to the room — is useful any time a reply should be quiet, glance-free, and free of spoken output: hands-busy or noisy environments, shared spaces, anywhere a speaker would leak the exchange to the room and the screen is the wrong place to look. The deaf-blind companion is the sharpest version of that claim; the phone is what made it buildable in the time we had.
 
 ---
 
 ## What it does
 
-Ziv (working title) is a private, always-on AI companion for deaf-blind users — always-on is the relay's property: it schedules, composes, and stores while the wearer is away, and the phone renders each event while its page is open. A reminder you set while busy is an *intent*, not a finished sentence; when it fires, **Nemotron-3-Nano-30B-A3B on Nebius Token Factory** writes the line, and what it wrote plays as braille vibration patterns on the wearer's phone — no audio output, no spoken reply; the text is visible in the relay console. The wearer can reply by text, and a scheduled relay job delivers reminders unprompted.
+Ziv (working title) is a message channel for deaf-blind users — "always-on" describes the relay: it schedules, composes, and stores while the phone is away, and the phone renders each event only while its page is open and connected, with no background push. A reminder you set while busy is an *intent*, not a finished sentence; when it fires, **Nemotron-3-Nano-30B-A3B on Nebius Token Factory** writes the line, and what it wrote plays as braille vibration patterns on the wearer's phone — no audio output, no spoken reply; the text is visible on the phone's reply screen and in the relay console. The wearer can reply by text, and a scheduled relay job delivers reminders unprompted.
 
 **This submission is the built core of Ziv, demoed as a phone-based prototype for the hackathon.** The wrist device (hardware-gated mic + chord input + wearer-hosted relay) is the next revision, scoped honestly rather than claimed.
 
 Concretely, the prototype does this now:
 
 - **A turn that runs with or without a provider.** A typed message never reaches the model; a scheduled intent is composed live when the relay has a key and otherwise fires verbatim, labelled `text_echo` — either way: cue, processing ticks, braille cells, felt close, queue release.
-- **Speaks braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
-- **Acts while they're away.** A scheduled relay job buzzes a reminder unprompted — the always-on assistant beat, proven live: the scheduler loop fires it, and `/api/ziv/ready` + health telemetry record it.
-- **Private by touch, not by broadcast.** Nothing is spoken: a message vibrates on the phone and is not read aloud to the room. In this demo the operator view and relay log show the text, and the motor is not silent. The mic is push-to-talk (not always-on listening).
+- **Plays braille.** The text is rendered as Grade-1 braille and played as *temporal braille* — one letter at a time as vibration dot-patterns, with the wearer's pacing preference applied (a first-class, API-set control, clamped into the spec's envelope).
+- **The relay acts while the phone is away.** A scheduled relay job buzzes a reminder unprompted, proven live: the scheduler loop fires it, and `/api/ziv/ready` + health telemetry record it. The phone renders it only while its page is open and connected.
+- **No spoken reply, not a broadcast.** The phone plays the message as vibration; Ziv synthesizes no speech and reads nothing aloud. That is the output choice, not a guarantee about everyone nearby: the words are also shown on the phone's reply screen and in the relay log, the motor is not silent, and we have not measured its acoustic level. The mic is push-to-talk (not always-on listening).
 - **Stays polite to the wearer.** If a message arrives while the wearer is already feeling one, it only announces itself and queues its content — it never barges in. The wearer releases the queue by closing the message (the same end-of-message close they feel). The phone stays silent for a refused message; the sender is told no.
-- **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health — never silently swallowed) plus a capped persistent inbox: a message that arrives with no band attached is stored, not dropped, and replayed on the next attach as a self-naming turn — mark first, content after.
+- **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health — never silently swallowed) plus a capped persistent inbox: a message that arrives with no band attached is stored in the 20-item inbox and replayed on the next attach as a self-naming turn — mark first, content after; at the cap the oldest is evicted and counted in health.
 - **Boots its timing from one source.** The phone's vibrate patterns come from `GET /api/ziv/timing` — the serialized generated module — so the phone and the feel-tool play identical patterns by construction, not by convention.
 
 **A scene from the demo.** A typed message reaches the relay with no provider involved, and a scheduled intent is composed live by the model; either way the phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. What was said appears on the wearer's phone as vibro-braille. The wearer replies by text. The helper's side is shown honestly: the reply is visible as text in the relay's wire log (there is no separate helper client yet), and because there is no speaker in the room, the helper does not hear it. The demo shows the friend's side rather than leaving it to the room to guess.
@@ -196,9 +196,9 @@ The phone is the visible output channel for the hackathon; the wrist firmware is
 3. **A haptic name mark.** The timing spec defines the mark — Z-I-V spelled in vibro-braille (Z = four motors, heavy; I = two motors, light; V = four motors, heavy — the mark ends decisive, the same heavy-light-heavy arc "Raz" would have played) — and the phone's timing bootstrap ships it (`/api/ziv/timing`); the relay plays it as the prefix of unsolicited turns — scheduled reminders open with the mark spelled in cells, the kind's triple-pulse tail, and a breath before the content. Grounded in how DeafBlind communities use tactile name signs: the name is a felt pattern, not a label.
 4. **Push-to-talk mic (this prototype).** Audio capture only on the mic button — not always-on listening. The wrist hardware's hardware-gated mic (ESP32 pin) is the next revision.
 5. **The timing spec is generated, never hand-edited.** `docs/haptic-timing.json` is the single source of truth; seven consumers are generated from it (phone feel-tool + firmware header + Python consumer + ladder tables), so the phone's patterns and the wrist firmware come from one source by construction. A drift guard fails on any hand edit to a generated block.
-6. **Durable wearer state.** Memory files + a persistent, capped inbox: a message arriving with no band attached is stored, not dropped, and delivered on the next attach as a self-naming turn — the Z-I-V mark first, the stored content after. Mark-after-play: below the cap, redelivery is the failure mode.
+6. **Durable wearer state.** Memory files + a persistent, capped inbox: a message arriving with no band attached is stored in the 20-item inbox and delivered on the next attach as a self-naming turn — the Z-I-V mark first, the stored content after; at the cap the oldest is evicted and counted in health. Mark-after-play: below the cap, redelivery is the failure mode.
 7. **Queue, don't interrupt — enforced as a relay behavior, not a UI hint.** `MessageGate` is the seam's serialization point: while content plays, an incoming message gets its attention cue only and queues its text; the wearer releases the queue by closing the event, and drained messages play FIFO, each opening with its kind cue. The close frame that frees the channel is marked on the wire (`free: true`), so the client's auto-redial fires on the frame the wearer feels — not on a timing guess.
-8. **Honest scope for the hackathon.** This submission is a phone-based prototype to the Best Apps and Agents track. The full private, wearer-controlled personal AI system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
+8. **Honest scope for the hackathon.** This submission is a phone-based prototype to the Best Apps and Agents track. The full wearer-controlled personal AI system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
 
 ---
 
@@ -265,13 +265,13 @@ Best Apps and Agents Track
 
 ### What does your project do?
 
-Ziv (working title) is a private, always-on AI companion for deaf-blind users — always-on is the relay's property (it schedules, composes, and stores while the wearer is away); the phone renders events while its page is open. A reminder you set while busy is composed by **Nemotron-3-Nano-30B-A3B on Nebius Token Factory**, and what the model wrote plays as braille vibration patterns on the wearer's phone — no audio output, no spoken reply; the text is visible in the relay console. This submission is the built core of Ziv, demoed on a phone. The wrist device (chord input + wearer-hosted relay) is held as asset, not claimed.
+Ziv (working title) is a message channel for deaf-blind users — "always-on" describes the relay (it schedules, composes, and stores while the phone is away); the phone renders events only while its page is open and connected, with no background push. A reminder you set while busy is composed by **Nemotron-3-Nano-30B-A3B on Nebius Token Factory**, and what the model wrote plays as braille vibration patterns on the wearer's phone — no audio output, no spoken reply; the text is visible on the phone's reply screen and in the relay console. This submission is the built core of Ziv, demoed on a phone. The wrist device (chord input + wearer-hosted relay) is held as asset, not claimed.
 
 ### What makes your project unique?
 
-No existing product pairs a haptic braille output channel with a model that thinks for you behind it. Braille displays ($1,500–$12,000) don't speak; braille keyboards ($239–$349) don't either; existing haptic wristbands (Neosensory, Dot) give awareness or pins, not language with a brain. Ziv is built from the combination only this stack enables: an NVIDIA open model on Nebius Token Factory writing the line a wrist reads — and a phone's vibration motor that speaks braille. And the interaction design is grounded in the field's own guidance rather than intuition: four invariants adopted from early-years deafblind practice (Sense UK, via Insight), with the lifecycle patterns and the queue-don't-interrupt rule already enforced in code and tests.
+In the five products we surveyed, we did not find one that pairs a haptic braille output channel with a model behind it. Braille displays ($1,500–$12,000) don't speak; braille keyboards ($239–$349) don't either; existing haptic wristbands (Neosensory, Dot) give awareness or pins, not language with a brain. Ziv's contribution is the combination in a working prototype: an NVIDIA open model on Nebius Token Factory writing the line a phone plays — and a phone's vibration motor that carries braille. The interaction design is grounded in the field's own guidance rather than intuition: four invariants adopted from early-years deafblind practice (Sense UK, via Insight), with the lifecycle patterns and the queue-don't-interrupt rule already enforced in code and tests.
 
-The channel is the part that generalizes beyond the deaf-blind use case. The phone's vibration motor speaks braille for the wearer who cannot hear or see the reply; the same channel — vibration felt by the wearer, not broadcast to the room — is the reason the device works in any context where a reply should be private, glance-free, and free of spoken output: hands-busy or noisy environments, shared spaces, anywhere a lit screen or a speaker would leak the exchange to the room. The deaf-blind companion is the sharpest version of that claim; the phone is the dev band that makes it buildable for the hackathon.
+The channel is the part that generalizes beyond the deaf-blind use case. The phone's vibration motor carries braille for the wearer who cannot hear or see the reply; the same channel — vibration felt by the wearer, not spoken to the room — is what makes it useful in contexts where a reply should be quiet, glance-free, and free of spoken output: hands-busy or noisy environments, shared spaces, anywhere a speaker would leak the exchange to the room and the screen is the wrong place to look. The phone's screen and the relay log still show the text. The deaf-blind companion is the sharpest version of that claim; the phone is the dev band that makes it buildable for the hackathon.
 
 ### What challenges did you face?
 
@@ -293,8 +293,8 @@ NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory, FastAPI, WebSockets, the
 1. **0:00–0:20** — the gap: price cards ($4,000 display / $349 keyboard / ~$40 Ziv wrist BOM — held as asset; the demo band is a phone). Who it's for in one sentence.
 2. **0:20–1:10** — the conversation: a friend's message reaches the relay (a typed message needs no provider), the phone plays braille, the wearer replies by text; relay log on screen. **Show the friend's side:** the reply is visible as text in the relay's wire log (there is no separate helper client yet) — there is no speaker in the room, so the friend does not hear it. The demo must not imply the friend heard a spoken reply.
 3. **1:10–1:50** — the timing source: the spec is generated from one JSON; the drift guard proves the phone and the feel-tool share the same patterns. The demo beat plays cue, processing ticks, braille cells, felt close, queue release.
-4. **1:50–2:30** — a message vibrates on the phone, not broadcast to the room; the relay log shows the text. Held as asset: the wrist device and the audio-in hearing layer. Show the always-on beat: a scheduled reminder buzzes unprompted, with the relay's ready/health telemetry as the proof.
-5. **2:30–3:00** — the ask: "a new channel for people mass-market product ignores."
+4. **1:50–2:30** — a message vibrates on the phone; no speech is synthesized; the phone's reply screen and the relay log show the text. Held as asset: the wrist device and the audio-in hearing layer. Show the relay beat: a scheduled reminder buzzes unprompted, with the relay's ready/health telemetry as the proof.
+5. **2:30–3:00** — the ask: "a new channel for people mass-market products mostly ignore."
 
 ---
 

@@ -1,7 +1,7 @@
 {
-  "name": "Ziv — a private haptic message channel",
+  "name": "Ziv — a haptic message channel",
   "short_name": "Ziv",
-  "description": "A haptic message channel for deaf-blind users, and anyone who needs a private, glance-free reply. Phone demo today; wrist band next.",
+  "description": "A haptic message channel for deaf-blind users, and anyone who needs a quiet, glance-free reply. Phone demo today; wrist band next.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

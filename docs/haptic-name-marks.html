@@ -33,6 +33,7 @@ button.primary{background:#1d4b31;border-color:#2e6b47}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.4;cursor:default}
 button.big{flex:1;padding:1rem;font-size:1.15rem}
+a{color:#7ee2a8;overflow-wrap:anywhere}
 .controls{border:1px solid #2a313b;border-radius:14px;padding:14px;margin:0 0 14px;background:#151a21}
 .controls label{display:block;margin:.2rem 0;font-size:.9rem;color:#9aa3ad}
 input[type=range]{width:100%;margin:.3rem 0 .8rem}
@@ -146,9 +147,9 @@ footer{color:#9aa3ad;font-size:.8rem;margin-top:1rem;line-height:1.5}
 <section class=howto>
 <h2>Feel it on your Android phone</h2>
 <ol>
-<li>Serve this folder from your computer: <code>python -m http.server 8000</code></li>
-<li>On the phone (same Wi-Fi), open <code>http://COMPUTER-IP:8000/docs/haptic-name-marks.html</code> in Chrome</li>
+<li>Open the hosted page on your Android phone: <a href="https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page">site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page</a></li>
 <li>Tap Play on a card. No vibration? Chrome menu → Site settings → Vibration → Allow. iOS Safari has no Vibration API — you get the visual rhythm only.</li>
+<li>To run it locally instead, serve the repo folder: <code>python -m http.server 8000</code>, then open <code>http://COMPUTER-IP:8000/docs/haptic-name-marks.html</code>.</li>
 </ol>
 <p class=note style='margin-bottom:0'>On the page: the five name-mark cards · the attention vocabulary · <b>Session mode</b> (protocol M1 recognition test, downloadable CSV) · <b>Blind A/B</b> (random arc + guess log) · <b>Spell any word</b> (26-letter vibro-braille, rename-candidate fills).</p>
 </section>

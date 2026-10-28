@@ -104,7 +104,7 @@ def svg_hero(title_text, sub_text, dark=True):
   </g>
 
   <text x="700" y="770" font-size="24" fill="{dim}" text-anchor="middle">
-    Vibro-braille: a private message you feel as a timed buzzing pattern
+    Vibro-braille: a message you feel as a timed buzzing pattern
   </text>
 </svg>"""
     return svg
@@ -235,7 +235,7 @@ def svg_architecture():
          ["Per-wearer memory files",
           "Atomic JSON writes",
           "Capped persistent inbox",
-          "Stored, not dropped",
+          "Capped, counted drops",
           "Corrupt-file recovery",
           "Replays on next attach"]),
     ]
@@ -277,7 +277,7 @@ def svg_proof():
     parts.append(f'<text x="200" y="210" font-size="34" font-weight="800" fill="{ACCENT}">'
                  'Hermetic proof, not screenshots</text>')
     tests = [
-        ("230 hermetic tests", "the turn journey, gate, refusal, redial, memory, inbox, auth"),
+        ("232 hermetic tests", "the turn journey, gate, refusal, redial, memory, inbox, auth"),
         ("timing tests", "phone, firmware header, and tests share one derivation"),
         ("store tests", "inbox, memory, schedule — atomic, capped, corrupt-tolerant"),
     ]
@@ -518,7 +518,7 @@ def render_hero():
     d.text((MARGIN, 44), "Ziv", font=_font_black(84), fill=hexrgb(FG))
     d.text((MARGIN, 170), "A haptic message channel for deaf-blind users",
            font=_font_regular(28), fill=hexrgb(DIM))
-    d.text((MARGIN, 216), "Messages you can feel. Private by touch.",
+    d.text((MARGIN, 216), "Messages you can feel. No spoken reply.",
            font=_font_regular(20), fill=hexrgb(ACCENT))
 
     # badge
@@ -538,7 +538,7 @@ def render_hero():
             "patterns you feel; the console shows the text.",
         ]),
         ("WHO IT IS FOR", [
-            "Deaf-blind users first; the same private",
+            "Deaf-blind users first; the same quiet",
             "channel serves hands-busy, noisy, and",
             "shared-space moments.",
         ]),
@@ -629,7 +629,7 @@ def render_hero():
                 outline=dim, width=1)
 
     slide_caption(d, "A haptic message channel for deaf-blind users, and anyone who "
-                     "needs a private, glance-free reply.",
+                     "needs a quiet, glance-free reply.",
                   align="left", max_w=760)
     return img
 
@@ -658,8 +658,8 @@ def render_haptics():
                  "Three beats a wearer can follow — cue, spell, close — from early-years "
                  "deaf-blind practice.")
     card(d, grid_x(0), TEAL, "CUE",
-         ["The name mark, then a", "short double tap.", "Cues work from minute",
-          "one — no braille needed."], number=1)
+         ["The name mark, then a", "short double tap.", "Cues are layer one;",
+          "braille is for readers."], number=1)
     card(d, grid_x(1), WARN, "SPELLING",
          ["Processing ticks while", "the relay works, then", "braille cells, one",
           "character at a time.", "Braille text is the", "layer for readers."], number=2)
@@ -685,7 +685,7 @@ def render_architecture():
          tag="one turn")
     card(d, grid_x(2), WARN, "MEMORY",
          ["Per-wearer memory", "Atomic JSON writes", "Capped persistent inbox",
-          "Stored, not dropped", "Corrupt-file recovery", "Replays on next attach"],
+          "Capped, counted drops", "Corrupt-file recovery", "Replays on next attach"],
          tag="remembers")
     slide_caption(d, "Phone, relay, and memory — the built-today architecture. The wrist "
                      "device and wearer-hosted relay are the next revision.")
@@ -697,13 +697,13 @@ def render_proof():
     slide_header(d, "Hermetic proof, not screenshots",
                  "Why the claims hold — and why the felt timing can't silently change "
                  "under the wearer.")
-    card(d, grid_x(0), ACCENT, "230 hermetic tests",
+    card(d, grid_x(0), ACCENT, "232 hermetic tests",
          ["The turn journey, queue", "gate, refusal, redial,", "memory, inbox, auth."])
     card(d, grid_x(1), TEAL, "timing tests",
          ["Phone, firmware header", "and tests share one", "derivation."])
     card(d, grid_x(2), WARN, "drift guard",
          ["One generated timing", "source; any hand edit", "fails the guard."])
-    slide_caption(d, "Proven in code, not screenshots: 230 hermetic tests, plus a drift "
+    slide_caption(d, "Proven in code, not screenshots: 232 hermetic tests, plus a drift "
                      "guard so the felt pattern can't change under the wearer.")
     return img
 
@@ -716,7 +716,7 @@ def render_honesty():
     card(d, pair_x, ACCENT, "Built now",
          ["Vibro-braille on a phone", "Queue-don’t-interrupt gate",
           "Auto-redial on the close", "Live queue + refusal badge",
-          "Wearer memory + inbox", "230 hermetic tests green", "Timing drift guard"])
+          "Wearer memory + inbox", "232 hermetic tests green", "Timing drift guard"])
     card(d, pair_x + CARD_W + CARD_GAP, WARN, "Next revision",
          ["Wrist device", "Hardware-gated mic", "Braille chord input",
           "Wearer-hosted relay"])
@@ -766,8 +766,8 @@ def png_to_jpg(img, quality=92):
 GALLERY = [
     {
         "file": "hero.png",
-        "title": "Ziv — a private haptic message channel",
-        "caption": "A haptic message channel for deaf-blind users, and anyone who needs a private, glance-free reply. Phone demo today; wrist band next.",
+        "title": "Ziv — a haptic message channel",
+        "caption": "A haptic message channel for deaf-blind users, and anyone who needs a quiet, glance-free reply. Phone demo today; wrist band next.",
     },
     {
         "file": "flow.png",
@@ -787,7 +787,7 @@ GALLERY = [
     {
         "file": "proof.png",
         "title": "Hermetic proof, enforced by the drift guard",
-        "caption": "Proven in code, not screenshots: 230 hermetic tests, plus a drift guard so the felt pattern can't change under the wearer.",
+        "caption": "Proven in code, not screenshots: 232 hermetic tests, plus a drift guard so the felt pattern can't change under the wearer.",
     },
     {
         "file": "honesty.png",
@@ -823,7 +823,7 @@ def _print_layout_check():
     print()
     print("hero.png (cover: distinct band, but the same grid underneath)")
     print("  band (0-260): title 'Ziv', subtitle 'A haptic message channel for deaf-blind users',")
-    print("        tagline 'Messages you can feel. Private by touch.'")
+    print("        tagline 'Messages you can feel. No spoken reply.'")
     print("  band right: ZIV / dev band prototype badge")
     print("  from the shared card row down:")
     print("    col 1-2: 'WHAT IT IS' (an agent answers as timed tactile patterns;")
@@ -841,7 +841,7 @@ def _print_layout_check():
     print("haptics.png")
     print("  subtitle: three beats a wearer can follow, from early-years deaf-blind practice")
     print("  3 cards: CUE / SPELLING / CLOSE, step numbers")
-    print("  CUE card carries layer one: cues work from minute one, no braille literacy")
+    print("  CUE card carries layer one: cues need no braille literacy")
     print("  SPELLING card carries the relay's ticks (not the model's) + layer two for readers")
     print("  caption: 'Cues need no braille literacy; braille is the layer for readers. ...'")
     print()
@@ -852,7 +852,7 @@ def _print_layout_check():
     print()
     print("proof.png")
     print("  subtitle: why the claims hold, and why the felt timing can't change under the wearer")
-    print("  3 cards: 230 hermetic tests / timing tests / drift guard")
+    print("  3 cards: 232 hermetic tests / timing tests / drift guard")
     print("  caption: 'Proven in code, not screenshots: ...'")
     print()
     print("honesty.png")
@@ -875,7 +875,7 @@ SLIDE_NOTES = {
     "flow.png": "one path, one turn: sender, relay, phone (card 3 is PHONE, not wrist)",
     "haptics.png": "the turn as felt: cue, ticks while the relay works, braille for readers, close",
     "architecture.png": "phone, relay and memory \u2014 the built-today architecture",
-    "proof.png": "230 hermetic tests, one timing derivation, and the drift guard",
+    "proof.png": "232 hermetic tests, one timing derivation, and the drift guard",
     "honesty.png": "built now and next revision, side by side",
 }
 

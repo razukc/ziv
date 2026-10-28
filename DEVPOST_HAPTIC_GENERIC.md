@@ -1,6 +1,6 @@
 # Devpost Submission — Ziv (DRAFT, generic-angle variation)
 
-> **Track: Best Apps and Agents.** This is the product-first variation of [DEVPOST_HAPTIC.md](DEVPOST_HAPTIC.md): the same built artifact, presented as what it is — a private, glance-free message channel with an agent behind it — without leading with any accessibility story. The deaf-blind use case appears **only** in [Use cases](#use-cases), where it belongs. Same working title (**Ziv**), same house rules: **no clinical or efficacy claims**; nothing deferred is claimed for this submission — deferrals are named the *next revision* in the same sentence that claims what is built.
+> **Track: Best Apps and Agents.** This is the product-first variation of [DEVPOST_HAPTIC.md](DEVPOST_HAPTIC.md): the same built artifact, presented as what it is — a message channel that needs no glance, with an agent behind it — without leading with any accessibility story. The deaf-blind use case appears **only** in [Use cases](#use-cases), where it belongs. Same working title (**Ziv**), same house rules: **no clinical or efficacy claims**; nothing deferred is claimed for this submission — deferrals are named the *next revision* in the same sentence that claims what is built.
 
 ---
 
@@ -10,11 +10,11 @@ Ziv *(working title)*
 
 ## Tagline
 
-Messages you can feel. Private by touch, not by broadcast.
+Messages you can feel. No spoken reply.
 
 ## Short Description (one-liner)
 
-Ziv is a private message channel for your phone: the phone plays what arrives as braille-rhythm vibrations you read by touch — no audio output, no spoken reply. Scheduled reminders fire while you're away; a scheduled intent is composed live on Nebius Token Factory when the relay has a key, and otherwise fires verbatim, labelled `text_echo`.
+Ziv is a message channel for your phone: the phone plays what arrives as braille-rhythm vibrations you feel — no audio output, no spoken reply. The relay schedules reminders and stores messages while the phone is away; a scheduled intent is composed live on Nebius Token Factory when the relay has a key, and otherwise fires verbatim, labelled `text_echo`. The phone renders each event only while its page is open and connected.
 
 ---
 
@@ -30,20 +30,20 @@ Every notification channel you own spends either your eyes or your ears:
 
 So the contexts where eyes and ears fail — meetings, kitchens, workshops, libraries, night shifts, shared bedrooms — are exactly the contexts where the message doesn't get through.
 
-The gap: **no shipping product turns vibration into a channel that carries language, with an agent behind it.**
+The gap, in the five products we surveyed: **we did not find one that turns vibration into a channel carrying language, with an agent behind it.**
 
 ### Our Solution
 
 Ziv is a thin relay plus the phone you already own, used as a display for a channel whose output is vibration, not broadcast to the room:
 
-1. **Speaks in rhythm.** Text is rendered as Grade-1 braille cells and played one cell at a time as vibration patterns — at the wearer's own pacing preference, clamped into the spec's envelope. Every event is framed by an attention vocabulary: an arrival cue before content, working ticks while the relay handles the turn, a descending close that says *this message is over*.
+1. **Plays in rhythm.** Text is rendered as Grade-1 braille cells and played one cell at a time as vibration patterns — at the wearer's own pacing preference, clamped into the spec's envelope. Every event is framed by an attention vocabulary: an arrival cue before content, working ticks while the relay handles the turn, a descending close that says *this message is over*.
 2. **Stays polite.** The haptic channel is serial — it cannot interrupt without confusing the reader. If a message lands mid-playback, it announces itself (cue only) and queues; when the current event closes, the queue drains oldest-first, each message opening with its cue. A full queue answers the sender with HTTP 429 and a plain-language note — a loud no, never a silent drop.
-3. **Acts while you're away.** Scheduled reminders fire unprompted as their own full turns — arrival cue, working ticks, cells, close. A message that arrives with no phone attached is stored in a capped inbox, not dropped, and replays on the next attach as the same self-naming turn reminders take — mark first, content after.
-4. **Private by touch, not by broadcast.** Nothing is spoken: a message vibrates against the holder's skin and is not read aloud to the room. In this demo the operator view and relay log show the text, and the motor is not silent. The mic is push-to-talk, never always-on.
+3. **The relay acts while the phone is away.** Scheduled reminders fire unprompted as their own full turns — arrival cue, working ticks, cells, close. A message that arrives with no phone attached is stored in a capped inbox and replays on the next attach as the same self-naming turn reminders take — mark first, content after. At the 20-message cap the oldest pending message is evicted, counted in health. The phone renders a turn only while its page is open and connected; there is no background push or lock-screen delivery in this build.
+4. **No spoken reply, not a broadcast.** The phone plays the message as vibration; Ziv synthesizes no speech and reads nothing aloud. That is the output choice, not a guarantee about everyone nearby: the words are also shown on the phone's reply screen and in the relay log, the motor is not silent, and we have not measured its acoustic level. The mic is push-to-talk, never always-on.
 
 ### Why It Matters
 
-- **Private by touch, not by broadcast** — of the channels a phone already carries (screen, speaker, buzz), only vibration delivers a message to the holder without speaking to the room; no new device required.
+- **No spoken reply, not a broadcast** — of the channels a phone already carries (screen, speaker, buzz), vibration can deliver a message to the holder without speaking to the room; no new device required. The demo's screen and relay log still show the text.
 - **Dignity, not just convenience:** the device that tells you things *without telling the room* changes what you can read, and where. Under a table. Mid-shift. Anywhere a lit screen is rude and sound is worse.
 - **Courtesy is architecture, not a setting.** Queue-don't-interrupt, legible waiting, a felt end-of-message: the rules are enforced in the relay, so the channel behaves the same no matter who sends.
 
@@ -52,10 +52,10 @@ Ziv is a thin relay plus the phone you already own, used as a display for a chan
 Concretely, the prototype does this now:
 
 - **A turn that runs with or without a provider.** A typed message never reaches the model; a scheduled intent is composed live when the relay has a key and otherwise fires verbatim, labelled `text_echo` — either way: cue, processing ticks, braille cells, felt close, queue release.
-- **Speaks in rhythm.** Grade-1 braille cells, one at a time, at the wearer's persisted pacing preference (an API-set control, clamped into the spec envelope). The attention vocabulary — arrival cue, working ticks, end-of-message close — frames every turn; an error long-buzz answers a failed transcription, and a scheduled reminder opens with its triple-pulse tail.
-- **Acts while you're away.** A scheduler loop fires reminders as full turns, proven live by `/api/ziv/ready` + health telemetry — and the schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped), so a restart does not drop a pending reminder; the 64-reminder cap can evict the oldest.
+- **Plays in rhythm.** Grade-1 braille cells, one at a time, at the wearer's persisted pacing preference (an API-set control, clamped into the spec envelope). The attention vocabulary — arrival cue, working ticks, end-of-message close — frames every turn; an error long-buzz answers a failed transcription, and a scheduled reminder opens with its triple-pulse tail.
+- **The relay acts while the phone is away.** A scheduler loop fires reminders as full turns, proven live by `/api/ziv/ready` + health telemetry — and the schedule is durable like the inbox (atomic JSON, corrupt-tolerant, capped), so a restart does not drop a pending reminder; the 64-reminder cap can evict the oldest. The phone renders a turn only while its page is open and connected; nothing wakes a closed browser.
 - **Stays polite.** `MessageGate` enforces queue-don't-interrupt; a full queue is a sender-visible 429; the client shows a live queue badge, and re-sends a refused typed or stub message automatically when the freeing close lands on the wire (a refused mic clip stays a manual retry — it would need re-transcription).
-- **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) plus a capped persistent inbox: stored, not dropped; mark-after-play, so below the cap, redelivery is the failure mode.
+- **Remembers the wearer.** Per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) plus a capped persistent inbox: stored in a 20-item inbox; at the cap the oldest is evicted and counted in health; below the cap, mark-after-play makes redelivery the failure mode.
 - **Boots its timing from one source.** Every pattern the phone plays comes from `GET /api/ziv/timing` — the serialized generated module — so the phone and the feel-tool play identical patterns by construction, not by convention.
 
 **A scene from the demo.** A colleague texts "taxi is here" during a meeting. The phone, face-down and silenced, taps the arrival cue, ticks while the relay works, spells the message cell by cell, and closes. The room hears no spoken reply. Ten minutes later, unprompted, a scheduled reminder arrives as its own full turn. Both sides of the demo are shown honestly: the message's words are visible as text in the relay's wire log, because a haptic channel has no speaker — and that is the point.
@@ -99,13 +99,13 @@ The phone is the display for this hackathon; the wrist firmware is generated fro
 ### Design decisions
 
 1. **Vibration is the message output.** No TTS pipeline, no echo cancellation, no wake word: removing sound output removes the entire hard-problem list of voice wearables — and removes the leak. Sound tells the room; vibration tells one person.
-2. **Text as rhythm, in two layers.** Layer one is the attention vocabulary — arrival, working, done, and the error long-buzz when a turn fails — the part every wearer feels from minute one. Layer two is the text itself, spelled as Grade-1 braille cells for anyone who reads braille or learns it. Word-shape corner cues (space, capital, number sign) are planned — the prototype plays plain letters (a–z); pacing is the first-class control.
+2. **Text as rhythm, in two layers.** Layer one is the attention vocabulary — arrival, working, done, and the error long-buzz when a turn fails — the part designed to be legible from the first turn. Layer two is the text itself, spelled as Grade-1 braille cells for anyone who reads braille or learns it. Word-shape corner cues (space, capital, number sign) are planned — the prototype plays plain letters (a–z); pacing is the first-class control.
 3. **One timing source, generated, never hand-edited.** `docs/haptic-timing.json` generates seven consumers (phone feel-tool + firmware header + Python consumer + ladder tables), so the phone's patterns and the wrist firmware come from one source by construction. A drift guard fails on any hand edit to a generated block.
 4. **Courtesy as relay behavior, not a UI hint.** `MessageGate` is the serialization point: while content plays, an incoming message gets its cue only and queues; the wearer releases the queue by closing the event; drained messages play FIFO, each opening with its cue. The close frame that frees the channel is marked on the wire (`free: true`), so the client's auto-redial fires on the frame the wearer feels — not on a timing guess.
-5. **Durable state.** Memory files + a persistent, capped inbox: a message arriving with no phone attached is stored, not dropped, and replays as a self-naming turn — mark first, content after. Mark-after-play: below the cap, redelivery is the failure mode.
+5. **Durable state.** Memory files + a persistent, capped inbox: a message arriving with no phone attached is stored in a capped inbox and replays as a self-naming turn — mark first, content after; at the 20-message cap the oldest is evicted and counted in health. Mark-after-play: below the cap, redelivery is the failure mode.
 6. **A felt identity.** The timing spec defines a name mark — Z-I-V spelled in vibro-braille — and the relay plays it today: scheduled reminders open as their own turns with the mark spelled in cells, the kind's triple-pulse tail, and a breath before the content.
 7. **Push-to-talk mic (this prototype).** Audio capture only on the mic button — never always-on listening. The wrist hardware's hardware-gated mic (ESP32 pin) is the next revision.
-8. **Honest scope.** This submission is a phone-based prototype to the Best Apps and Agents track. The full private, wearer-controlled system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
+8. **Honest scope.** This submission is a phone-based prototype to the Best Apps and Agents track. The full wearer-controlled system (wrist device with hardware-gated mic + wearer-hosted relay) is the next revision. The haptic output is felt by the holder and is not spoken to the room; the mic is push-to-talk; the relay runs on our infrastructure, not the wearer's, in this prototype.
 
 ---
 
@@ -143,9 +143,9 @@ The phone is the display for this hackathon; the wrist firmware is generated fro
 
 *(The one place this submission names who it serves best — because the channel was sharpened by a specific population, and the sharpening shows.)*
 
-**Everyday: the meeting, the kitchen, the night shift.** Anywhere a lit screen is rude and sound is worse, the channel delivers what a buzz cannot: content, framed by cues, felt by exactly one person. The attention vocabulary — arrival, working, done — is what every wearer feels from the first minute; the text layer is there for anyone who reads braille or chooses to learn it. That learnability is the #1 open risk: how fast people actually pick up long-form text-by-vibration is unproven, and the fallback (a fixed attention vocabulary + a 30-phrase set, then a 3-button read/stop/repeat mode) is specified in the plan so the channel stays useful even if long-form reading never lands.
+**Everyday: the meeting, the kitchen, the night shift.** Anywhere a lit screen is rude and sound is worse, the channel delivers what a buzz cannot: content, framed by cues, felt by the holder — while the phone's screen and the relay log still show the text, and the motor is not silent. The attention vocabulary — arrival, working, done — is the designed first layer; the text layer is there for anyone who reads braille or chooses to learn it. That learnability is the #1 open risk: how fast people actually pick up long-form text-by-vibration is unproven, and the fallback (a fixed attention vocabulary + a 30-phrase set, then a 3-button read/stop/repeat mode) is specified in the plan so the channel stays useful even if long-form reading never lands.
 
-**The sharpest case: deaf-blind users.** ~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and almost nothing is built for them: refreshable braille displays ($1,500–$12,000) have no microphone and no agent; braille keyboards ($239–$349) are input-only; haptic wristbands (Neosensory, Dot) give awareness or notification mirroring, not language with a brain. For this population the channel is not a convenience — it is the difference between a doorbell and a conversation. Braille literacy is not universal in this population, which is why the channel has two layers: the attention vocabulary works from minute one for anyone, and braille text is the layer for readers. Vibration on the skin is the one display they can read anywhere, and the hearing layer gives the channel the brain every prior device lacked: **no shipping product pairs a haptic braille output channel with a device that can hear.**
+**The sharpest case: deaf-blind users.** ~2.4 million Americans live with combined hearing and vision loss (~45–70k at the deaf-blind core), and the market we surveyed is thin: refreshable braille displays ($1,500–$12,000) have no microphone and no agent; braille keyboards ($239–$349) are input-only; haptic wristbands (Neosensory, Dot) give awareness or notification mirroring, not language with a brain. What the demo shows is delivery and timing on one Android phone: the arrival cue, working ticks, Grade-1 cells, and the close. The operator reads the text on the phone's reply screen and in the relay log to verify what was played; that is a delivery check, not a comprehension test. It does not show a deaf-blind person reading the cells, and it is not a reading study. Braille cells carry meaning for someone who reads braille or learns it; the attention cues are a designed vocabulary, not a validated language. We have not held a validation session with deaf-blind readers. The claim is a working prototype of a new channel — not evidence that it is readable from minute one, and not evidence that it turns a doorbell into a conversation. Nor do we claim that nothing else is built for this population: braille displays and keyboards exist, and the survey above says what each covers.
 
 **Why the sharpest case made the product better for everyone.** The interaction rules were adopted from published early-years deafblind practice (Sense UK, via Insight): every event is cued before it happens, cues mark the start *and* the end, waiting is legible, and nothing barges in. Those four invariants are enforced in the relay's code — and they are exactly why the channel stays legible for a sighted user in a meeting, too. The population that needed the channel most wrote its manners; everyone else inherits them.
 
@@ -170,11 +170,11 @@ Best Apps and Agents Track
 
 ### What does your project do?
 
-Ziv (working title) is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, composes, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based demo; the wrist device is not part of this entry.
+Ziv (working title) is a message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages in a capped inbox when no phone is attached, and schedules reminders on the relay. "Always-on" describes the relay, not the phone: it schedules, composes, and stores while the phone is away; the phone renders each event only while its page is open and connected, with no background push or lock-screen delivery. This submission is a phone-based demo; the wrist device is not part of this entry.
 
 ### What makes your project unique?
 
-No shipping product turns vibration into a channel that carries language, with an agent behind it: phone buzzes are context-free doorbells; haptic wristbands translate sound into abstract awareness; smartwatches mirror notifications but still demand the eyes for anything that matters. Ziv's combination is new: a serial haptic channel with enforced courtesy (queue-don't-interrupt as relay behavior), a two-layer vocabulary (attention patterns for anyone, braille text for readers), an agent that acts while you're away, and one generated timing source shared by the phone today and the wrist firmware of the next revision (the phone boots its patterns from `GET /api/ziv/timing`, the serialized generated module).
+In the five products we surveyed, we did not find one that turns vibration into a channel carrying language with an agent behind it: phone buzzes are context-free doorbells; haptic wristbands translate sound into abstract awareness; smartwatches mirror notifications but still demand the eyes for anything that matters. Ziv's contribution is the combination: a serial haptic channel with enforced courtesy (queue-don't-interrupt as relay behavior), a two-layer vocabulary (attention patterns for anyone, braille text for readers), a relay that schedules and stores while the phone is away, and one generated timing source shared by the phone today and the wrist firmware of the next revision (the phone boots its patterns from `GET /api/ziv/timing`, the serialized generated module).
 
 ### What challenges did you face?
 
@@ -192,10 +192,10 @@ NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory, FastAPI, WebSockets, the
 
 ## Demo Video Outline (≤3 min)
 
-1. **0:00–0:20** — cold open: a phone face-down and silenced in a meeting buzzes; fingers read it; the room hears no spoken reply, and the text stays in the relay log. "A message only one person receives."
+1. **0:00–0:20** — cold open: a phone face down and silenced in a meeting buzzes; the wearer feels the cells; the room hears no spoken reply, and the words appear on the phone's reply screen and in the relay log. "A message you feel. No spoken reply."
 2. **0:20–1:10** — the channel: arrival cue → working ticks → braille cells → close; the attention vocabulary; a queued message released by the close; the 429 and the auto-redial.
 3. **1:10–1:50** — the timing source: the spec is generated from one JSON; the drift guard proves the phone and the feel-tool share the same patterns. The demo beat plays cue, working ticks, braille cells, close, queue release.
-4. **1:50–2:30** — the agent: a scheduled reminder fires unprompted, proven by the relay's ready/health telemetry; the inbox stores a message that arrived with no phone attached; held as asset: the wrist device, and the audio-in hearing layer. The ask: "a new channel for messages the room was never meant to see."
+4. **1:50–2:30** — the agent: a scheduled reminder fires unprompted, proven by the relay's ready/health telemetry; the inbox stores a message that arrived with no phone attached; held as asset: the wrist device, and the audio-in hearing layer. The ask: "a new channel for messages the room does not need to hear."
 
 ---
 

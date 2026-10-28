@@ -2,7 +2,7 @@
 
 Checklist §2's six beats, scripted the way the e2e suite scripts a browser:
 
-  1. cold open   — a title card ("A message only one person receives."),
+  1. cold open   — a title card ("A message you feel. No spoken reply."),
                    rendered live in the browser
   2. the channel — a typed turn: cue → ticks → cells → close  3. the stack   — the model path on camera, conditional on a key. The
                     relay is given an intent; with a funded Nebius Token Factory
@@ -114,9 +114,9 @@ SEEN_JS = """() => {
 # intent fires, never from this machine's .env — the soundtrack must describe
 # the take that was actually captured.
 
-# What the caller schedules. The model writes the line the wrist spells; when
+# What the caller schedules. The model writes the line the phone spells; when
 # no model is reachable the relay plays this text verbatim (source: text_echo).
-MODEL_INTENT = "tell me to drink"
+MODEL_INTENT = "meds at nine"
 
 def _stack_lines() -> list[str]:
     """The stack narration, resolved at runtime from what the stack beat actually did.
@@ -129,35 +129,43 @@ def _stack_lines() -> list[str]:
     return [_STACK_LINE] if _STACK_LINE != _STACK_LINE_FALLBACK else [_STACK_LINE_FALLBACK]
 
 _STACK_LINE_FALLBACK = (
-    "I gave the relay an intent, not a message. With no live model path it"
-    " fired the promise verbatim, labelled text_echo — the log names the path it took."
+    "Now I'll give the relay an intent instead of a message: \"meds at nine.\""
+    " With no live model path, the promise fires verbatim, labelled text echo,"
+    " and the log names the path. No model is claimed when none ran."
 )
 _STACK_LINE = _STACK_LINE_FALLBACK  # set honestly by main() before build_segments()
 
 SCRIPT_ALL: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
     ("coldopen", [
-        "A message only one person receives.",
-        "No sound for the room. The words stay with you. Just touch.",
+        "This is Ziv. The phone is face down. It buzzes, no ring and no voice,"
+        " and the message comes through as braille cells. The screen shows the"
+        " same text.",
     ]),
     ("channel", [
-        "A typed message enters the relay's one turn pipeline: arrival cue,",
-        "working ticks, braille cells, end of message.",
+        "A typed message enters the relay's turn pipeline: an arrival cue,"
+        " working ticks, the cells, then a close. The phone and the bench-tested"
+        " wrist firmware share one generated spec, so the pattern cannot drift.",
     ]),
     ("refusal", [
-        "At the cap the sender gets H T T P four twenty nine:",
-        "a plain language refusal, not a silent drop. The refused message",
-        "redials itself when the wrist feels the closing pulse.",
-        "Eight messages are already waiting; each one plays in full, oldest first.",
+        "The hard part isn't the buzz. It's the manners. The channel is serial:"
+        " while a message plays, new arrivals queue. When the queue is full, the"
+        " sender gets H T T P four twenty-nine — a refusal they can see. The"
+        " refused message stays armed and redials itself when the close lands."
+        " The badge drains as each message plays.",
     ]),
     ("stack", _stack_lines),
     ("agent", [
-        "The relay also acts while you're away. The schedule survives a kill",
-        "and restart — and the reminder fires as its own full turn,",
-        "the name mark first, then the words.",
+        "A reminder is a promise. I schedule one, then kill the relay and bring"
+        " it back. The schedule survives because it is written to disk. The phone"
+        " reconnects. The reminder fires as its own turn — the name mark first,"
+        " then the words. No microphone in this build. Ziv receives; it does not"
+        " listen.",
     ]),
     ("whoserve", [
-        "Ziv. Messages you can feel. Private by touch.",
-        "Every claim is reproducible — see judge repro dot M D in the repository.",
+        "This is a phone prototype, not the wrist. The wrist is next: same relay,"
+        " same timing, a hardware-gated mic, and chord input. For a deaf-blind"
+        " person who reads braille, this is a channel worth testing — not a"
+        " proven reading method. Ziv. Messages you can feel.",
     ]),
 ]
 
@@ -466,8 +474,8 @@ def cells_html() -> str:
 CARD_COLD = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{CARD_CSS}</style></head><body><div class="card">
   {cells_html()}
-  <h1>A message only one person receives.</h1>
-  <div class="sub">no sound for the room · the words stay with you</div>
+  <h1>A message you feel. No spoken reply.</h1>
+  <div class="sub">no ring · no voice · the screen shows the text</div>
 </div></body></html>"""
 
 def card_end(live: bool) -> str:
@@ -483,7 +491,8 @@ def card_end(live: bool) -> str:
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{CARD_CSS}</style></head><body><div class="card">
   <h1>Ziv</h1>
-  <h2>Messages you can feel. <span class="em">Private by touch.</span></h2>
+  <h2>Messages you can feel. <span class="em">No spoken reply.</span></h2>
+  <div class="sub">Phone prototype today · wrist next</div>
   <div class="sub">{model}</div>
   <code>github.com/razukc/ziv — every claim reproducible (JUDGE_REPRO.md)</code>
 </div></body></html>"""
@@ -629,12 +638,12 @@ def main() -> int:
         # a live model call, or the verbatim-echo truth. A demo must not claim
         # a model ran when none did.
         _STACK_LINE = (
-            "I gave the relay an intent, not a message. It asked NVIDIA's Nemotron"
-            " three Nano on Nebius Token Factory to write the sentence, and played"
-            " the answer on my wrist."
+            "Now I'll give the relay an intent instead of a message: \"meds at nine.\""
+            " When it fires, NVIDIA Nemotron 3 Nano on Nebius Token Factory writes the line,"
+            " and the phone spells it. The model call finishes before the turn starts."
+            " The ticks are the demo's fixed wait."
             if _live
-            else "I gave the relay an intent, not a message. With no live model path it"
-            " fired the promise verbatim, labelled text_echo — the log names the path it took."
+            else _STACK_LINE_FALLBACK
         )
         mark("stack")
         print(f"  stack live={_live}", flush=True)
@@ -802,12 +811,13 @@ def main_live() -> int:
         )
         print(f"  compose live={_live} record={compose}", flush=True)
         _STACK_LINE = (
-            "I gave the relay an intent, not a message. It asked NVIDIA's Nemotron"
-            " three Nano on Nebius Token Factory to write the line, and the band"
-            " spelled the answer. The relay's own record says the model call succeeded."
+            "I gave the relay an intent, not a message: \"meds at nine.\" It asked"
+            " NVIDIA's Nemotron three Nano on Nebius Token Factory to write the line,"
+            " and the band spelled the answer. The relay's own record says the model"
+            " call succeeded."
             if _live
-            else "I gave the relay an intent, not a message. With no live model path"
-            " it fired the promise verbatim, labelled text echo."
+            else "I gave the relay an intent, not a message: \"meds at nine.\" With"
+            " no live model path it fired the promise verbatim, labelled text echo."
         )
         mark("stack")
         page.wait_for_function(

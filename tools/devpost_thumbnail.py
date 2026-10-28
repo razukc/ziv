@@ -53,7 +53,7 @@ HTML = """<!DOCTYPE html>
     <div class="mark">{cells}</div>
     <h1>Ziv</h1>
   </div>
-  <div class="tag">Messages you can feel. <em>Private by touch.</em></div>
+  <div class="tag">Messages you can feel. <em>No spoken reply.</em></div>
   <div class="stack"><b>Nemotron-3-Nano-30B-A3B</b> on <b>Nebius Token Factory</b> — text in, vibro-braille out</div>
 </body></html>
 """

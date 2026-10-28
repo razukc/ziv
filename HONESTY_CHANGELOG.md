@@ -72,7 +72,7 @@ the timing drift guard are each run directly. The counts were previously
 hand-typed into six files and had already disagreed across three variants
 present in the tree at once; they are now read from the four runs, and the
 version of this file you are reading was last refreshed from a run that read
-199 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
+232 / 274 / 49 / 7. (`tools/prove.py`, named in earlier drafts here, is not in
 this repository or its history.)
 
 ### 0.5 What is deliberately still not claimed
@@ -439,7 +439,7 @@ turn lock. In the take, eight fills sent at the start of a scheduled reminder
 all played as main turns instead of queueing, and the refusal beat never had a
 full queue. The gate is now reserved before `_play_prefix_mark`, inside the same
 turn lock, and the later duplicate reserve is gone. Targeted server, seam and
-gate suites: **104 passed**, and the full suite is **224 passed, 5 deselected**.
+gate suites: **104 passed** at the time, and the full suite was **224 passed, 5 deselected** (the current tree is **232 passed, 5 deselected**; see §4).
 With the fix, the next take's scheduled reminder recorded `queued: 8` — the
 fills waited their turn, which is what the refusal beat depends on.
 
@@ -470,7 +470,8 @@ Nemotron-3-Nano-30B-A3B), eight fills + a **429**, the redial's `POST ok` after
 the free close, a real systemd **restart** with the schedule read back
 unchanged, `relay hello` on reconnect, `reminder: pills` on the band, and the
 NVIDIA/Nebius closing card. The server code was not changed for this take, so
-the 224-pass suite in §1.10 still stands; the recorder changes are outside the
+the suite recorded in §1.10 still stands (the current tree is 232 passes;
+see §4); the recorder changes are outside the
 pytest suite and are covered by the take's own assertions.
 
 ### 1.12 The composed line lost its last letter on the wrist (fixed)
@@ -702,15 +703,15 @@ What's-next list lost the items this work built.
 Last refreshed by direct runs of the four suites — do not hand-edit the numbers:
 
 ```
-PASS  hermetic relay suite            199 checks
+PASS  hermetic relay suite            232 checks
 PASS  haptic bench                    274 checks
 PASS  QEMU host suite                  49 checks
 PASS  drift guard                     7 consumers in sync
 ```
 
-- **Suite:** `python -m pytest -q` → **199 passed, 4 deselected**
+- **Suite:** `python -m pytest -q` → **232 passed, 5 deselected**
   (deselected = e2e, needs a browser; collection is clean with no ignore
-  flags). With a browser installed: `python -m pytest -m e2e` → **4 passed**
+  flags). With a browser installed: `python -m pytest -m e2e` → **5 passed**
   in a real chromium — the full redial, give-up, and busy-sheet queue
   journeys, end to end.
 - **Health contracts pinned hermetically, two-sided:** the PWA badge shows

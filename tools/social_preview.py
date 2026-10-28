@@ -54,7 +54,7 @@ HTML = """<!DOCTYPE html>
     <div class="mark">{cells}</div>
     <h1>Ziv</h1>
   </div>
-  <div class="tag">Messages you can feel. <em>Private by touch.</em></div>
+  <div class="tag">Messages you can feel. <em>No spoken reply.</em></div>
   <div class="proofs"><b>text in, vibro-braille out</b> &nbsp;·&nbsp; queue-don't-interrupt &nbsp;·&nbsp; durable schedule &nbsp;·&nbsp; one timing source</div>
   <div class="judges">judges: JUDGE_REPRO.md — every claim, proven</div>
 </body></html>
