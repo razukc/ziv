@@ -1,8 +1,8 @@
 # Ziv — a haptic phone companion
 
-**Messages you can feel. Private by touch, not by broadcast.** A phone that taps out what a
+**Messages you can feel. No spoken reply.** A phone that taps out what a
 model wrote for you in vibration patterns — no audio output, no spoken reply; the
-text is visible in the operator console and relay log. The demo run below is
+text is visible on the phone's reply screen and in the operator console and relay log. The demo run below is
 the whole loop on the phone: you set an intent; with a funded Nebius Token Factory key an NVIDIA open model writes
 the line and the phone spells it; without a key the same promise fires verbatim,
 labelled `text_echo`, and the log names the path it took rather than claiming a
@@ -19,10 +19,10 @@ model ran — cue, legible wait, braille cells, felt close, queue release.
 
 ## What Ziv does (this submission)
 
-Ziv (working title) is a private, glance-free message channel: the
-wearer's phone plays what arrives as vibro-braille they read by touch, with no
-audio output and no spoken reply. The demo's operator view and relay log show
-the text. Vibration is the one channel that costs nothing to carry and is used
+Ziv (working title) is a message channel that needs no glance: the
+wearer's phone plays what arrives as vibro-braille they feel, with no
+audio output and no spoken reply. The phone's reply screen, the demo's
+operator view, and the relay log show the text. Vibration is the one channel that costs nothing to carry and is used
 as a doorbell; Ziv turns it into a channel that carries language, with an agent behind it.
 
 This submission ships as **a phone-based demo**.
@@ -48,12 +48,12 @@ This submission ships as **a phone-based demo**.
   `message:rejected`). The
   channel frees itself on the wire, not by timing: `free: true` rides the last
   close of a turn, so an armed redial never fires into a message still draining.
-- **State is durable.** A message arriving with no band attached (the phone
-  running the PWA) is stored, not dropped, and delivered on the next attach —
+- **State is durable, with documented edges.** A message arriving with no band attached (the phone
+  running the PWA) is stored in the 20-item inbox and delivered on the next attach —
   marked delivered only after the close plays, so a phone that vanishes
   mid-playback gets the message again. The inbox (cap 20) and schedule (cap 64)
   drop their oldest when full — never quietly; every drop is logged and counted
-  in `/api/ziv/health`.
+  in `/api/ziv/health`. There is no uncapped or no-loss promise.
 - **The demo turn needs no provider at all.** A typed POST to
   `/api/ziv/message` plays the line with no key; the 429, the queue and the
   drain are the relay's own behavior, reproducible with no credit.
@@ -69,16 +69,19 @@ This submission ships as **a phone-based demo**.
 
 ## See it (recorded)
 
-**The submission video** — hosted on the Devpost project page, not stored in
-this repo; **the field is empty until the re-record lands.** That take runs
-against the public origin with the VM's funded key, so the model-path beat is a
-live call: `tell me to drink` → the line the model writes, wire `source: text_live`
-(without a key the same beat fires the intent verbatim, `text_echo`). The
-earlier keyless take is withdrawn: it predates the 12-cell cap fix, and its
-13-letter line lost the final `w` on the band. The recorder is sized for
-Devpost's three-minute cap and covers the cold open, the channel, the
-model-path beat, the refusal + drain, the relay kill/restart durability beat,
-and the closing card.
+**The current submission cut** — [watch the **76.2 s** cut on
+YouTube](https://youtu.be/t9ovgEjm8i8) (unlisted; Kore narration, burned-in
+captions, four slides). The source file is
+`media/tts_audition/demo_kore/demo_kore.mp4` (local and gitignored, so it is not
+in this repo). It runs against the public origin with the VM's funded key, so
+the model-path beat is a live call: the scheduled intent **`meds at nine`**
+→ the line the model
+wrote (`meds nine`), wire `source: text_live` (without a key the same beat fires
+the intent verbatim, `text_echo`). The cut covers the cold open, the live
+channel turn, the model-path beat, the haptics and honesty briefs, and the
+closing card. The longer six-beat and durability takes are archival, not the
+current upload; the earlier keyless take is withdrawn because it predates the
+12-cell cap fix.
 
 **The silent beat (released asset, no narration)** —
 **[demo_beat.webm](https://github.com/razukc/ziv/releases/download/submission-v1/demo_beat.webm)** —
@@ -105,7 +108,7 @@ made — and which claim is not.
 | **The relay** — a FastAPI server that owns the interaction loop: WS transport with optional token auth, the message gate (queue-don't-interrupt), the turn timeline, the generated timing module, inbox, wearer memory, health, and the PWA it serves (`agent/ziv_server.py`; hermetic tests green) | **Wrist device** — ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-gated mic + LiPo (~$40 BOM) |
 | **The phone PWA** — the wearer feels each message through the Vibration API, with the same timing derivation as the firmware and zero hand-copied numbers (`agent/ziv_client/index.html`; one tap on Android Chrome wakes it and supplies the gesture vibration requires) | **Braille-chord input** — 6-key braille chord keyboard |
 | **The timing spec** — one generated source (`docs/haptic-timing.json`) → firmware header + phone feel-tool + Python consumer + ladder tables; drift guard fails on any hand edit to a generated block | **Hardware-gated mic** — the ESP32 pin |
-| **The inbox + memory** — durable wearer state: per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) + a capped persistent inbox (messages with no band attached are stored, not dropped, and delivered as full events on next attach) (`agent/ziv_store.py`; data in gitignored `agent/ziv_data/`) | **Wearer-hosted relay** — the honest answer to "data under your control" |
+| **The inbox + memory** — durable wearer state: per-wearer memory files (atomic JSON, corrupt-file recovery surfaced in health) + a capped persistent inbox (messages with no band attached are stored in the 20-item inbox and delivered as full events on next attach; at the cap the oldest is evicted and counted in health) (`agent/ziv_store.py`; data in gitignored `agent/ziv_data/`) | **Wearer-hosted relay** — the honest answer to "data under your control" |
 | **A live model in the turn** — a scheduled intent is composed by Nemotron-3-Nano-30B-A3B on Nebius Token Factory and the phone spells the line the model wrote; without a key the same promise fires verbatim, labelled `text_echo` | **An audio-in hearing layer** (`POST /inject/audio`) — wired, opt-in, and contract-tested; it needs an endpoint that accepts audio input, so it is not part of this entry's demonstrated beat |
 | **A feelable timing source and interaction language** — the generated feel-tool
   ([docs/haptic-name-marks.html](docs/haptic-name-marks.html)): name marks, attention
@@ -125,18 +128,17 @@ The track claims are in the *built* column: **an NVIDIA open model on Nebius Tok
 ## Why this track (and why deaf-blind is the use case, not the whole product)
 
 Ziv is for deaf-blind users — people with combined hearing and vision loss. The
-population is small enough that nothing mass-market is built for it, and large enough
-that the gap is real: ~2.4 million Americans with combined hearing and vision loss
+market we surveyed is thin, and the gap is real: ~2.4 million Americans with combined hearing and vision loss
 (HKNC's 2026 DeafBlind Awareness Week statement, sourced in the plan), and the
-submission's competitor table finds no existing product that pairs a haptic braille
-output channel with an AI that can hear. Refreshable braille displays cost
+submission's five-product survey did not find one that pairs a haptic braille
+output channel with a model behind it. Refreshable braille displays cost
 $1,500–$12,000 and have no mic and no agent; braille keyboards ($239–$349) are
 input-only (pricing sources are in the plan). Existing haptic wearables (Neosensory's
 Buzz, for example) carry notifications or awareness cues, not language with a brain.
 
 But deaf-blind is the **use case that proves the channel**, not the only one. The same
 haptic output channel — vibration felt by the wearer, not broadcast to the room — is
-useful any time a reply should be private, glance-free, and free of spoken output: hands-busy or
+useful any time a reply should be quiet, glance-free, and free of spoken output: hands-busy or
 noisy environments, shared spaces, contexts where lighting up a screen would leak the
 exchange and a speaker would leak the message. The deaf-blind companion is the sharpest
 version of that; the phone-as-dev-band architecture is what makes it buildable for the
@@ -155,6 +157,11 @@ The built things are the submission. The rest is held as asset.
   missing — tap **Open the band**, or drive it with the curl calls in `JUDGE_REPRO.md`.
   The console also takes **your own Nebius key** for one compose: nothing is stored,
   and the VM's credit is not spent on it.
+- **Feel the timing source: <https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page>**
+  — the hosted feel-tool ([`docs/haptic-name-marks.html`](docs/haptic-name-marks.html)):
+  name marks, the attention vocabulary, the spell box, and the M1/blind-A/B modes.
+  No install, no key; open on Android Chrome and tap **Play**. Desktop and iOS show the
+  visual rhythm only.
 - **[JUDGE_REPRO.md](JUDGE_REPRO.md)** — every behavioral claim → the test or
   command that proves it, plus a live run-through against that origin and a
   local durability beat (schedule a reminder → kill the relay → restart → it survives).
@@ -176,11 +183,11 @@ The built things are the submission. The rest is held as asset.
 | `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events |
 | `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo; rung 1 is proven on the host, while rung 2's QEMU boot is still pending an IDF install (`docs/QEMU_SIMULATION_LADDER.md`) |
 | `tools/haptic_timing.py` | The timing spec's generator + drift guard (7 generated consumers) |
-| `agent/tests/` | The 19 test modules (230 hermetic tests; the 5 browser-tier tests are marked `e2e`) |
+| `agent/tests/` | The 19 test modules (232 hermetic tests; the 5 browser-tier tests are marked `e2e`) |
 | `tools/build_ziv_demo.py` | The demo-chain single source — one `DEMO_STAGES` generates app, fixture, and docs |
 | `tools/qemu_timeline.py` | The rung-2 differ (bench/boot HAP logs vs the derived fixture) |
 | `docs/` | Plan, timing spec, QEMU ladder, hardware bring-up + shopping |
-| `docs/haptic-name-marks.html` | The feel-tool — the timing source and interaction language, felt on a phone, offline |
+| `docs/haptic-name-marks.html` | The feel-tool — the timing source and interaction language; [hosted here](https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page), and runnable locally |
 | `JUDGE_REPRO.md` · `HONESTY_CHANGELOG.md` | Judge entry points: the claim→proof index and the honesty audit trail |
 
 ---
@@ -218,7 +225,7 @@ with `pip install pytest`. The firmware runners also need a host C compiler —
 carries (see `JUDGE_REPRO.md`).
 
 ```bash
-cd agent && python -m pytest -q                  # hermetic suite (4 e2e deselected)
+cd agent && python -m pytest -q                  # hermetic suite (5 e2e deselected)
 python tools/haptic_timing.py                    # timing drift guard
 python firmware/haptic_out/run_tests.py          # haptic bench
 python firmware/app/ziv_qemu/run_ziv_tests.py    # rung-1 host demo (not a QEMU boot)
@@ -227,8 +234,8 @@ python firmware/app/ziv_qemu/run_ziv_tests.py    # rung-1 host demo (not a QEMU 
 Last run on this tree:
 
 ```
-PASS  hermetic relay suite            199 checks
-PASS  browser tier                      4 checks
+PASS  hermetic relay suite            232 checks
+PASS  browser tier                      5 checks
 PASS  haptic bench                    274 checks
 PASS  rung-1 host demo                 49 checks
 PASS  drift guard                     7 consumers in sync
@@ -241,11 +248,11 @@ keyless echo; the loud failure), the durable store (schedule round-trip across
 instances, corrupt recovery, cap), the two-sided PWA badge contract, the
 busy-sheet compose contract, the client-surface contract (no capture path and
 no dead controls), the demo pre-flight gate's exit codes and reminder cleanup,
-and the loud redial give-up contract. The four browser-tier tests are marked `e2e` and
-deselected by default; they are not part of the 199 verified tests above, but
+and the loud redial give-up contract. The five browser-tier tests are marked `e2e` and
+deselected by default; they are not part of the 232 verified tests above, but
 they run on this tree against the current visible compose flow — the idle
 compose screen and the mid-turn busy-sheet:
-`cd agent && python -m pytest -m e2e` → **4 passed** (~65 s).
+`cd agent && python -m pytest -m e2e` → **5 passed** (~75 s).
 
 The PWA shell has a fail-closed guard of its own:
 `python scripts/ziv_client_cache.py --check` fails when a shell file changed

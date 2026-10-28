@@ -1,9 +1,9 @@
 # Judge Repro Guide — Ziv
 
 Every testable behavioral claim in this guide maps to a test, a command, or a
-captured live-origin response. Two ways in: the **~2.5-minute hermetic test run**
-(no phone, no key) and the **live run-through** (real server, real restart, real
-HTTP). Nothing here needs `NEBIUS_API_KEY`; the model path is proven at the wire
+captured live-origin response. Three ways in: the **hosted feel-tool** (interactive
+timing source, no install), the **~2.5-minute hermetic test run** (no phone, no key),
+and the **live run-through** (real server, real restart, real HTTP). Nothing here needs `NEBIUS_API_KEY`; the model path is proven at the wire
 contract level with a mocked provider, so the turn/gate/queue/close pipeline is
 exercised without a live provider call. With a key and a funded account, post an
 `intent` instead of a `text` on the same schedule call: the relay makes the real
@@ -15,10 +15,17 @@ model is pinned, and `text.last_compose` records the last real call — so the
 same intent can be driven end-to-end by hand, with no key of your own (the
 console also takes your key for a one-shot call; nothing is stored).
 
+The **hosted feel-tool** is at
+<https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page>: the interactive
+version of the generated timing source and attention vocabulary, with name-mark
+cards, the spell box, Session mode (M1), and blind A/B. No install, no key;
+Android Chrome vibrates, desktop and iOS show the visual rhythm only.
+
 Quick index — claim → where it's proven:
 
 | Claim | Proof |
 |---|---|
+| Hosted feel-tool: name marks, attention vocabulary, spell box, M1/A-B | <https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page> (source: `docs/haptic-name-marks.html`; generated from `docs/haptic-timing.json`; drift guard: `tests/test_haptic_timing.py`) |
 | Turn journey order on the wire | `tests/test_ziv_server.py::test_turn_journey_reaches_the_wire_in_order` |
 | Queue-don't-interrupt + 429 | `test_message_is_rejected_429_when_replay_queue_is_full` |
 | Error long-buzz on provider failure | `test_omni_provider_failure_feels_the_error_long_buzz` |
@@ -61,11 +68,11 @@ Green on this checkout, no network and no key. The demo requirements do not pin
 ```bash
 cd agent
 python -m pytest -q
-# -> 199 passed, 4 deselected in about 175 s (2:55), exit 0
+# -> 232 passed, 5 deselected in about 211 s (3:31), exit 0
 ```
 
-That is every hermetic test in the tree: 199 in 14 modules, with the four browser
-tests in the other two modules deselected by their `e2e` marker. The store file
+That is every hermetic test in the tree: 232 in 16 modules, with the five browser
+tests in the other three modules deselected by their `e2e` marker. The store file
 alone is the quick read:
 
 ```bash
@@ -151,6 +158,14 @@ The VM now runs the cap fix (HONESTY_CHANGELOG §1.12), redeployed 2026-10-27
 fix the same intent produced "drink water now" (13 letters) and the player
 silently dropped its final `w`.
 
+On 2026-10-28 the demo take used the scheduled intent `meds at nine`; the
+live model wrote **"meds nine"** (8 cells), and health recorded
+`text.last_compose {ok: true, status: 200}` with `text.available: true`. That
+is the take in the [76.2-second cut](https://youtu.be/t9ovgEjm8i8)
+(source MP4 `media/tts_audition/demo_kore/demo_kore.mp4`, gitignored). The earlier
+`tell me to drink` evidence above is kept as history, not as the current demo
+script.
+
 The same call from Python, if shell quoting is fighting you:
 
 ```python
@@ -203,7 +218,7 @@ cd agent
 ZIV_PORT=8787 python ziv_server.py        # terminal 1
 ```
 
-**1. Schedule a reminder (10 s out) — beat 1, "acts while you're away":**
+**1. Schedule a reminder (10 s out) — beat 1, "the relay acts while the phone is away":**
 
 ```bash
 NOW=$(date +%s)
@@ -310,16 +325,16 @@ desktop Chrome renders the wire log, cells box, badge and redial note, but canno
    `tests/test_client_busy_sheet_contract.py` and were verified on the live
    HTTPS origin on 2026-10-25.
 
-The four `e2e`-marked tests drive the visible compose surfaces:
+The five `e2e`-marked tests drive the visible compose surfaces:
 `#btnWrite` → `#composeInput` → `#btnSendCompose` from the idle screen, and
 `#btnWriteDuring` → the busy-sheet → Send while a turn owns the screens. They
-are deselected from the 199-count hermetic run. With Playwright installed they
+are deselected from the 232-count hermetic run. With Playwright installed they
 run separately:
 
 ```bash
 cd agent
 python -m pytest -m e2e -q
-# -> 4 passed, 199 deselected in about 65 s
+# -> 5 passed, 232 deselected in about 75 s (1:15)
 ```
 
 ---
