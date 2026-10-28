@@ -3,7 +3,7 @@
 Every remaining Devpost form field as a copy-ready block, in form order.
 Companion to `DEVPOST_UPLOAD_CHECKLIST.md` (the map) and
 `DEVPOST_PROJECT_STORY.md` (the Project Story block — not repeated here).
-All numbers verified against the repo: 199 passed / 4 e2e, 274-check
+All numbers verified against the repo: 232 passed / 5 e2e, 274-check
 firmware bench, 49-check ziv_qemu host suite, 27 HAP events.
 
 ---
@@ -16,10 +16,10 @@ firmware bench, 49-check ziv_qemu host suite, 27 HAP events.
 Ziv
 ```
 
-**Elevator pitch** (100 chars; field allows 200)
+**Elevator pitch** (81 chars; field allows 200)
 
 ```
-Messages you can feel. Private by touch, not by broadcast. A haptic channel with an agent behind it.
+Messages you can feel. No spoken reply. A haptic channel with an agent behind it.
 ```
 
 **Thumbnail** — upload `docs/devpost_thumbnail.png` (1500×1000, 3:2,
@@ -29,17 +29,17 @@ Messages you can feel. Private by touch, not by broadcast. A haptic channel with
 
 ## 2. Project details step
 
-**Short description** (326 chars as written — trim to the fallback below
+**Short description** (309 chars as written — trim to the fallback below
 only if the field enforces a cap)
 
 ```
-Ziv is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory writes the line, and your phone plays it as braille-rhythm vibrations you read by touch — no audio output, no spoken reply. A reminder you schedule while busy fires on its own, composed by that model, and arrives as a turn you feel.
+Ziv is a message channel for your phone: an NVIDIA open model on Nebius Token Factory writes the line, and your phone plays it as braille-rhythm vibrations you feel — no audio output, no spoken reply. A reminder you schedule while busy fires on its own, composed by that model, and arrives as a turn you feel.
 ```
 
-**Short description — fallback (≤200 chars, 183)**
+**Short description — fallback (≤200 chars, 175)**
 
 ```
-A private message channel: an NVIDIA open model on Nebius Token Factory writes a line, and your phone plays it as braille-rhythm vibrations you feel. No audio output, no spoken reply.
+A message channel: an NVIDIA open model on Nebius Token Factory writes a line, and your phone plays it as braille-rhythm vibrations you feel. No audio output, no spoken reply.
 ```
 
 **Project Story** — paste `DEVPOST_PROJECT_STORY.md` whole (template
@@ -80,21 +80,23 @@ absent. They name specific silicon for the next revision, and in a chip
 row that reads as delivered hardware — the honest chips are the platform
 (`ESP32`, `ESP-IDF`, `Embedded C`), whose firmware is in this repo.
 
-**GitHub repo link / "Try it out"**
+**GitHub repo link + hosted feel-tool / "Try it out"**
 
 ```
 https://github.com/razukc/ziv
+https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page
 ```
 
-Paste it under **Try it out** links too — judges land on the README's
-"For judges" block. Optional second link (only if the relay is publicly
-reachable for the demo window): leave empty otherwise; the video + repo +
-JUDGE_REPRO steps carry the demo.
+Paste both under **Try it out** links too — the first is the repo (judges land
+on the README's "For judges" block), and the second is the hosted feel-tool:
+name marks, the attention vocabulary, the spell box, and the M1/A-B modes, with
+no install and no key. The live relay remains `https://35-224-56-20.sslip.io`
+for the full PWA demo; the video + repo + JUDGE_REPRO steps carry the rest.
 
-**Video demo link** — YouTube or Vimeo URL of the narrated demo
-(see checklist §2: the narrated-beat pipeline names the required tools
-with audio). Devpost embeds it at the top of the public page; upload
-unlisted-but-linkable and confirm it plays before submitting.
+**Video demo link** — <https://youtu.be/t9ovgEjm8i8>
+(unlisted; 76.2 s, Kore narration, burned-in captions). Devpost embeds it at
+the top of the public page; verified playable from a signed-out incognito
+session before submitting.
 
 **Image gallery** — 9 shots from `agent/gallery_shots/` (2520×1680, 3:2,
 54–234 KB), captions one-per-image from `agent/gallery_shots/CAPTIONS.md`;
@@ -107,13 +109,13 @@ suggested pick of 4–6 and the shot table are in checklist §3.
 **What does your project do?**
 
 ```
-Ziv (working title) is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages when no phone is attached, fires scheduled reminders while you're away, and remembers your pacing. Always-on is the relay's property: it schedules, composes, and stores while you're away; the phone renders each event while its page is open. This submission is a phone-based demo; the wrist device is not part of this entry.
+Ziv (working title) is a message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and the phone plays what it says as braille-rhythm vibrations framed by an attention vocabulary — arrival cue, working ticks, end-of-message close. The channel queues instead of interrupting, stores messages in a capped inbox when no phone is attached, and schedules reminders on the relay. "Always-on" describes the relay, not the phone: it schedules, composes, and stores while the phone is away; the phone renders each event only while its page is open and connected, with no background push or lock-screen delivery. This submission is a phone-based demo; the wrist device is not part of this entry.
 ```
 
 **What makes your project unique?**
 
 ```
-No shipping product turns vibration into a channel that carries language, with an agent behind it: phone buzzes are context-free doorbells; haptic wristbands translate sound into abstract awareness; smartwatches mirror notifications but still demand the eyes for anything that matters. Ziv's combination is new: a serial haptic channel with enforced courtesy (queue-don't-interrupt as relay behavior), a two-layer vocabulary (attention patterns for anyone, braille text for readers), an agent that acts while you're away, and one generated timing source shared by the phone today and the wrist firmware of the next revision (the phone boots its patterns from GET /api/ziv/timing, the serialized generated module).
+In the five products we surveyed, we did not find one that turns vibration into a channel carrying language with an agent behind it: phone buzzes are context-free doorbells; haptic wristbands translate sound into abstract awareness; smartwatches mirror notifications but still demand the eyes for anything that matters. Ziv's contribution is the combination: a serial haptic channel with enforced courtesy (queue-don't-interrupt as relay behavior), a two-layer vocabulary (attention patterns for anyone, braille text for readers), a relay that schedules and stores while the phone is away, and one generated timing source shared by the phone today and the wrist firmware of the next revision (the phone boots its patterns from GET /api/ziv/timing, the serialized generated module).
 ```
 
 **What challenges did you face?**
@@ -155,9 +157,8 @@ describe for the "existing project" essay — leave it empty)
 **Upload a File (one file, ≤35 MB)**
 
 ```
-Zip of the current submission tree (minus gitignored
-wearer state), or a PDF of JUDGE_REPRO.md if a single-document proof is
-preferred.
+docs/JUDGE_REPRO.pdf — 8 pages, 350 KB, rendered from JUDGE_REPRO.md.
+Attached to the submitted entry.
 ```
 
 **Which model(s) did you use, and why did you choose that size/variant?**
@@ -312,7 +313,7 @@ section verbatim. Every external claim in the submission has a row there.
 
 1. Overview: name → pitch → thumbnail upload.
 2. Details: short description → Project Story → Built With (23 tags) →
-   repo link (GitHub + Try it out) → video URL → gallery uploads + captions.
+   repo + hosted feel-tool under **Try it out** → video URL → gallery uploads + captions.
 3. Devpost-specific questions: five blocks from §3 above.
 4. Additional info: submitter/country/age → upload zip → questionnaire
    §4 (Tavily = No) → Builders & Brews city → eligibility checkboxes.

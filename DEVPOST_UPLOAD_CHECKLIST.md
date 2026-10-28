@@ -4,15 +4,20 @@ Team-facing upload guide. Everything maps to files already in this repo —
 paste, don't rewrite. Pick **one narrative voice** for the description
 fields (recommended: the product-first `DEVPOST_HAPTIC_GENERIC.md`, which
 keeps the deaf-blind case in its own section) and stay in that voice for
-every field. Before you record or upload, run the gate:
+every field. Before you re-record or re-upload, run the gate:
 
 ```bash
-cd agent && python -m pytest -m "not e2e"   # → 199 passed (4 e2e deselected)
-python -m pytest -m e2e                     # → 4 passed (needs Playwright)
+cd agent && python -m pytest -m "not e2e"   # → 232 passed (5 e2e deselected)
+python -m pytest -m e2e                     # → 5 passed (needs Playwright)
 ```
 
 **Deadline: submissions close Friday, October 30, 10:00 AM PT.** The draft
 page's own counter is the source of truth — don't plan a last-day upload.
+
+**State (2026-10-28):** submitted — public page
+<https://devpost.com/software/ziv>; video <https://youtu.be/t9ovgEjm8i8>
+(unlisted, 76.2 s, Kore cut); judges-only PDF attached. The fields below
+remain editable until the deadline.
 
 ---
 
@@ -21,7 +26,7 @@ page's own counter is the source of truth — don't plan a last-day upload.
 | Devpost field | Paste from | Notes |
 |---|---|---|
 | **Project name** | GENERIC "Project Name" | `Ziv` — keep "*(working title)*" out of the field; the working-title honesty lives in the description |
-| **Elevator pitch** (overview step) | Paste: "Messages you can feel. Private by touch, not by broadcast. A haptic channel with an agent behind it." | 100 chars — fits the field's 200-char cap |
+| **Elevator pitch** (overview step) | Paste: "Messages you can feel. No spoken reply. A haptic channel with an agent behind it." | 81 chars — fits the field's 200-char cap |
 | **Thumbnail** (overview step) | Upload `docs/devpost_thumbnail.png` | 1500×1000 (3:2), 463 KB; regenerate with `python tools/devpost_thumbnail.py`. Same brand card as the social preview, plus the NVIDIA/Nebius stack line |
 | **Short description** | GENERIC "Short Description (one-liner)" | 342 chars as written; a 183-char fallback lives in DEVPOST_FIELDS.md if the field complains |
 | **Description** | GENERIC **Our Solution → What it does → Why It Matters → A scene from the demo → Use cases** | Keep section order; the Use cases section is the one place the deaf-blind case appears — keep it that way |
@@ -32,7 +37,7 @@ page's own counter is the source of truth — don't plan a last-day upload.
 | **"What hackathon track are you in?"** | GENERIC → Devpost-Specific Answers | Best Apps and Agents |
 | **GitHub repo link** | `https://github.com/razukc/ziv` | Judges land on the README's "For judges" block; the current submission tree is the verified tree. Public-repo requirements are a graded form item — see §6 |
 | **"Built with" chips** | NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32, Python | Add chips exactly as listed. Part-number chips (`ESP32-S3`, `DRV2605L`) are deliberately left out — they name silicon that is not on a board, and in a chip row that reads as delivered hardware. NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
-| **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Organizer ask: name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack. Upload `agent/demo_full_narrated.mp4` (**107 s**, full six-beat cut): the voiceover names both, the band plays **"drink water now"** for the scheduled intent `tell me to drink` (a line the model wrote), the queue/refusal and redial are shown, and the relay is really restarted before `pills` fires. `agent/demo_live_narrated.mp4` (54 s) is the shorter live-only alternative. **Re-record after §1.12:** the cap fix that makes a composed line fit 12 cells landed after this take, so the band on screen spells `drinkwaterno` — the last `w` of "drink water now" is dropped — and today's relay composes `drink water` (10 letters) instead. This take also predates the 2026-10-28 claim sweep: its cold-open card says "no screen to glance at" and its closing card says "Nobody else can see." Re-record before upload. |
+| **Demo video** | See shot list below | Uploaded to YouTube (unlisted): `https://youtu.be/t9ovgEjm8i8` — `media/tts_audition/demo_kore/demo_kore.mp4` (**76.2 s**, Kore voice, burned-in captions): gallery-slide intro → live channel turn → `flow` slide → live model beat for the scheduled intent **`meds at nine`** (the model wrote **`meds nine`**) → `haptics` and `honesty` briefs → closing card. The voiceover names Nebius Token Factory and the NVIDIA model. This replaces the older 107 s and 54 s cuts, which predate the 12-cell cap fix and the 2026-10-28 claim sweep. The MP4 is gitignored: upload it from the workspace, not from the repo. |
 | **Screenshot gallery** | See shot list below | 4–6 images, each with its caption — §3 |
 
 Do **not** paste: `HONESTY_CHANGELOG.md` and `JUDGE_REPRO.md` are repo
@@ -43,38 +48,23 @@ trail is HONESTY_CHANGELOG.md."*
 
 ## 2. Demo video shot list (≤3 min, follows GENERIC's outline)
 
-1. **0:00–0:20 cold open** — phone face-down and silenced in a meeting;
-   it buzzes; fingers read; the room hears no spoken reply. Title card:
-   "A message only one person receives."
-2. **0:20–1:10 the channel** — typed message sends; capture the dev-band
-   page wire log top-down: `▶ double-tap (kind cue)` → `▶ processing
-   (working)` → `message: <text>` text frame → per-letter `cell` frames →
-   `▶ end-of-message (close)`. Then a second send mid-turn: cue only,
-   badge count ticks up, auto-replay after the close.
-3. **0:20–1:10 (b) the refusal** — keep sending until the badge shows
-   `refusing — queue full (8/8)`; show the HTTP 429 and the busy note; then
-   the redial: `↻ redial armed — … 3 chances left`, the auto resend on the
-   freeing close, `POST ok`.4. **1:10–1:50 the stack** — the model-path beat (live only with a funded
-    Nebius Token Factory key).
-    Schedule an *intent* by curl (`{"intent": "tell me to drink", "fire_at": …}`);
-    with a key the relay calls Nemotron-3-Nano-30B-A3B on Nebius Token Factory
-    and plays the line the model wrote; the relay's own `last_compose` record
-    names the model and status, and the wire log shows the composed line rather
-    than the intent. With no key the same beat fires the promise verbatim —
-    the relay records `text_echo` instead of claiming a model ran.
-    The full cut (`agent/demo_full_narrated.mp4`) captures this beat: the intent
-    `tell me to drink` plays **"drink water now"**, and the relay's
-    `last_compose` record is `{ok: true, status: 200}` on the NVIDIA model.
-    Flash the README's "Tests" block — 274-check bench, 49-check host suite,
-    drift-guard result — and `docs/haptic-timing.json`.
-5. **1:50–2:30 the agent acts while you're away** — a finished `text`
-   reminder, scheduled by curl, fires unprompted: `reminder: pills`
-   narration, Z-I-V cells, `triple-pulse`, close. Then the durability beat:
-   kill the relay, restart, `GET /api/ziv/schedule` returns the same
-   reminder. Close the tab, send while away → `inbox:stored`; reattach →
-   replay arrives as a self-naming turn.
-6. **2:30–3:00 who it serves** — the GENERIC Use-cases paragraph (everyday
-   contexts, then the deaf-blind case), the ask line, and the repo URL.
+1. **0:00–0:06 hero slide** — the gallery hero: "A haptic message channel
+   for deaf-blind users." The voice names Ziv and the channel.
+2. **0:06–0:23 the live channel turn** — the actual dev-band page: typed
+   message, arrival cue, working ticks, cells, close. The voice explains the
+   one pipeline and the shared timing spec.
+3. **0:23–0:33 `flow` slide** — sender → relay → phone; a typed message or a
+   scheduled intent takes the same path, one turn at a time.
+4. **0:33–0:47 the live model beat** — scheduled intent **`meds at nine`**;
+   the relay calls Nemotron-3-Nano-30B-A3B on Nebius Token Factory; the band
+   spells **`meds nine`**. The voice says the relay's own record says the model
+   call succeeded; the wire log names `text_live`.
+5. **0:47–0:57 `haptics` slide** — cue, spell, close; cues need no braille
+   literacy, and braille is the layer for readers.
+6. **0:57–1:05 `honesty` slide** — built now vs next revision: phone today,
+   wrist next; 232 hermetic tests green in the current suite.
+7. **1:05–1:16 closing card** — repo URL, scope, and the tagline. The phone
+   stays silent; the channel's audio output is none.
 
 Recording notes: capture the dev-band page at desktop width (the wire log
 is the star); record phone vibration close-ups with a second angle; keep
@@ -83,31 +73,30 @@ each wire-log scroll readable (bump browser zoom to 125%).
 **Say the required names out loud.** The organizers' own tip: name Nebius
 Token Factory / AI Cloud and the NVIDIA model "clearly — in your demo
 video, not just a passing mention." Two scripted paths do this themselves
-(SAPI voiceover + ffmpeg mux, per-phase marks kept for re-mixing):
+(TTS voiceover + ffmpeg mux, per-phase marks kept for re-mixing):
 
--  `agent/record_full_demo.py` — the **whole §2 outline in one take**
-  (cold-open card → channel → the model-path beat → refusal → the
-  durability beat with a real relay kill/restart → closing card) →
-  `demo_full_narrated.mp4` (**107 s**, uploaded as the unlisted YouTube clip).
-  This take was recorded against the public origin with the funded key: the
-  intent `tell me to drink` was composed live into **"drink water now"**, and
-  the relay's `last_compose` says `{ok: true, status: 200, model: NVIDIA…}`.
-  The soundtrack is generated from that same record — a keyless take would
-  narrate the verbatim `text_echo` path instead, and the closing card says so.
-  The beat is otherwise identical either way: same turn pipeline, same cue →
-  processing → cells → close, same refusal fill, same drain. No Omni model is
-  shown or named anywhere in this take — it is held as asset, not
-  demonstrated. On the public host the durability step restarts the systemd
-  unit over SSH and leaves it running; a local run owns the relay lifecycle on
-  :8787, sweeps stray relays, and refuses a poisoned gate.
+-  `agent/record_full_demo.py` — the live take recorder used for the current
+   cut (cold-open card → channel → the model-path beat → closing card) →
+   `agent/demo_live.webm` plus marks. The 2026-10-28 take was recorded against
+   the public origin with the funded key: the intent **`meds at nine`** was
+   composed live into **`meds nine`**, and the relay's `last_compose` says
+   `{ok: true, status: 200, model: NVIDIA…}`. A keyless take would narrate the
+   verbatim `text_echo` path instead. No Omni model is shown or named in this
+   take — it is held as asset, not demonstrated.
+-  `media/tts_audition/build_demo_kore.py` — builds the **76.2 s** captioned
+   cut from that take, with the hero/flow/haptics/honesty slides and Kore’s
+   narration → `media/tts_audition/demo_kore/demo_kore.mp4`. The MP4 is
+   gitignored; upload it from the workspace.
 - `agent/record_beat_narrated.py` — just the 0:20–1:10 beat against a
   self-started relay on :8787 (`ZIV_FAKE_MODEL_SECONDS=8`) →
   `demo_beat_narrated.mp4`.
 
-`ZIV_TAKE=live` on `record_full_demo.py` records the shorter four-beat live
-cut → `demo_live_narrated.mp4` (54 s): cold open, channel, live NVIDIA compose,
-closing. It reads the live claim from the relay's health record, not the local
-`.env`, and leaves the deployed relay running. Both modes use the installed
+`ZIV_TAKE=live` on `record_full_demo.py` records the four-beat live take →
+`agent/demo_live.webm` (**48.2 s** silent): cold open, channel, live NVIDIA
+compose, closing. It reads the live claim from the relay's health record, not
+the local `.env`, and leaves the deployed relay running. The current cut uses
+that silent master and rebuilds the narration in Kore, so do not upload the
+SAPI `demo_live_narrated.mp4` (66.9 s) instead. Both modes use the installed
 Chrome channel for capture (the headless shell crashed its renderer after
 ~90 s) and count wire events in page state, because the client's log trims at
 60 lines.
@@ -159,9 +148,9 @@ them, trimming long sub-lists rather than rewriting:
 | `## What we learned` | "What We Learned" (direct paste) |
 | `## What's next for Ziv` | "What's next for Ziv" (wrist revision + the numbered list; keep the open-decision points — learnability, naming) |
 | **Built with** (≤25 tags) | NVIDIA Nemotron-3-Nano-30B-A3B, NVIDIA, Nebius Token Factory, Nebius AI Cloud, FastAPI, WebSockets, Python, Android, PWA, Vibration API, ESP32, ESP-IDF, Embedded C, braille, haptics, accessibility, deaf-blind, assistive tech, uvicorn, pytest, Playwright, HTTP 429, agents — add **Nebius Token Factory** and **NVIDIA** as standalone chips; organizers check for them by name |
-| **"Try it out" links** | GitHub repo `https://github.com/razukc/ziv` (+ the working-demo URL from §6 if one is hosted) |
+| **"Try it out" links** | GitHub repo `https://github.com/razukc/ziv` + hosted feel-tool `https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page` (no install, no key) + live PWA `https://35-224-56-20.sslip.io` |
 | **Image gallery** | 9 shots from §3, each with its caption |
-| **Video demo link** | YouTube or Vimeo URL — Devpost embeds it at the top of the public page; upload unlisted-but-public-linkable and confirm it plays |
+| **Video demo link** | `https://youtu.be/t9ovgEjm8i8` — unlisted, 76.2 s Kore cut; verified playable from a signed-out incognito session. Devpost embeds it at the top of the public page. |
 
 ## 5. Additional info (judges-only) — paste-ready answers
 
@@ -174,9 +163,8 @@ anyone without naming the tool). Paste-ready drafts:
 - **Submitter type / country / track / new-or-existing:** Individual ·
   Nepal · **Best apps and agents** · **New** (leave the "existing" essay
   empty).
-- **Upload a File (≤35 MB):** a zip of the current submission tree (minus
-  gitignored state) — or a PDF of JUDGE_REPRO.md. One
-  file only; zip multiples.
+- **Upload a File (≤35 MB):** attached: [docs/JUDGE_REPRO.pdf](docs/JUDGE_REPRO.pdf)
+  — the 8-page judge repro guide. One file only; zip multiples.
 - **The eight required Nemotron/Nebius answers are written once, in
   [DEVPOST_FIELDS.md](DEVPOST_FIELDS.md) §4 — paste them from there.**
   Do not keep a second copy here: two copies of an answer is how a stale
@@ -248,11 +236,11 @@ lost:
 
 ## 9. Pre-flight (final)
 
-- [ ] `pytest -m "not e2e"` → 199 passed (4 e2e deselected); `-m e2e` → 4 passed
+- [ ] `pytest -m "not e2e"` → 232 passed (5 e2e deselected); `-m e2e` → 5 passed
 - [ ] Video ≤ 3:00, every outline beat present, wire log readable, and
       Token Factory + Nemotron **named aloud** (§2's narrated pipeline),
       uploaded as MP4/WebM with the audio track present in the file
-- [ ] Every number in the description matches the repo (199 passed / 4 e2e,
+- [ ] Every number in the description matches the repo (232 passed / 5 e2e,
       274-check firmware bench, 49-check ziv_qemu host suite, 27 HAP events
       — JUDGE_REPRO.md is the source of truth)
 - [ ] Both deferral sentences intact (AI-composed replies = next build
