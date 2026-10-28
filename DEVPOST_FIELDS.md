@@ -16,36 +16,36 @@ firmware bench, 49-check ziv_qemu host suite, 27 HAP events.
 Ziv
 ```
 
-**Elevator pitch** (93 chars, cap ~100)
+**Elevator pitch** (100 chars; field allows 200)
 
 ```
-Messages you can feel. Nobody else can see. A private haptic channel with an agent behind it.
+Messages you can feel. Private by touch, not by broadcast. A haptic channel with an agent behind it.
 ```
 
 **Thumbnail** — upload `docs/devpost_thumbnail.png` (1500×1000, 3:2,
-476 KB; regenerate: `python tools/devpost_thumbnail.py`).
+463 KB; regenerate: `python tools/devpost_thumbnail.py`).
 
 ---
 
 ## 2. Project details step
 
-**Short description** (331 chars as written — trim to the fallback below
+**Short description** (326 chars as written — trim to the fallback below
 only if the field enforces a cap)
 
 ```
-Ziv is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory does the thinking, and your phone plays what it says as braille-rhythm vibrations you read by touch — no screen, no sound, nothing for the room to see or overhear. A reminder you schedule while busy fires on its own, composed by that model, and arrives as a turn only you can read.
+Ziv is a private message channel for your phone: an NVIDIA open model on Nebius Token Factory writes the line, and your phone plays it as braille-rhythm vibrations you read by touch — no audio output, no spoken reply. A reminder you schedule while busy fires on its own, composed by that model, and arrives as a turn you feel.
 ```
 
-**Short description — fallback (≤200 chars, 164)**
+**Short description — fallback (≤200 chars, 183)**
 
 ```
-A private message channel: an NVIDIA open model on Nebius Token Factory thinks, and your phone plays what it says as braille-rhythm vibrations you read by touch — silent, invisible, an agent behind it.
+A private message channel: an NVIDIA open model on Nebius Token Factory writes a line, and your phone plays it as braille-rhythm vibrations you feel. No audio output, no spoken reply.
 ```
 
 **Project Story** — paste `DEVPOST_PROJECT_STORY.md` whole (template
 headings + Sources included).
 
-**Built with** (25/25 tags — paste one at a time; `NVIDIA`,
+**Built with** (23/25 tags — paste one at a time; `NVIDIA`,
 `Nebius Token Factory`, and `Nebius AI Cloud` are the chips organizers
 check for by name, do not trim them)
 
@@ -61,8 +61,6 @@ Android
 PWA
 Vibration API
 ESP32
-ESP32-S3
-DRV2605L
 ESP-IDF
 Embedded C
 braille
@@ -76,6 +74,11 @@ Playwright
 HTTP 429
 agents
 ```
+
+The two part-number chips (`ESP32-S3`, `DRV2605L`) are deliberately
+absent. They name specific silicon for the next revision, and in a chip
+row that reads as delivered hardware — the honest chips are the platform
+(`ESP32`, `ESP-IDF`, `Embedded C`), whose firmware is in this repo.
 
 **GitHub repo link / "Try it out"**
 
@@ -117,16 +120,16 @@ No shipping product turns vibration into a channel that carries language, with a
 
 ```
 1. Rendering language as rhythm: cell → dot bitmask → vibration waveform timing, with pacing as the first-class control — and learnability named as the #1 open risk.
-2. Making waiting legible: working ticks during the round-trip, a felt close at the end — latency may be slow, never silent.
+2. Making waiting legible: working ticks during the round-trip, a felt close at the end — latency may be slow; the channel is designed to say it is working.
 3. Courtesy as architecture: the serial channel cannot interrupt, so the queue, the 429 refusal, and the release semantics live in the relay, not the UI.
 4. Keeping the infrastructure honest: the relay runs on our infrastructure; wearer self-hosting is the next revision.
-5. Putting a live model inside a channel with no screen and no speaker: the reminder you set while busy is composed by an NVIDIA open model on Nebius Token Factory and arrives as the same turn a person's message takes. The model is not a chat window bolted on beside the channel — it is the thing whose words the wrist reads.
+5. Putting a live model inside a channel whose wearer-facing output is vibration: the reminder you set while busy is composed by an NVIDIA open model on Nebius Token Factory and arrives as the same turn a person's message takes. The model is not a chat window bolted on beside the channel — it is the thing whose words the phone plays.
 ```
 
 **What technologies did you use?**
 
 ```
-NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory, FastAPI, WebSockets, Android Vibration API. (The wrist hardware — ESP32-S3 + DRV2605L + 6 LRA motors — is not part of this phone-based demo.)
+NVIDIA Nemotron-3-Nano-30B-A3B on Nebius Token Factory, FastAPI, WebSockets, the Android Vibration API — plus the ESP-IDF firmware module that plays the same generated timing (274 host checks against a mock driver). No wrist board is flashed for this demo.
 ```
 
 **What hackathon track are you in?**
@@ -142,15 +145,6 @@ Best Apps and Agents Track
 Every field below is required; feedback on Nebius/NVIDIA is a graded part
 of the submission, not an afterthought. Be specific per tool.
 
-> **Before you paste section 4:** the one field that needs a live run is the
-> Nemotron output-quality rating. Because API credit had run out before
-> submission, the slots in the answer below are filled from a no-live-call
-> admission rather than a real probe line. Before you paste, run
-> `python tools/model_probe.py` with a funded account and replace the three
-> slots -- the line, the length, and the round-trip seconds -- with the real
-> measurement. Do not submit with a no-live-call admission still in place.
-
-
 **Submitter type / country / project age**
 
 ```
@@ -161,7 +155,7 @@ describe for the "existing project" essay — leave it empty)
 **Upload a File (one file, ≤35 MB)**
 
 ```
-Zip of the verified tree (the submission-v1 tag content, minus gitignored
+Zip of the current submission tree (minus gitignored
 wearer state), or a PDF of JUDGE_REPRO.md if a single-document proof is
 preferred.
 ```
@@ -171,41 +165,37 @@ preferred.
 ```
 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B, served through Nebius Token Factory's
 OpenAI-compatible API. The channel's job is to write one short line of plain
-language, not to reason for long — a 30B-A3B (3B active) model is the
-smallest thing that is fluent without sounding like a form letter, and at
-temperature 0 it is stable enough that the same reminder intent produces the
-same line twice, which matters when a wearer is learning to recognise turns
-by rhythm. Token Factory lists it ready-to-serve, so there is no GPU to
+language, not to reason for long — a 30B-A3B (3B active) model is small enough
+to answer without a long reasoning pass and fluent enough not to sound like a
+form letter, and a short line is what a wearer learning to recognise turns by
+rhythm can hold. Token Factory serves it on demand, so there is no GPU to
 provision and no weights to host. We read the id off the account's
 GET /v1/models rather than off the model card, which is the only source that
 does not lie.
 ```
 
-**How would you rate Nemotron's output quality for your use case? (1–10)**```
-9. The probe line(`python tools/model_probe.py`): ""requires live Nebius Token Factory credit to run -- no calls were possible before submission, so the rating is not from a live model line and should be updated from a real run before paste."" -- 189 characters, no live round trip could be measured. The constraint that decides this rating is not fluency, it is length and register: the output is spelled on a wrist one cell at a time, so a good answer is short, has no markdown and no preamble, and reads as a bare phrase with no screen to lean on. We pinned that in the system prompt instead of post-filtering the model's output, and we guarded the failure direction that actually hurts -- a provider error becomes an error long-buzz plus a 502 carrying the provider's own words, never a silent empty line. Without a key the promise still fires verbatim, labelled `text_echo`, so the log never claims a model ran when none did.
+**How would you rate Nemotron's output quality for your use case? (1–10)**
+
+```
+9. The constraint that decides this rating is not fluency, it is length and register: the output is spelled to a wearer one cell at a time, so a good answer is short, has no markdown and no preamble, and reads as a bare phrase with no visual formatting to lean on. We put that in the system prompt, then measure the composed line with the same spelling the band plays: a line that does not fit 12 cells is re-asked or refused as `too_long`, never sliced, and digits are respelled as words because the band has no cell for one. A compose failure never plays an empty line — the judge-key path answers 502 with the provider's own words, and the scheduled path falls back to the intent as `text_echo`; the error long-buzz belongs to a failed turn on the band, not a failed compose.
 ```
 
 
-> This answer is pre-composed from the probe output by the same logic that
-> writes the README proof block. The slots above are already filled from a
-> no-live-call admission because API credit had run out before submission, so
-> there was no real round-trip to measure. Before you paste, re-run
-> `python tools/model_probe.py` with a funded account and replace the three
-> slots -- the line, the length, and the round-trip seconds -- with the real
-> measurement. The probe's own one-line rating is also acceptable as the line
-> if you prefer it. Either way the number comes from a live call, not this
-> text.
+> This is the saved answer in the Devpost form. The 0.63 s probe and the
+> 10.8 s scheduled turn are from the 2026-10-27 live run recorded in
+> `agent/VM_ONLINE.md`; there are no placeholder slots to fill before paste.
 
 **Did you fine-tune, prompt-engineer, or use Nemotron out of the box? What was your approach?**
 
 ```
 Out of the box, via Token Factory's OpenAI-compatible chat/completions
-endpoint — no fine-tuning, and the only prompt engineering is a system
-message that states the channel's constraints (one line, short, plain words,
-no quotes or markdown). The integration is one async function in
-agent/ziv_server.py, its request contract pinned by a mocked-provider test,
-and without a key the relay still fires the promise: verbatim, and labelled
-text_echo on the wire, so the log never claims a model ran when none did. A
+endpoint — no fine-tuning. The prompt engineering is a system message that
+states the channel's constraints (one line, short, plain words, no quotes or
+markdown), plus two short corrective retries when a line does not fit the
+band's 12 cells. The integration is one async provider call in
+agent/ziv_server.py, its request contract pinned by a mocked-provider test;
+without a key the relay still fires the promise, verbatim, labelled
+`text_echo` on the wire, so the log never claims a model ran when none did. A
 fine-tuned braille-output model is held as asset, not part of this
 submission.
 ```
@@ -215,10 +205,11 @@ submission.
 ```
 We ran no head-to-head benchmark, so the honest answer is integration
 experience rather than a leaderboard result. What we did measure is the
-property that actually decides this channel: round-trip time against the
-turn budget, because a haptic turn has a latency ceiling a chat window does
-not. Past a few seconds the wearer feels working ticks instead of silence,
-which is why the pacing guard is part of the design and not an afterthought.
+property that decides this channel: a live provider probe answered in
+0.63 s, and scheduled turns played in about 10.8 s end to end, playback
+included. Past a few seconds the wearer feels working ticks instead of
+silence, which is why the pacing guard is part of the design and not an
+afterthought.
 ```
 
 **Which Nebius platform capabilities were most valuable to your project and how?**
@@ -228,8 +219,8 @@ Nebius Token Factory: one OpenAI-compatible endpoint and one key. The
 relay's model client is a standard HTTP POST — the same client shape a judge
 already has code for — and key management lives in a gitignored .env, so the
 public repo ships without secrets. The capability Ziv is built around is that
-a hosted model can sit inside a channel with no screen and no speaker: one
-call turns a bare intent ("meds at nine") into the line the wrist spells,
+a hosted model can sit inside a channel whose output is vibration, not audio: one
+call turns a bare intent ("meds at nine") into the line the band plays,
 with no GPU to provision and no weights to host. GET /v1/models is also the
 honest source of truth for what is servable — we read the model id off it
 instead of guessing.
@@ -247,13 +238,14 @@ GET /v1/models settles it in one call.
 
 **How would you rate your experience running Nemotron inference on Nebius compared to previous cloud or local development environments? (1–10) + why**
 
-```9. No GPU provisioning, no model hosting, a contract that is the familiar
-OpenAI one, and per-request keys — which is why the demo could be recorded
-against a real model while still running keyless for anyone who clones the
-repo. The friction was self-inflicted rather than the platform's: we had a
-model id from the model card that this account does not serve, and the
-failure came back as a plain 404 naming the exact id. That is the best kind
-of failure — it told us the truth in one line.
+```
+9. No GPU provisioning, no model hosting, a contract that is the familiar
+OpenAI one, and one account key — which is why the demo runs against a real
+model on the VM while the relay still serves a keyless path for anyone who
+clones the repo. The friction was self-inflicted rather than the platform's:
+we had a model id from the model card that this account does not serve, and
+the failure came back as a plain 404 naming the exact id. That is the best
+kind of failure — it told us the truth in one line.
 ```
 
 **What additional features or improvements would have made the experience more effective?**
@@ -261,10 +253,10 @@ of failure — it told us the truth in one line.
 ```
 1. A copy-paste listing of the model ids an account can actually call —
    GET /v1/models does this today, but we only went looking after a 404.
-   2. Per-request latency headers, so the working-tick pacing can be tuned
-   against a measured round-trip instead of a fixed budget. 3. Streaming
-   completions: a turn that could start spelling before the line is finished
-   would take the dead time off the front of every answer.
+2. Per-request latency headers, so the working-tick pacing can be tuned
+   against a measured round-trip instead of a fixed budget.
+3. Streaming completions: a turn that could start spelling before the line
+   is finished would take the dead time off the front of every answer.
 ```
 
 **What do you most hope to see from the Nemotron team next?**
@@ -272,8 +264,8 @@ of failure — it told us the truth in one line.
 ```
 Smaller and faster variants with stable low-latency serving — a wearable
 round-trip lives or dies on time-to-first-token. And more public examples of
-a model whose output is consumed by something that is not a screen, because
-that is the shape we are optimising for and there is very little guidance on
+a model whose output is consumed outside a chat window, because
+that is the shape we are optimizing for and there is very little guidance on
 it written down.
 ```
 
@@ -289,6 +281,23 @@ Ziv makes none. Answer honestly; do not select Yes.)
 **Builders & Brews city / age & eligibility checkboxes** — your call at
 submit time; both eligibility boxes must be ticked to save the step.
 
+**Which AI tools have you leveraged while working on this project?**
+
+```
+Two different things, so two answers. In the running product the only AI is
+nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B on Nebius Token Factory's
+OpenAI-compatible endpoint: one async provider call in agent/ziv_server.py
+turns a bare intent into the line the band spells, and the same relay still
+works keyless for anyone who clones it. In the build, I used an AI coding
+assistant (Codebuff) to write and refactor much of the code and documentation
+under my direction — its commits carry a Co-Authored-By trailer; the prompts,
+scope decisions and final review are mine, and every behavioural claim about
+the relay is pinned by the test suite in agent/tests/. That suite is what kept
+AI-written code honest: it caught two silent data-loss bugs, a third surfaced
+when I probed the seam directly, and the compose tests now pin the 12-cell cap
+that one recorded take exposed by dropping a line's last letter.
+```
+
 ---
 
 ## 5. Description → Sources section
@@ -302,7 +311,7 @@ section verbatim. Every external claim in the submission has a row there.
 ## 6. Paste-order summary (fast entry)
 
 1. Overview: name → pitch → thumbnail upload.
-2. Details: short description → Project Story → Built With (25 tags) →
+2. Details: short description → Project Story → Built With (23 tags) →
    repo link (GitHub + Try it out) → video URL → gallery uploads + captions.
 3. Devpost-specific questions: five blocks from §3 above.
 4. Additional info: submitter/country/age → upload zip → questionnaire

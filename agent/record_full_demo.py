@@ -137,7 +137,7 @@ _STACK_LINE = _STACK_LINE_FALLBACK  # set honestly by main() before build_segmen
 SCRIPT_ALL: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
     ("coldopen", [
         "A message only one person receives.",
-        "No sound for the room. No screen to glance at. Just touch.",
+        "No sound for the room. The words stay with you. Just touch.",
     ]),
     ("channel", [
         "A typed message enters the relay's one turn pipeline: arrival cue,",
@@ -145,7 +145,7 @@ SCRIPT_ALL: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
     ]),
     ("refusal", [
         "At the cap the sender gets H T T P four twenty nine:",
-        "a plain language refusal, never a silent drop. The refused message",
+        "a plain language refusal, not a silent drop. The refused message",
         "redials itself when the wrist feels the closing pulse.",
         "Eight messages are already waiting; each one plays in full, oldest first.",
     ]),
@@ -156,7 +156,7 @@ SCRIPT_ALL: list[tuple[str, list[str] | Callable[[], list[str]]]] = [
         "the name mark first, then the words.",
     ]),
     ("whoserve", [
-        "Ziv. Messages you can feel. Nobody else can see.",
+        "Ziv. Messages you can feel. Private by touch.",
         "Every claim is reproducible — see judge repro dot M D in the repository.",
     ]),
 ]
@@ -467,7 +467,7 @@ CARD_COLD = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{CARD_CSS}</style></head><body><div class="card">
   {cells_html()}
   <h1>A message only one person receives.</h1>
-  <div class="sub">no sound for the room · no screen to glance at</div>
+  <div class="sub">no sound for the room · the words stay with you</div>
 </div></body></html>"""
 
 def card_end(live: bool) -> str:
@@ -483,7 +483,7 @@ def card_end(live: bool) -> str:
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{CARD_CSS}</style></head><body><div class="card">
   <h1>Ziv</h1>
-  <h2>Messages you can feel. <span class="em">Nobody else can see.</span></h2>
+  <h2>Messages you can feel. <span class="em">Private by touch.</span></h2>
   <div class="sub">{model}</div>
   <code>github.com/razukc/ziv — every claim reproducible (JUDGE_REPRO.md)</code>
 </div></body></html>"""

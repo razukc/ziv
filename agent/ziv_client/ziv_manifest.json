@@ -1,7 +1,7 @@
 {
-  "name": "Ziv — feel a reply instead of reading it",
+  "name": "Ziv — a private haptic message channel",
   "short_name": "Ziv",
-  "description": "A private haptic reply channel. Demo on a phone today: timed vibro-braille; a wrist form factor is the next revision.",
+  "description": "A haptic message channel for deaf-blind users, and anyone who needs a private, glance-free reply. Phone demo today; wrist band next.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

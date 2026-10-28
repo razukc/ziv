@@ -21,18 +21,18 @@ page's own counter is the source of truth — don't plan a last-day upload.
 | Devpost field | Paste from | Notes |
 |---|---|---|
 | **Project name** | GENERIC "Project Name" | `Ziv` — keep "*(working title)*" out of the field; the working-title honesty lives in the description |
-| **Elevator pitch** (overview step, ~100 chars) | Paste: "Messages you can feel. Nobody else can see. A private haptic channel with an agent behind it." | 93 chars — fits the 100-char cap; it's the GENERIC tagline plus the agent clause |
-| **Thumbnail** (overview step) | Upload `docs/devpost_thumbnail.png` | 1500×1000 (3:2), 476 KB; regenerate with `python tools/devpost_thumbnail.py`. Same brand card as the social preview, plus the NVIDIA/Nebius stack line |
-| **Short description** | GENERIC "Short Description (one-liner)" | 331 chars as written; a ≤200-char fallback lives in DEVPOST_FIELDS.md if the field complains |
+| **Elevator pitch** (overview step) | Paste: "Messages you can feel. Private by touch, not by broadcast. A haptic channel with an agent behind it." | 100 chars — fits the field's 200-char cap |
+| **Thumbnail** (overview step) | Upload `docs/devpost_thumbnail.png` | 1500×1000 (3:2), 463 KB; regenerate with `python tools/devpost_thumbnail.py`. Same brand card as the social preview, plus the NVIDIA/Nebius stack line |
+| **Short description** | GENERIC "Short Description (one-liner)" | 342 chars as written; a 183-char fallback lives in DEVPOST_FIELDS.md if the field complains |
 | **Description** | GENERIC **Our Solution → What it does → Why It Matters → A scene from the demo → Use cases** | Keep section order; the Use cases section is the one place the deaf-blind case appears — keep it that way |
 | **"What does your project do?"** | GENERIC → Devpost-Specific Answers | Direct paste |
 | **"What makes your project unique?"** | GENERIC → Devpost-Specific Answers | Includes the timing-mechanism sentence; keep it |
 | **"What challenges did you face?"** | GENERIC → Devpost-Specific Answers (numbered 1–5) | Direct paste |
-| **"What technologies did you use?"** | GENERIC → Devpost-Specific Answers | Keep the parenthetical "wrist hardware is the next revision" — it keeps the stack list honest |
+| **"What technologies did you use?"** | GENERIC → Devpost-Specific Answers | Keep the closing scope clause ("No wrist board is flashed") — it names the firmware without listing silicon this demo didn't use |
 | **"What hackathon track are you in?"** | GENERIC → Devpost-Specific Answers | Best Apps and Agents |
-| **GitHub repo link** | `https://github.com/razukc/ziv` | Judges land on the README's "For judges" block; the `submission-v1` tag freezes the verified tree. Public-repo requirements are a graded form item — see §6 |
-| **"Built with" chips** | NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32-S3, DRV2605L, Python | Add chips exactly as listed (ESP32/DRV2605 belong to the next revision — the tech answer already scopes that). NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
-| **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Organizer ask: name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack. Upload `agent/demo_full_narrated.mp4` (**107 s**, full six-beat cut): the voiceover names both, the band plays **"drink water now"** for the scheduled intent `tell me to drink` (a line the model wrote), the queue/refusal and redial are shown, and the relay is really restarted before `pills` fires. `agent/demo_live_narrated.mp4` (54 s) is the shorter live-only alternative. **Re-record after §1.12:** the cap fix that makes a composed line fit 12 cells landed after this take, so the band on screen spells `drinkwaterno` — the last `w` of "drink water now" is dropped — and today's relay composes `drink water` (10 letters) instead. |
+| **GitHub repo link** | `https://github.com/razukc/ziv` | Judges land on the README's "For judges" block; the current submission tree is the verified tree. Public-repo requirements are a graded form item — see §6 |
+| **"Built with" chips** | NVIDIA Nemotron-3-Nano-30B-A3B, Nebius Token Factory, FastAPI, WebSockets, Android Vibration API, ESP32, Python | Add chips exactly as listed. Part-number chips (`ESP32-S3`, `DRV2605L`) are deliberately left out — they name silicon that is not on a board, and in a chip row that reads as delivered hardware. NVIDIA + Nebius named here is an explicit organizer ask — don't trim |
+| **Demo video** | See shot list below | ≤3 min; the outline is in GENERIC "Demo Video Outline". Organizer ask: name Nebius Token Factory + the NVIDIA model **with audio** on the soundtrack. Upload `agent/demo_full_narrated.mp4` (**107 s**, full six-beat cut): the voiceover names both, the band plays **"drink water now"** for the scheduled intent `tell me to drink` (a line the model wrote), the queue/refusal and redial are shown, and the relay is really restarted before `pills` fires. `agent/demo_live_narrated.mp4` (54 s) is the shorter live-only alternative. **Re-record after §1.12:** the cap fix that makes a composed line fit 12 cells landed after this take, so the band on screen spells `drinkwaterno` — the last `w` of "drink water now" is dropped — and today's relay composes `drink water` (10 letters) instead. This take also predates the 2026-10-28 claim sweep: its cold-open card says "no screen to glance at" and its closing card says "Nobody else can see." Re-record before upload. |
 | **Screenshot gallery** | See shot list below | 4–6 images, each with its caption — §3 |
 
 Do **not** paste: `HONESTY_CHANGELOG.md` and `JUDGE_REPRO.md` are repo
@@ -44,7 +44,7 @@ trail is HONESTY_CHANGELOG.md."*
 ## 2. Demo video shot list (≤3 min, follows GENERIC's outline)
 
 1. **0:00–0:20 cold open** — phone face-down and silenced in a meeting;
-   it buzzes; fingers read; nothing visible or audible. Title card:
+   it buzzes; fingers read; the room hears no spoken reply. Title card:
    "A message only one person receives."
 2. **0:20–1:10 the channel** — typed message sends; capture the dev-band
    page wire log top-down: `▶ double-tap (kind cue)` → `▶ processing
@@ -131,7 +131,7 @@ caption field** — fill every one; captions come from `CAPTIONS.md`.
 |---|---|---|
 | 1 | `01-turn-vocabulary.png` | One turn, the whole vocabulary: arrival cue → working ticks → message → braille cells → end-of-message close, live in the dev-band wire log — while two later messages announce themselves mid-turn and queue instead of interrupting. |
 | 2a | `02-badge-queue3.png` | The queue badge in its healthy state — queue 3/8 · reminders 0/64 — polled live from the relay's health endpoint while the current turn plays. |
-| 2b | `02-badge-refusing.png` | Queue full: the badge reads refusing — queue full (8/8), the sender gets HTTP 429 with a plain-language busy note, and the refused message arms its redial. A loud no, never a silent drop. |
+| 2b | `02-badge-refusing.png` | Queue full: the badge reads refusing — queue full (8/8), the sender gets HTTP 429 with a plain-language busy note, and the refused message arms its redial. A loud no, not a silent drop. |
 | 3a | `03-redial-dead-end.png` | The redial's loud dead end: three tries, three refusals — the red note stays on screen until the wearer acts, and the log records the give-up. |
 | 3b | `03-redial-lifecycle.png` | Recovery on the same screen: manual send → the note clears → POST ok. The redial fires on the close frame the wearer feels, not on a timing guess. |
 | 4 | `04-reminder-turn.png` | An agent turn, unprompted: a scheduled reminder fires as its own full turn — reminder: pills, the Z-I-V name mark spelled in cells, the triple-pulse tail. |
@@ -158,7 +158,7 @@ them, trimming long sub-lists rather than rewriting:
 | `## Accomplishments that we're proud of` | "Accomplishments that we're proud of" (direct paste) |
 | `## What we learned` | "What We Learned" (direct paste) |
 | `## What's next for Ziv` | "What's next for Ziv" (wrist revision + the numbered list; keep the open-decision points — learnability, naming) |
-| **Built with** (≤25 tags) | NVIDIA Nemotron-3-Nano-30B-A3B, NVIDIA, Nebius Token Factory, Nebius AI Cloud, FastAPI, WebSockets, Python, Android, PWA, Vibration API, ESP32, ESP32-S3, DRV2605L, ESP-IDF, Embedded C, braille, haptics, accessibility, deaf-blind, assistive tech, uvicorn, pytest, Playwright, HTTP 429, agents — add **Nebius Token Factory** and **NVIDIA** as standalone chips; organizers check for them by name |
+| **Built with** (≤25 tags) | NVIDIA Nemotron-3-Nano-30B-A3B, NVIDIA, Nebius Token Factory, Nebius AI Cloud, FastAPI, WebSockets, Python, Android, PWA, Vibration API, ESP32, ESP-IDF, Embedded C, braille, haptics, accessibility, deaf-blind, assistive tech, uvicorn, pytest, Playwright, HTTP 429, agents — add **Nebius Token Factory** and **NVIDIA** as standalone chips; organizers check for them by name |
 | **"Try it out" links** | GitHub repo `https://github.com/razukc/ziv` (+ the working-demo URL from §6 if one is hosted) |
 | **Image gallery** | 9 shots from §3, each with its caption |
 | **Video demo link** | YouTube or Vimeo URL — Devpost embeds it at the top of the public page; upload unlisted-but-public-linkable and confirm it plays |
@@ -174,8 +174,8 @@ anyone without naming the tool). Paste-ready drafts:
 - **Submitter type / country / track / new-or-existing:** Individual ·
   Nepal · **Best apps and agents** · **New** (leave the "existing" essay
   empty).
-- **Upload a File (≤35 MB):** a zip of the verified tree (`submission-v1`
-  tag content, minus gitignored state) — or a PDF of JUDGE_REPRO.md. One
+- **Upload a File (≤35 MB):** a zip of the current submission tree (minus
+  gitignored state) — or a PDF of JUDGE_REPRO.md. One
   file only; zip multiples.
 - **The eight required Nemotron/Nebius answers are written once, in
   [DEVPOST_FIELDS.md](DEVPOST_FIELDS.md) §4 — paste them from there.**
@@ -207,7 +207,7 @@ requirement in this repo:
       judge-facing words too. The **description and Built With must repeat
       the names** (the email's "impossible to miss" tip) — §1's rows do.
 - [ ] **Verify before submit:** repo is public, default branch builds the
-      README badges honestly, `submission-v1` tag visible, no secrets
+      README badges honestly, current submission tag visible, no secrets
       (`agent/.env` is gitignored — `git status --porcelain` shows no
       `.env`, no `ziv_data/`, no gallery outputs).
 - **Working-demo URL (optional, "not required for Physical AI
@@ -259,14 +259,14 @@ lost:
       step; wrist hardware = next revision)
 - [ ] Gallery images uploaded with **every caption field filled** (§3);
       thumbnail 3:2 ≤5 MB; ≤15 images
-- [ ] Elevator pitch pasted (93 chars, ≤100); thumbnail shows the card, not Devpost's placeholder
+- [ ] Elevator pitch pasted (100 chars, ≤200); thumbnail shows the card, not Devpost's placeholder
 - [ ] Project Story headings match Devpost's template (§4); Built With
       includes standalone **Nebius Token Factory** and **NVIDIA** chips
 - [ ] §5 questionnaire answered — every required field non-empty; Tavily
       = **No**
 - [ ] §6 repo checks green: public, Apache-2.0 LICENSE, README setup
       current, tag visible, no secrets in the tree
-- [ ] Repo link opens on the "For judges" README; `submission-v1` tag
+- [ ] Repo link opens on the "For judges" README; current submission tag
       visible under Releases/Tags
 - [ ] Social preview uploaded via Settings (step 8) — a shared repo link
       shows the card, not the auto-generated file grid

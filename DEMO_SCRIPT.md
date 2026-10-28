@@ -38,7 +38,7 @@ Type `call me back` → **Send as message**.
 
 **Expect:** cue → `working…` → `message: call me back` → 10 cells → close.
 **Say:** "Arrival cue, working ticks, braille cells, felt close — the same
-timing the wrist firmware plays; no screen, no sound."
+timing the wrist firmware would play; the text also appears in the relay log."
 
 ### 0:40–1:10 — queue, refuse, redial
 

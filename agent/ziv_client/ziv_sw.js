@@ -5,7 +5,7 @@
 // cache the static client shell so the installable app can start from a fresh
 // launch without the phone needing the Relay online for the chrome itself.
 
-const CACHE = "ziv-phone-band-v16";
+const CACHE = "ziv-phone-band-v19";
 const SHELL = [
   "./index.html",
   "./manifest.json",

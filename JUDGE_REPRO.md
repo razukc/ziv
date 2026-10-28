@@ -36,6 +36,7 @@ Quick index — claim → where it's proven:
 | The wearer's pace is a real dwell, not a stored number | `test_the_wearer_pace_lands_on_the_wire_as_real_dwells`, `test_moving_the_pace_moves_every_dwell_by_exactly_that_much` |
 | Auth covers every route that carries or reveals content | `test_auth_covers_every_route_that_carries_or_reveals_content` (8 method/path pairs), `test_auth_leaves_the_bootstrap_routes_open` |
 | PWA badge contract (both sides pinned) | `tests/test_client_badge_contract.py` + `test_health_payload_serves_the_pwa_badge_contract` |
+| Manifest name/description match the gallery cover | `tests/test_client_manifest_contract.py` (`name` ← cover title, `description` ← cover caption; both read from `media/make_gallery.py`) |
 | Health surfaces the schedule (depth/cap/corrupt) | `test_health_payload_surfaces_the_schedule` |
 | Redial give-up is a loud dead end | `tests/test_client_redial_contract.py` (hermetic) + `test_redial_giveup_e2e.py` (browser; run with `-m e2e`) |
 | Timing spec: one source, drift-guarded | `tests/test_haptic_timing.py`, `test_rename_check.py` |
@@ -43,11 +44,11 @@ Quick index — claim → where it's proven:
 | Host demo (rung 1): the ESP32-S3 app core's scripted boot demo plays the derived fixture exactly | `firmware/app/ziv_qemu/run_ziv_tests.py` → **49 checks, 0 failures** — 27 HAP events matched within tolerance (start times, payload names, dot masks, buzz/gap, beat index). This is the app core compiled for the host; a QEMU boot is still pending an IDF install (`docs/QEMU_SIMULATION_LADDER.md`). |
 | Honesty audit trail | `HONESTY_CHANGELOG.md` |
 
-> **Reproducibility in this checkout.** The full tree frozen at tag
-> `submission-v1` is present: all 16 test modules plus `conftest.py` (under `agent/tests/`), the
-> `firmware/` tree, the `docs/` timing spec, and the generated consumers. Every row
-> above is reproducible from this working tree. The firmware rows were re-run for
-> this checkout: 274 checks and 49 checks, 0 failures, 27 HAP events matched.
+> **Reproducibility in this checkout.** This checkout contains everything the
+> rows above need: all 19 test modules plus `conftest.py` under `agent/tests/`,
+> the `firmware/` tree, the `docs/` timing spec, and the generated consumers.
+> Every row is reproducible here. The firmware rows were re-run for this
+> checkout: 274 checks and 49 checks, 0 failures, 27 HAP events matched.
 
 
 ---

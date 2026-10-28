@@ -49,7 +49,7 @@ VOICE = "Microsoft Zira Desktop"  # falls back to the SAPI default if absent
 # (phase, [lines]) — the lines NAME the required tools out loud.
 SCRIPT: list[tuple[str, list[str]]] = [
     ("intro", [
-        "This is Ziv: messages you can feel. Nobody else can see.",
+        "This is Ziv: messages you can feel. Private by touch.",
         "Every pattern on screen is played by the relay in real time.",
     ]),
     ("starter", [
@@ -62,7 +62,7 @@ SCRIPT: list[tuple[str, list[str]]] = [
     ]),
     ("refusal", [
         "At the cap, the sender gets H T T P four twenty nine:",
-        "a plain language refusal, never a silent drop.",
+        "a plain language refusal, not a silent drop.",
     ]),
     ("redial", [
         "The refused message redials itself when the wrist feels the closing pulse.",

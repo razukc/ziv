@@ -569,6 +569,47 @@ submission video would have shipped the bug this changelog says is fixed.
 
 ---
 
+### 1.15 The public story implied a compose that could not fail (fixed)
+
+The judges-only answer in `DEVPOST_FIELDS.md` had already been corrected to
+say what happens when a line does not fit the band and when the provider
+fails; the public Project Story had not. It told a two-state story — a funded
+key played "the line the model wrote" (`source: text_live`), a missing key
+fired the intent verbatim (`text_echo`) — and left out the two cases a judge
+can actually hit:
+
+- **A line over the 12-cell cap.** `compose_band_line()` measures every reply
+  with the same `_spelled()` the player uses, gives an over-cap line two
+  corrective retries (the second asks for the two most useful words), then
+  refuses it as `too_long`. The compose path never plays a sliced line — the
+  dropped `w` in the archived take (§1.12) is the defect that rule exists to
+  prevent.
+- **A failed compose.** A provider error, or a line that still does not fit
+  after both retries, makes the scheduled path fire the intent verbatim as
+  `text_echo`, so the promise still reaches the wearer. The error long-buzz is
+  not the compose-failure signal: it belongs to a failed turn on the band (the
+  transcription path), and the BYOK compose path answers 502 without playing
+  anything.
+
+The old page did not use the retired phrases (`post-filtering`, `never
+truncated`); the overclaim was by omission — a funded key read as a guaranteed
+model line. `DEVPOST_PROJECT_STORY.md` now states both cases in its "Thinks
+for you" bullet, the demo scene names the fallback, and the architecture
+diagram labels the edge `text_live, or text_echo on fallback`. The live
+Project Story field was re-saved from that file and read back to confirm the
+saved text matched.
+
+No product code changed: `compose_band_line()` already capped and refused,
+`fire_due()` already fell back to `text_echo`, and `_announce_error()` already
+owned the long-buzz. What changed is that the page now says so, in the same
+terms as the judges-only answer. The behaviour it describes is pinned by
+`test_an_overlong_line_is_recomposed_to_fit_the_band_cap`,
+`test_a_compose_that_never_fits_fires_the_intent_verbatim`,
+`test_byok_compose_refuses_an_overlong_line`, and
+`test_omni_provider_failure_feels_the_error_long_buzz`.
+
+---
+
 ## 2. Claims corrected
 
 | Claim | Was | Now | Evidence |
@@ -580,6 +621,7 @@ submission video would have shipped the bug this changelog says is fixed.
 | Auto-redial scope | "the client re-sends its refused message automatically" (all paths) | scoped honestly: typed/stub messages auto-resend; a refused mic clip stays a manual retry (it would need re-transcription) | client source + `test_redial_e2e.py` (e2e) |
 | Redial give-up | quiet log line, note vanished (read as "sent") | loud dead-end: red note naming the message and the spent budget stays on screen; cleared only by wearer action | `test_client_redial_contract.py` (4 hermetic) + `test_redial_giveup_e2e.py` (e2e) |
 | Demo scene quote | a 19-letter sentence the 12-letter spell cap would truncate mid-read | "taxi is here" (10 letters) — fits what the motors actually play | `SPELL_MAX_LETTERS = 12` in the generated timing module |
+| Public story: compose cap + error buzz | funded key → "the line the model wrote" (`text_live`); only no key → `text_echo` | 12-cell measure, two retries, `too_long`, never sliced; scheduled compose failure → `text_echo` (BYOK 502); long-buzz is a failed turn, not a compose | §1.15; `compose_band_line`, `fire_due` |
 
 The generic-angle DEVPOST also gained a concrete mechanism where it had a
 slogan ("one generated timing source" → names `GET /api/ziv/timing`), and its

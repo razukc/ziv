@@ -1,9 +1,9 @@
 # Ziv — a haptic phone companion
 
-**Messages you can feel. Nobody else can see.** A phone that taps out what a
-model wrote for you in vibration patterns — no screen, no sound, nothing for the
-room to see or overhear. The demo run below is the whole loop on the phone: you
-set an intent; with a funded Nebius Token Factory key an NVIDIA open model writes
+**Messages you can feel. Private by touch, not by broadcast.** A phone that taps out what a
+model wrote for you in vibration patterns — no audio output, no spoken reply; the
+text is visible in the operator console and relay log. The demo run below is
+the whole loop on the phone: you set an intent; with a funded Nebius Token Factory key an NVIDIA open model writes
 the line and the phone spells it; without a key the same promise fires verbatim,
 labelled `text_echo`, and the log names the path it took rather than claiming a
 model ran — cue, legible wait, braille cells, felt close, queue release.
@@ -19,11 +19,11 @@ model ran — cue, legible wait, braille cells, felt close, queue release.
 
 ## What Ziv does (this submission)
 
-Ziv (working title) is a private, glance-free, sound-free message channel: the
+Ziv (working title) is a private, glance-free message channel: the
 wearer's phone plays what arrives as vibro-braille they read by touch, with no
-screen to look at and nothing for the room to hear or see. Vibration is the one
-channel that costs nothing to carry and is used as a doorbell; Ziv turns it into
-a channel that carries language, with an agent behind it.
+audio output and no spoken reply. The demo's operator view and relay log show
+the text. Vibration is the one channel that costs nothing to carry and is used
+as a doorbell; Ziv turns it into a channel that carries language, with an agent behind it.
 
 This submission ships as **a phone-based demo**.
 
@@ -112,7 +112,7 @@ made — and which claim is not.
   vocabulary, prefix, full alphabet, M1 session + blind A/B — offline, no relay | **Fine-tuned braille-output model**, **on-device practice mode / per-contact people-marks**, **spoken replies (TTS)** — not built; naming is community-held and ships under working title |
 | **The test suite** — hermetic suite (seam, server, store, timing drift guard, demo-chain generation) + host firmware bench (274 checks) + QEMU-ladder host suite (49 checks); the 4 browser-tier tests are deselected from the verified count and run separately with `-m e2e` | **Flashed wrist, braille-reader naming session** — not built yet |
 
-The track claims are in the *built* column: **an NVIDIA open model on Nebius Token Factory doing real work inside a channel with no screen**, **a working demo the wearer feels on their phone**, **persistent wearer memory**, **queue-don't-interrupt as a tested seam**, and **one generated timing source shared by the phone today and the feel-tool — and, later, the wrist firmware (drift-guarded)**.
+The track claims are in the *built* column: **an NVIDIA open model on Nebius Token Factory doing real work inside a haptic channel**, **a working demo the wearer feels on their phone**, **persistent wearer memory**, **queue-don't-interrupt as a tested seam**, and **one generated timing source shared by the phone today and the feel-tool — and, later, the wrist firmware (drift-guarded)**.
 
 > **One asymmetry that is intentional and must not silently unify:** the phone feel-tool's
 > spell box caps at **12 letters** (page affordance), while the firmware accepts **16
@@ -135,10 +135,10 @@ input-only (pricing sources are in the plan). Existing haptic wearables (Neosens
 Buzz, for example) carry notifications or awareness cues, not language with a brain.
 
 But deaf-blind is the **use case that proves the channel**, not the only one. The same
-haptic output channel — vibration felt by the wearer and invisible to everyone else — is
-useful any time a reply should be private, glance-free, and sound-free: hands-busy or
-noisy environments, shared spaces, contexts where a screen is the wrong interface and a
-speaker would leak the message to the room. The deaf-blind companion is the sharpest
+haptic output channel — vibration felt by the wearer, not broadcast to the room — is
+useful any time a reply should be private, glance-free, and free of spoken output: hands-busy or
+noisy environments, shared spaces, contexts where lighting up a screen would leak the
+exchange and a speaker would leak the message. The deaf-blind companion is the sharpest
 version of that; the phone-as-dev-band architecture is what makes it buildable for the
 hackathon.
 
@@ -176,7 +176,7 @@ The built things are the submission. The rest is held as asset.
 | `firmware/haptic_out/` | The haptic sequencer — the C core that renders messages into actuator events |
 | `firmware/app/ziv_qemu/` | The ESP-IDF boot app + host demo; rung 1 is proven on the host, while rung 2's QEMU boot is still pending an IDF install (`docs/QEMU_SIMULATION_LADDER.md`) |
 | `tools/haptic_timing.py` | The timing spec's generator + drift guard (7 generated consumers) |
-| `agent/tests/` | The 18 test modules (230 hermetic tests; the 5 browser-tier tests are marked `e2e`) |
+| `agent/tests/` | The 19 test modules (230 hermetic tests; the 5 browser-tier tests are marked `e2e`) |
 | `tools/build_ziv_demo.py` | The demo-chain single source — one `DEMO_STAGES` generates app, fixture, and docs |
 | `tools/qemu_timeline.py` | The rung-2 differ (bench/boot HAP logs vs the derived fixture) |
 | `docs/` | Plan, timing spec, QEMU ladder, hardware bring-up + shopping |
