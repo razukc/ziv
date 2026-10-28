@@ -83,7 +83,15 @@ closing card. The longer six-beat and durability takes are archival, not the
 current upload; the earlier keyless take is withdrawn because it predates the
 12-cell cap fix.
 
-**The silent beat (released asset, no narration)** —
+**The one release — `submission-v1`, the final snapshot.**
+[Ziv - final submission snapshot](https://github.com/razukc/ziv/releases/tag/submission-v1)
+is the repository's only release, and it marks the final submission tree: the
+tag points at the final commit, and its notes carry the current verified counts
+(232 hermetic + 5 e2e, firmware 274/0, rung-1 49/0, 7 timing consumers in sync).
+It was updated in place, so there is no v2. The silent beat below is the
+release's attachment, not the release itself.
+
+**The silent beat (release attachment, no narration)** —
 **[demo_beat.webm](https://github.com/razukc/ziv/releases/download/submission-v1/demo_beat.webm)** —
 a 37-second silent excerpt, recorded from the then-current dev-band page: a
 starter turn, the queue filled to `8/8`, a refused message with the redial
