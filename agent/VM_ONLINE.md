@@ -26,6 +26,11 @@ purchase and no DNS records. `35.224.56.20` is reserved as a **static** address
 (`ziv-demoday-ip`, region `us-central1`), which is what keeps the name valid across
 stop/start — an ephemeral IP would silently break it.
 
+> **Post-judging shutdown:** keep this VM running until the judging period
+> ends (Dec 15, 2026, 12:00 PM PT). The dated stop, snapshot, and delete
+> sequence is in
+> [docs/VM_SHUTDOWN_RUNBOOK.md](../docs/VM_SHUTDOWN_RUNBOOK.md).
+
 ## How the front door works
 
 | piece | detail |
@@ -35,7 +40,7 @@ stop/start — an ephemeral IP would silently break it.
 | certificate | Let's Encrypt, issued and renewed by Caddy (HTTP-01 on `:80`) |
 | HTTP | `308` redirect to HTTPS |
 | service | `systemctl enable caddy` — it comes back by itself after a reboot |
-| firewall | `ziv-web-80-443` (tcp 80/443, tag `ziv-relay`) is the **only** rule — `ziv-relay-8787` was deleted, so the relay is reachable from outside only through Caddy |
+| firewall | `ziv-web-80-443` (tcp 80/443, tag `ziv-relay`) is the **only app** ingress rule — `ziv-relay-8787` was deleted, so the relay is reachable from outside only through Caddy; the project's default SSH/RDP/ICMP rules remain |
 | setup script | [`scripts/vm_setup_caddy.sh`](../scripts/vm_setup_caddy.sh) — one-shot root install |
 
 ## Verified on this origin (2026-10-25)
