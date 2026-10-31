@@ -15,6 +15,15 @@ model ran — cue, legible wait, braille cells, felt close, queue release.
 > and proven is the submission. The rest is held as asset — available if someone
 > asks, not stacked around the claim.
 
+## Try it / Talk to us
+
+The submission came first; the community perspective comes now. If you want to understand what a vibration channel actually feels like — without installing anything and without funding an API:
+
+- **[Feel-tool](https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page)** — the interactive source of the timing rules and the attention vocabulary: name-mark cards, a spell box, an M1 mode and a blind A/B mode. Plays on Android Chrome; desktop and iOS show the visual rhythm only.
+- **[The 76-second demo](https://youtu.be/t9ovgEjm8i8)** — the full loop on the phone: setting an intent, the model-written line (or the labelled `text_echo`), the gate and the queue, the close.
+
+Afterwards — before returning to routine — we want to hear from you: did the close feel like an ending, and is the reading pace bearable? Roughly: those are the two decisions currently open. Beyond that — for questions, thoughts, or a request to run the demo — [open a discussion](https://github.com/razukc/ziv/discussions), and for a report on the experience itself please submit a **"Tried it"** report [via the feedback issue form](https://github.com/razukc/ziv/issues/new/choose). A quick note on how to speak, so others know what to say: it's valid (and worth more) to describe exactly what you felt or saw; there's no need to predict how "other users" will feel. The complete structural setup for this is documented in [docs/COMMUNITY_SETUP.md](docs/COMMUNITY_SETUP.md).
+
 ---
 
 ## What Ziv does (this submission)

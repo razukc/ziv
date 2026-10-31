@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question, idea, or general feedback about Ziv
+    url: https://github.com/razukc/ziv/discussions
+    about: Questions, ideas, and discussion of the design belong in Discussions — open the right category there instead of an issue.
+  - name: Try the feel-tool (no install)
+    url: https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page
+    about: The interactive timing source and attention vocabulary — plays on Android Chrome; desktop and iOS show the visual rhythm only.
+  - name: Watch the demo (76 s)
+    url: https://youtu.be/t9ovgEjm8i8
+    about: The full loop on the phone — scheduled intent, model-written line, gate, queue, close.

@@ -1,0 +1,66 @@
+name: Tried it — feedback report
+description: You tried the feel-tool, ran the judge repro, or watched the demo — tell us what worked and what didn't.
+title: "[feedback] "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Ziv. The honest version of this project is a working
+        prototype of a new channel — nothing here is yet validated with
+        deaf-blind readers, and your feedback is exactly the input that
+        decisions are waiting on. One filing note: please answer about what
+        you actually experienced, not what you predict. "I felt the close as
+        an ending" is gold; "I imagine users would feel it as an ending" is
+        not something we can act on.
+
+        iOS and desktop browsers cannot vibrate — they show the visual rhythm
+        only. Say so in "Where you tried it" and describe what you saw, not
+        what you felt.
+  - type: dropdown
+    id: entry
+    attributes:
+      label: What did you try?
+      options:
+        - The hosted feel-tool (https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page)
+        - The demo video (https://youtu.be/t9ovgEjm8i8)
+        - The judge repro (JUDGE_REPRO.md — hermetic tests or a live run-through)
+        - Something else (describe below)
+    validations:
+      required: true
+  - type: checkboxes
+    id: platform
+    attributes:
+      label: Where did you try it?
+      options:
+        - label: Android Chrome (vibrates)
+        - label: iOS Safari (visual rhythm only — cannot vibrate)
+        - label: Desktop browser (visual rhythm only — cannot vibrate)
+        - label: Android Chrome on a device that does not vibrate (visual only)
+    validations:
+      required: true
+  - type: textarea
+    id: felt-or-saw
+    attributes:
+      label: The close and the pacing — what did you feel (or see)?
+      description: |
+        The two open design questions we most need answers on:
+        1. The close (200→140→90→50 ms) is meant to be felt as "this message is over" rather than inferred from silence. Did it land that way for you?
+        2. One letter costs 530–770 ms (buzz plus gap). Was the spelling pace bearable, or did it drag — or rush you?
+      placeholder: e.g. "The close read as an ending on the phone; the spelling pace felt slow after the first two words."
+    validations:
+      required: true
+  - type: textarea
+    id: highlight
+    attributes:
+      label: What was the most and least convincing part?
+      placeholder: "e.g. Most — the queue instead of interrupting. Least — not understanding what the Z-I-V mark was until I read the docs."
+  - type: textarea
+    id: question
+    attributes:
+      label: If you could change one thing about the prototype, what?
+  - type: input
+    id: device
+    attributes:
+      label: Device (optional)
+      description: e.g. "Pixel 8, Chrome 128" — useful for vroom/vibration-API quirks.
