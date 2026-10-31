@@ -16,8 +16,9 @@ hard to find. The exact path:
 the category icon → New category.** Set emoji, title, description and the
 discussion format (open-ended / Q&A / announcement), then Create.
 
-With the six defaults enabled (Announcements, General, Ideas, Polls, Q&A,
-Show and tell), create two purpose-built categories and reuse one default:
+**Done.** With the six defaults GitHub seeded (Announcements, General, Ideas,
+Polls, Q&A, Show and tell), create two purpose-built categories and reuse
+one default:
 
 | Category                | Format | What belongs here                                            |
 |-------------------------|--------|----------------------------------------------------------------|
@@ -33,15 +34,12 @@ discussions, so nothing is lost).
 
 ## 2. Pin a welcome discussion
 
-**Done via API:** [#1 — What Ziv is — and what feedback we are asking for](
-https://github.com/razukc/ziv/discussions/1) is live in Announcements, with
-the feel-tool and demo links, the two open design questions, and both
-honesty rules — feedback on *experience*, not predictions, and questions
-here rather than drive-by PRs
+**Done.** [#1 — What Ziv is — and what feedback we are asking for](
+https://github.com/razukc/ziv/discussions/1) is live **and pinned** in
+Announcements, with the feel-tool and demo links, the two open design
+questions, and both honesty rules — feedback on *experience*, not
+predictions, and questions here rather than drive-by PRs
 ([CONTRIBUTING.md](https://github.com/razukc/ziv/blob/main/CONTRIBUTING.md)).
-**Remaining (UI-only, pinning has no API either):** open #1 → the pin icon →
-pin it, so the welcome post is the first thing every visitor sees. Its body
-names the step-1 categories, so create those first.
 
 ## 3. Feedback route for non-GitHub visitors
 
