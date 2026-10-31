@@ -6,32 +6,42 @@ those clicks point to.
 
 ## 1. Enable Discussions
 
-Settings → **General** → Features → check **Discussions**.
+Done from the UI (Settings → **General** → Features → **Discussions**). The
+API cannot create or edit categories — the GraphQL schema exposes only
+`createDiscussion`/`updateDiscussion`, not `createDiscussionCategory` — so
+categories are UI-only, which is why the create-a-category control feels
+hard to find. The exact path:
 
-Then create these categories under Settings → Discussions (keep the default
-categories named General and Announcements, add the three below):
+**Discussions tab → left sidebar, to the right of the "Categories" heading →
+the category icon → New category.** Set emoji, title, description and the
+discussion format (open-ended / Q&A / announcement), then Create.
 
-| Category                    | Type         | What belongs here                                            |
-|-----------------------------|--------------|--------------------------------------------------------------|
-| Tried it — experiences      | Q&A          | What you felt or saw after trying the feel-tool or demo. The same content works as an issue too; Discussions if no filing, issue if you want it tracked. |
-| Design questions            | Ideas        | The open design questions in the README's "Try it / Talk to us" section — timings, hardware, naming, audience. |
-| Speculations and thoughts   | Ideas        | "Have you considered…" threads. Not a task list.            |
+With the six defaults enabled (Announcements, General, Ideas, Polls, Q&A,
+Show and tell), create two purpose-built categories and reuse one default:
 
-Prefer **Q&A** for the first category so answers can be accepted; prefer
-**Ideas** for the two design categories so threads don't force a single
-answer.
+| Category                | Format | What belongs here                                            |
+|-------------------------|--------|----------------------------------------------------------------|
+| Tried it — experiences  | Q&A    | What you felt or saw after trying the feel-tool or demo — first-hand reports, not predictions. The same content works as an issue too; Discussions if no filing, issue if you want it tracked. |
+| Design questions        | Ideas  | The open design questions in the README's "Try it / Talk to us" section — timings, hardware, naming, audience. |
+| Ideas (default, keep)   | Ideas  | "Have you considered…" threads — the default Ideas category already serves the speculations stream. |
+
+Prefer the **Q&A** format for the first category so answers can be accepted;
+Ideas format for the design categories so threads don't force a single
+answer. Polls and Show and tell are not needed for this phase — delete the
+ones you don't want via the category list (deleting asks where to move its
+discussions, so nothing is lost).
 
 ## 2. Pin a welcome discussion
 
-New Discussion → _Pinned category (or Announcements)_. Title:
-**What Ziv is — and what feedback we're asking for.** Body: link the
-[feel-tool](https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page) and
-the [76 s demo](https://youtu.be/t9ovgEjm8i8), then list the concrete open
-questions. Two honesty rules to keep from the repo docs: nothing here is yet
-validated with deaf-blind readers (feedback on *experience*, not predictions),
-and this repository is the hackathon submission artifact — it is not an
-active open-source project, so questions go here rather than drive-by PRs
-([CONTRIBUTING.md](../CONTRIBUTING.md) already says the commit rules).
+**Done via API:** [#1 — What Ziv is — and what feedback we are asking for](
+https://github.com/razukc/ziv/discussions/1) is live in Announcements, with
+the feel-tool and demo links, the two open design questions, and both
+honesty rules — feedback on *experience*, not predictions, and questions
+here rather than drive-by PRs
+([CONTRIBUTING.md](https://github.com/razukc/ziv/blob/main/CONTRIBUTING.md)).
+**Remaining (UI-only, pinning has no API either):** open #1 → the pin icon →
+pin it, so the welcome post is the first thing every visitor sees. Its body
+names the step-1 categories, so create those first.
 
 ## 3. Feedback route for non-GitHub visitors
 
