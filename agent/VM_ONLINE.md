@@ -27,7 +27,7 @@ purchase and no DNS records. `35.224.56.20` is reserved as a **static** address
 stop/start — an ephemeral IP would silently break it.
 
 > **Post-judging shutdown:** keep this VM running until the judging period
-> ends (Dec 15, 2026, 12:00 PM PT). The dated stop, snapshot, and delete
+> ends (Dec 23, 2026, 12:00 PM PT). The dated stop, snapshot, and delete
 > sequence is in
 > [docs/VM_SHUTDOWN_RUNBOOK.md](../docs/VM_SHUTDOWN_RUNBOOK.md).
 

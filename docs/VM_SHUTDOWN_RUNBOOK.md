@@ -3,12 +3,12 @@
 The demo VM **stays running through the judging period**. This is the dated
 sequence for stopping it, snapshotting it, and deleting it after judging ends.
 
-## Decision (2026-10-28)
+## Decision (2026-10-28; dates corrected 2026-11-01)
 
 The GCP cost question is settled: keep `ziv-demoday-vm` running. Dismiss the
 Idle VM recommendation; do not stop before the judging period ends. The Nebius
 account has enough credit for the demo's model calls, so the model path is not
-a reason to stop either. The next scheduled action is the **December 16** stop
+a reason to stop either. The next scheduled action is the **December 24** stop
 and snapshot below.
 
 Do not run the stop step early: the live PWA URL is the working-demo link on the
@@ -16,19 +16,27 @@ submitted Devpost page, and the [official rules](https://nebiusglobalaihackathon
 require the project to stay available, free of charge, for testing and
 evaluation until the Judging Period ends.
 
+**2026-11-01 correction:** the live rules page lists the Judging Period as
+**December 9–23, 2026** and the winner announcement on or around
+**January 25, 2027**. The earlier December 1 / December 15 / January 11 dates
+are superseded; stopping on December 16 would have landed a week inside
+judging.
+
 ## Calendar (Pacific Time)
 
 | Date | Action |
 |---|---|
 | **Fri, Oct 30, 2026, 10:00 AM** | Submissions close. The project is already submitted. |
-| **Tue, Dec 1, 2026, 9:00 AM** | Judging starts. The VM must be up and the live demo must answer. |
-| **Tue, Dec 15, 2026, 12:00 PM** | Judging ends. This is the **earliest safe stop time**. |
-| **Wed, Dec 16, 2026** | Recommended stop + snapshot day. Keep the disk and static IP. |
-| **Mon, Jan 11, 2027, 12:00 PM** | Winners announced **on or around** this date. After any follow-up verification, delete the VM, disk, and static IP. Keep the snapshot. |
+| **Wed, Dec 9, 2026, 9:00 AM** | Judging starts. The VM must be up and the live demo must answer. |
+| **Wed, Dec 23, 2026, 12:00 PM** | Judging ends. This is the **earliest safe stop time**. |
+| **Thu, Dec 24, 2026** | Recommended stop + snapshot day. Keep the disk and static IP. |
+| **Mon, Jan 25, 2027, 12:00 PM** | Winners announced **on or around** this date. After any follow-up verification, delete the VM, disk, and static IP. Keep the snapshot. |
 
-Source: [Nebius x NVIDIA Global AI Hackathon — Official Rules](https://nebiusglobalaihackathon.devpost.com/rules).
-The rules state the project must remain available without restriction until the
-Judging Period ends.
+Source: [Nebius x NVIDIA Global AI Hackathon — Official Rules](https://nebiusglobalaihackathon.devpost.com/rules),
+retrieved 2026-11-01: Judging Period **Wed, Dec 9, 2026, 9:00 AM PT –
+Wed, Dec 23, 2026, 12:00 PM PT**; winners announced **on or around
+Mon, Jan 25, 2027, 12:00 PM PT**. The rules state the project must remain
+available without restriction until the Judging Period ends.
 
 ## Why the idle recommendation is expected
 
@@ -37,7 +45,7 @@ relay: it waits on HTTP and WebSocket traffic, and the schedule loop polls once
 per second. Low CPU is not evidence that the demo is unused.
 
 The recommendation is financially accurate, but the safe action is to dismiss
-it until **December 16**. Stopping before then saves a small monthly compute
+it until **December 24**. Stopping before then saves a small monthly compute
 charge and creates a dead link during judging.
 
 ## VM identity
@@ -66,7 +74,7 @@ REGION=us-central1
 INSTANCE=ziv-demoday-vm
 DISK=ziv-demoday-vm
 IP_NAME=ziv-demoday-ip
-SNAPSHOT=ziv-demoday-vm-postjudging-20261216
+SNAPSHOT=ziv-demoday-vm-postjudging-20261224
 ```
 
 The snapshot name is a label, not a scheduled action. Change the date suffix if
@@ -74,7 +82,7 @@ you run this on a different day; the commands do not depend on the name.
 
 ## 1. Preflight — confirm this is the right VM
 
-Do this on **December 16**, after the judging period has closed.
+Do this on **December 24**, after the judging period has closed.
 
 ```bash
 gcloud compute instances describe "$INSTANCE" \
@@ -128,7 +136,7 @@ post-judging state.
 gcloud compute disks snapshot "$DISK" \
   --project="$PROJECT" --zone="$ZONE" \
   --snapshot-names="$SNAPSHOT" \
-  --description="Ziv post-judging archive after Dec 15 2026 judging; includes relay, Caddy, .env, and ziv_data"
+  --description="Ziv post-judging archive after Dec 23 2026 judging; includes relay, Caddy, .env, and ziv_data"
 ```
 
 This copies the whole boot disk. The snapshot contains the relay's `.env` and
@@ -156,7 +164,7 @@ Do not delete the VM or disk until this snapshot is `READY`.
 
 ## 4. Delete the VM
 
-Do this **after January 11, 2027**, once the winners have been announced and any
+Do this **after January 25, 2027**, once the winners have been announced and any
 organizer follow-up is finished. Keeping the disk through the announcement is
 cheap and leaves room to restart the demo if needed.
 
@@ -248,7 +256,7 @@ the static IP attached until that succeeds.
   external IPv4 address. The console's recommendation estimated the combined
   saving at about `$11.27/month`; treat that as an estimate, not a bill.
 - **While stopped:** compute stops; the 20 GB disk and the reserved static IP
-  remain billable. That is the cheap state to sit in after December 16.
+  remain billable. That is the cheap state to sit in after December 24.
 - **After deletion:** the VM and disk charges stop. The snapshot remains as
   small snapshot-storage cost until you delete it.
 - **Do not delete the snapshot** until you are sure you no longer need the
@@ -257,9 +265,9 @@ the static IP attached until that succeeds.
 
 ## Order of operations
 
-1. **Through Dec 15, 12:00 PM PT:** leave the VM RUNNING. Dismiss the idle
+1. **Through Dec 23, 12:00 PM PT:** leave the VM RUNNING. Dismiss the idle
    recommendation.
-2. **Dec 16:** stop, snapshot, verify `READY`; keep the disk and static IP.
-3. **Jan 11, 2027 onward:** after winners/follow-up, delete the VM and disk.
+2. **Dec 24:** stop, snapshot, verify `READY`; keep the disk and static IP.
+3. **Jan 25, 2027 onward:** after winners/follow-up, delete the VM and disk.
 4. **After the URL is retired:** release the static IP and optionally delete
    the firewall rule.
