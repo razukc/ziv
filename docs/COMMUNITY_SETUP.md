@@ -1,8 +1,8 @@
 # Community tooling — setup notes
 
-One-time setup to run on GitHub when this branch lands on `main`. Everything
-below is clicks in the web UI; the files in this branch provide the places
-those clicks point to.
+Setup is complete — this file is kept as the record of what was done and
+where each piece lives. Everything below was executed between the
+community-tooling merge and the templates landing on `main`:
 
 ## 1. Enable Discussions
 
@@ -48,7 +48,7 @@ don't have a GitHub account can file the same kind of report by posting in
 the *Tried it — experiences* category — no issue needed. Link them straight
 to the Discussions tab in the Devpost description.
 
-## 4. What already exists in this branch
+## 4. What landed on `main` with the merge
 
 - `.github/ISSUE_TEMPLATE/config.yml` — hides the blank-issue form, offers
   the "Tried it — feedback report" template, and routes questions/ideas to
@@ -59,12 +59,16 @@ to the Discussions tab in the Devpost description.
 - The new near-top README section ("Try it / Talk to us") — the two
   one-click entry points above the fold.
 
-## 5. After enabling
+## 5. Post-merge checks already verified via API
 
-- Verify [this Discussions link](https://github.com/razukc/ziv/discussions)
-  resolves (the config.yml and README links point at it).
-- Verify the issue chooser at
-  [new issue](https://github.com/razukc/ziv/issues/new/choose) shows the
-  "Tried it" form and the three contact links, and the blank form is hidden.
-- File no test issue — open the pinned welcome discussion instead and close
-  the loop by posting the first real update when the first feedback lands.
+- The Discussions route resolves — welcome post
+  [#1](https://github.com/razukc/ziv/discussions/1) is the pinned
+  announcement, and the two purpose-built categories exist with the intended
+  formats (`isAnswerable`: Tried it — experiences true, Design questions
+  false).
+- Both template files are served from `origin/main` and the served
+  `config.yml` parses with `blank_issues_enabled: False` and the three
+  contact links. The one check left to human eyes: open the issue chooser
+  signed-in and confirm the "Tried it" form card renders as intended.
+- File no test issue — post the announcement drafts first, and close the
+  loop by replying to community feedback on the category it belongs in.

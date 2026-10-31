@@ -6,11 +6,14 @@ form — and both carry the asking rule. Post the long one on Devpost (project
 updates are open there after submission), the short one in the hackathon
 Discord.
 
-These resolve for anyone signed into GitHub *once Discussions is enabled
-(see [COMMUNITY_SETUP.md](COMMUNITY_SETUP.md))* only for the Discussions link
-mentions; the issue-chooser link (`/issues/new/choose`) works as soon as the
-issue templates from this branch are merged to `main`. The short version does
-not depend on Discussions at all — it can be posted today.
+**Status (as of the community-tooling merge): everything is live.** The
+issue templates are on `main`, so `/issues/new/choose` renders the "Tried it
+— feedback report" form for any signed-in visitor. Discussions are enabled
+and the community layer is stood up — welcoming post
+[#1](https://github.com/razukc/ziv/discussions/1) is pinned in Announcements,
+alongside the categories the welcome post routes into (🤲 Tried it —
+experiences, 🤔 Design questions, plus the default Ideas). Both drafts can
+be posted now without further setup.
 
 ## Long version — Devpost / project update
 
