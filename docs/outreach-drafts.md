@@ -49,16 +49,26 @@ follow-up.
 With thanks for your published work,
 [Name] · [email] · [repo link]
 
-## Sense UK (and the Insight-published resource) — the credit-letter
+## Sense (UK resource, published on Insight) — the credit-letter
 
-**Recipient:** the Information and Advice team, via the contact form at
-<sense.org.uk/contact-us> (the live route; older listings show
-`info@sense.org.uk` — prefer the form). Optionally cc the same request to the
-publisher via insightdeafblind.org.
+**Recipient:** `SI.info@senseinternational.org.uk` — the address published on
+Insight's own contact page, described there as the route for feedback about
+the resource hub, which is managed by Sense International UK. This is the
+team that actually holds the resource: its page credits Sense UK as the
+creator, and Insight is Sense International's platform, so the letter can
+name Sense UK as the source and still arrive where the resource lives.
+
+**Do not send this to <sense.org.uk/contact-us>.** That page is a router, not
+an inbox — its categories are supporter services (donations, campaigns,
+fundraising), "getting support from Sense", jobs and recruitment,
+volunteering, shops, complaints, and safeguarding. None of them accepts a
+message about a prototype, and the nearest one would file a credit-letter as
+a request for support services. Sense UK's media inbox
+(`mediaenquiries@sense.org.uk`, 0203 833 0611) is explicitly media-only.
 
 **Subject:** Thank you — and asking permission, before anything: a hackathon prototype built on your published practice
 
-Dear Information and Advice team,
+Dear Insight team,
 
 I'm [name], a solo developer. At the end of September our hackathon
 prototype — **Ziv**,
@@ -68,7 +78,8 @@ writing about one thing before anything else: **the channel's manners were
 adopted from your practice**, not invented by us. The published resource
 "How to support a child with deafblindness in their early years"
 (<insightdeafblind.org/resource/how-to-support-a-child-with-deafblindness-in-their-early-years/>)
-gave us the four rules the code now enforces: every event is cued before it
+— credited on that page to Sense UK, published on Insight — gave us the four
+rules the code now enforces: every event is cued before it
 happens, cues mark start and end, waiting stays legible, and nothing barges
 in. Our documentation names Sense UK as the source in the README, the
 description, and the code comments.
@@ -86,9 +97,10 @@ With real thanks for the work we learned from,
 
 ## Helen Keller Services / HKNC — the survey-source letter
 
-**Recipient:** HKNC general inquiries — `hkncinfo@hknc.org` (listed on the
-Feeling Through contact page) or `info@hknc.org` (helenkeller.org contact
-page); 141 Middle Neck Rd, Port Washington, NY. The first is the one to send.
+**Recipient:** HKNC general inquiries — `hkncinfo@hknc.org`, the headquarters
+inbox listed on helenkeller.org (voice 516-944-8900 x 1299; 141 Middle Neck
+Road, Sands Point, NY 11050). That page asks for your name, organisation,
+contact details and a brief summary — this letter already carries all four.
 
 **Subject:** A hackathon prototype using your published data — asking permission to share the 76-second demo
 
@@ -149,8 +161,9 @@ Yours,
 
 ## Usage rules
 
-1. **Send order = warmth order.** Sense UK is the credit-letter (lowest
-   friction; you're thanking them) → HKNC data-letter (license politeness) →
+1. **Send order = warmth order.** Sense is the credit-letter (lowest
+   friction; you're thanking them, through the publisher's inbox) → HKNC
+   data-letter (license politeness) →
    NFB review-letter (highest friction — they're asked to evaluate).
    Staggering the sends avoids three people answering at once.
 2. **One ask, one inbox, one reminder.** After 2–3 weeks without a reply,
@@ -169,9 +182,11 @@ Yours,
    (<https://devpost.com/software/ziv>) over the bare repo: it reads as a
    submission, not as source code. Keep it to one — the ask is a video and a
    one-pager, not a link dump.
-5. **Contact routes verified 2026-11:** Sense's live route is the webform
-   (the email addresses circulating on other sites are older listings) —
-   prefer the form; HKNC `hkncinfo@hknc.org` is the listed general inbox,
-   with `info@hknc.org` reachable via helenkeller.org; NFB's `access@nfb.org`
-   is the IBTC's published address for questions of this kind. Re-verify
-   before an actual send if any of these age.
+5. **Contact routes checked 2026-11-03, address by address.** Insight (the
+   platform hosting the cited resource) — `SI.info@senseinternational.org.uk`,
+   its published feedback route. Sense UK's <sense.org.uk/contact-us> is a
+   router with no general-enquiries option; don't use it. HKNC —
+   `hkncinfo@hknc.org`, the headquarters inbox on helenkeller.org (the
+   `info@hknc.org` address circulating elsewhere is not on that page). NFB —
+   `access@nfb.org` for the IBTC. Re-verify before an actual send if any of
+   these age; a wrong door costs the one send you get.
