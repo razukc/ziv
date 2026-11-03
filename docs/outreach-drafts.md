@@ -131,8 +131,20 @@ Thank you for the depth your published work gave us,
 ## National Federation of the Blind (IBTC) — the review-letter
 
 **Recipient:** the International Braille and Technology Center for the Blind
-(IBTC) — `access@nfb.org`, (410) 659-9314 option 5. The IBTC is a technology
-evaluation and demonstration facility — exactly the room this question fits.
+(IBTC) — `access@nfb.org`, 410-659-9314 option 5. Both are confirmed on the
+IBTC's own page and on the NFB contact page (2026-11-03). The IBTC calls
+itself "a comprehensive technology evaluation, demonstration, and training
+facility" offering "vendor-free advice on all aspects of access technology",
+and its showcase list includes braille displays — exactly the room this
+question fits.
+
+Two things to expect. First, the IBTC page frames that inbox as the way to
+**make an appointment**, so a reply may offer a visit or a callback rather
+than a review — the letter already says no obligation, so take the visit as
+the yes and keep the ask where it is. Second, `access@nfb.org` is also the
+address for the Center of Excellence in Nonvisual Access, and the IBTC sits
+under CENA on nfb.org, so the answer may arrive from that team; that is still
+the right desk, not a mis-route.
 
 **Subject:** A non-graded question from an unvalidated prototype — would the IBTC accept a 76-second demo?
 
@@ -142,8 +154,9 @@ I'm [name], a solo developer. Our hackathon prototype, submitted at the end
 of September — **Ziv** — spells text as Grade-1 braille cells played one at
 a time as
 vibration on an Android phone, framed with an arrival cue, working taps, and
-a close. Your published Hable One review was one of the data points in our
-survey, and your technology evaluation expertise is exactly what we're
+a close. Your published Hable One review — "The Hable One: A Quality Braille
+Keyboard for Your Smartphone", by Karl Belanger — was one of the data points
+in our survey, and your technology evaluation expertise is exactly what we're
 missing: our honest claim is "a working prototype of a new channel" — **we
 have no evidence yet that anyone can read it**, no validation session has
 been held, and nothing here is a product.
@@ -188,5 +201,6 @@ Yours,
    router with no general-enquiries option; don't use it. HKNC —
    `hkncinfo@hknc.org`, the headquarters inbox on helenkeller.org (the
    `info@hknc.org` address circulating elsewhere is not on that page). NFB —
-   `access@nfb.org` for the IBTC. Re-verify before an actual send if any of
-   these age; a wrong door costs the one send you get.
+   `access@nfb.org` / 410-659-9314 option 5 for the IBTC. All four checked
+   2026-11-03; re-verify before an actual send if any of these age, because a
+   wrong door costs the one send you get.
