@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug only: a network security config that permits cleartext, so the emulator can
+     reach a relay on the host (10.0.2.2) and a phone can reach a LAN bench relay over
+     plain HTTP. The app itself still refuses plain URLs to any host that is not the
+     emulator gateway, loopback or a private range (RelayApi.plainAllowed). Release has
+     no such config, so the platform blocks cleartext everywhere. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

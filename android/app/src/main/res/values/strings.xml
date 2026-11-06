@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ziv</string>
+    <string name="notification_channel">Ziv renderer</string>
+    <string name="notification_channel_description">Shows what the Ziv channel is doing. Silent: the motor is the channel.</string>
+
+    <!-- status -->
+    <string name="status_setup">Not set up. Enter the relay and an enrollment code below.</string>
+    <string name="status_connecting">Connecting to the relay…</string>
+    <string name="status_open">Connected to the relay.</string>
+    <string name="status_closed">Disconnected. Reconnecting…</string>
+    <string name="status_refused">The relay refused this device key. Enroll again.</string>
+    <string name="status_no_spec">The relay\'s timing spec could not be fetched. Retrying…</string>
+    <string name="status_muted">No vibration motor: messages are refused until one is present or silent playback is allowed.</string>
+
+    <!-- phases -->
+    <string name="phase_idle">Idle. Nothing is playing.</string>
+    <string name="phase_waiting_tap">A message is waiting. Press Next message to play it.</string>
+    <string name="phase_stopped">Stopped. Press Skip word, Replay word or Replay message to go on.</string>
+    <string name="phase_prefix">Name mark</string>
+    <string name="phase_tail">Who is speaking</string>
+    <string name="phase_cue">Arrival cue</string>
+    <string name="phase_working">Working: waiting for the words</string>
+    <string name="phase_word">Word %1$d of %2$d: %3$s</string>
+    <string name="phase_error">Error pattern</string>
+    <string name="phase_close">End of message</string>
+    <string name="now_from">%1$s from %2$s. %3$s</string>
+    <string name="now_kind">%1$s. %2$s</string>
+    <string name="announcing">Announcing a message that is waiting its turn</string>
+    <string name="queue_depth">%1$d waiting</string>
+
+    <!-- controls -->
+    <string name="heading_controls">Controls</string>
+    <string name="control_stop">Stop</string>
+    <string name="control_replay">Replay message</string>
+    <string name="control_replay_word">Replay word</string>
+    <string name="control_skip">Skip word</string>
+    <string name="control_advance">Next message</string>
+
+    <!-- preferences -->
+    <string name="heading_prefs">Preferences</string>
+    <string name="pace_label">Pace: %1$d milliseconds between letters</string>
+    <string name="pace_description">Pace between letters, in milliseconds. Slower is a longer gap.</string>
+    <string name="advance_tap">Wait for my tap before the next message</string>
+    <string name="silent_ok">Play without a motor (timing only, for emulators)</string>
+
+    <!-- compose -->
+    <string name="heading_compose">Reply</string>
+    <string name="compose_hint">Letters and digits only</string>
+    <string name="compose_description">Reply text. Letters a to z and digits; digits are spelled out.</string>
+    <string name="compose_send">Send reply</string>
+    <string name="compose_sent">Sent: %1$s</string>
+    <string name="compose_not_connected">Not connected; the reply was not sent.</string>
+
+    <!-- setup -->
+    <string name="heading_setup">Setup</string>
+    <string name="relay_url_label">Relay address</string>
+    <string name="relay_url_hint">https://relay.example or ws://192.168.1.10:8787</string>
+    <string name="enroll_code_label">Enrollment code from the console</string>
+    <string name="device_key_label">Or paste a device key</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_forget">Forget this relay and key</string>
+    <string name="setup_needs_relay">Enter the relay address.</string>
+    <string name="setup_needs_code">Enter an enrollment code or a device key.</string>
+    <string name="setup_plain_refused">Plain HTTP is only allowed to the emulator host, loopback or a private network address; use https or wss.</string>
+    <string name="setup_bad_url">That is not a relay address. Use https://host, wss://host, or for a LAN bench http://host:port.</string>
+    <string name="enroll_failed">Enrollment failed: %1$s</string>
+    <string name="enrolled">Enrolled as %1$s</string>
+    <string name="notifications_denied">Notifications are off; the channel still runs, but its status will not show in the shade.</string>
+</resources>

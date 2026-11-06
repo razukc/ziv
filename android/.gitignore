@@ -1,0 +1,13 @@
+# build output and Gradle state
+build/
+.gradle/
+**/build/
+*.apk
+*.aab
+# machine-local SDK path (sdk.dir); ANDROID_HOME works too
+local.properties
+# IDE
+.idea/
+*.iml
+.kotlin/
+# the device key lives in the app's private storage on the phone, never here

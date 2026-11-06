@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 day/night: large type and the platform's high-contrast handling. No colour
+         carries meaning on its own anywhere in the layout. -->
+    <style name="Theme.Ziv" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:textSize">20sp</item>
+    </style>
+
+    <style name="Ziv.Heading" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:paddingTop">24dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:textSize">24sp</item>
+    </style>
+
+    <style name="Ziv.Button" parent="Widget.Material3.Button">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">72dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="Ziv.Body" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">20sp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+    </style>
+</resources>

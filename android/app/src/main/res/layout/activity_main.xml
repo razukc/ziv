@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One scrolling column. Reading order is the focus order: what is happening, then the
+     controls, then preferences, then the reply box, then setup (done once). Every control
+     is at least 72dp tall and labelled; status lines are live regions so a screen reader
+     or braille display learns of a change without the wearer hunting for it. Nothing is
+     signalled by colour alone. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/title"
+            style="@style/Ziv.Heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:paddingTop="0dp"
+            android:text="@string/app_name"
+            tools:targetApi="p" />
+
+        <TextView
+            android:id="@+id/status"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:text="@string/status_setup" />
+
+        <TextView
+            android:id="@+id/now"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:text="@string/phase_idle"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/queue"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="" />
+
+        <TextView
+            style="@style/Ziv.Heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:text="@string/heading_controls"
+            tools:targetApi="p" />
+
+        <Button
+            android:id="@+id/stop"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/control_stop"
+            android:text="@string/control_stop" />
+
+        <Button
+            android:id="@+id/replay"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/control_replay"
+            android:text="@string/control_replay" />
+
+        <Button
+            android:id="@+id/replayWord"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/control_replay_word"
+            android:text="@string/control_replay_word" />
+
+        <Button
+            android:id="@+id/skip"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/control_skip"
+            android:text="@string/control_skip" />
+
+        <Button
+            android:id="@+id/advance"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/control_advance"
+            android:text="@string/control_advance" />
+
+        <TextView
+            style="@style/Ziv.Heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:text="@string/heading_prefs"
+            tools:targetApi="p" />
+
+        <TextView
+            android:id="@+id/paceLabel"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:labelFor="@id/pace"
+            android:text="@string/pace_label" />
+
+        <SeekBar
+            android:id="@+id/pace"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:contentDescription="@string/pace_description"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/advanceTap"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:text="@string/advance_tap"
+            android:textSize="20sp" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/silentOk"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:text="@string/silent_ok"
+            android:textSize="20sp" />
+
+        <TextView
+            style="@style/Ziv.Heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:text="@string/heading_compose"
+            tools:targetApi="p" />
+
+        <EditText
+            android:id="@+id/compose"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:contentDescription="@string/compose_description"
+            android:hint="@string/compose_hint"
+            android:importantForAutofill="no"
+            android:inputType="textVisiblePassword|textNoSuggestions"
+            android:textSize="20sp" />
+
+        <Button
+            android:id="@+id/send"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/compose_send"
+            android:text="@string/compose_send" />
+
+        <TextView
+            android:id="@+id/composeResult"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:text="" />
+
+        <TextView
+            style="@style/Ziv.Heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:text="@string/heading_setup"
+            tools:targetApi="p" />
+
+        <TextView
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:labelFor="@id/relayUrl"
+            android:text="@string/relay_url_label" />
+
+        <EditText
+            android:id="@+id/relayUrl"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:hint="@string/relay_url_hint"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:textSize="18sp" />
+
+        <TextView
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:labelFor="@id/enrollCode"
+            android:text="@string/enroll_code_label" />
+
+        <EditText
+            android:id="@+id/enrollCode"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:importantForAutofill="no"
+            android:inputType="textCapCharacters|textNoSuggestions"
+            android:textSize="20sp" />
+
+        <TextView
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:labelFor="@id/deviceKey"
+            android:text="@string/device_key_label" />
+
+        <EditText
+            android:id="@+id/deviceKey"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:importantForAutofill="no"
+            android:inputType="textVisiblePassword|textNoSuggestions"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/connect"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/setup_connect"
+            android:text="@string/setup_connect" />
+
+        <Button
+            android:id="@+id/forget"
+            style="@style/Ziv.Button"
+            android:contentDescription="@string/setup_forget"
+            android:text="@string/setup_forget" />
+
+        <TextView
+            android:id="@+id/setupResult"
+            style="@style/Ziv.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:text="" />
+    </LinearLayout>
+</ScrollView>
