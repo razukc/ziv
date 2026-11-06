@@ -8,15 +8,16 @@ It speaks the wire from `ziv.wire` (hello first, `progress`, `played`,
 each utterance with a self-correcting local scheduler from durations derived
 at runtime from the relay's `GET /spec`, and reports back when the close has
 played. It is the **reference web implementation** of the contract and the
-model the native phone app will follow.
+model the native phone app ([android/](../android/README.md)) follows.
 
 It is also **foreground-only, by the browser's nature.** Browsers do not
 vibrate a hidden page: when the tab is hidden or the screen locks, playback
 stops, the device sends `nack hidden`, and the relay returns the utterance to
 pending and offers it again after the next hello. The page says this at the
-top. The wearer's renderer is the native phone app (not yet built); until it
-exists this page is a foreground demo and operator view, labelled as exactly
-that.
+top. The wearer's renderer is the native phone app
+([android/](../android/README.md), built and proven on the emulator, not yet
+on a phone); this page is a foreground demo and operator view, labelled as
+exactly that.
 
 ```
 client/
@@ -112,13 +113,15 @@ interface is documented in [conformance/README.md](../conformance/README.md).
 ## Limits
 
 - Foreground only: nothing plays while the page is hidden or the screen is
-  off. A message channel needs the native app; this page demonstrates the
-  contract.
-- Not yet exercised in a real browser on a phone. The page is tested under
-  happy-dom and the renderer under fake timers; the browser e2e tests in
-  `tests/e2e/` are written and collected but skip where Chromium cannot
-  launch. Whether a 50 ms pulse and a 30 ms slot gap read on a phone motor is
-  unknown until a wearer has felt them.
+  off. A message channel needs the native app
+  ([android/](../android/README.md)); this page demonstrates the contract.
+- Exercised in headless Chromium, not yet in a browser on a phone. The page is
+  tested under happy-dom and the renderer under fake timers; the browser
+  tests in `tests/e2e/` (enroll, start and play to `played`; refuse while
+  hidden and recover when visible) pass against a live relay — 5 with the
+  console's, in 63.19 s on 2026-11-06 — and run in CI's `browser` job. They
+  still skip where Chromium cannot launch. Whether a 50 ms pulse and a 30 ms
+  slot gap read on a phone motor is unknown until a wearer has felt them.
 - Without a Vibration API (desktop browsers, iOS) the page is an operator
   view only; it still connects, acknowledges and shows the timeline.
 - No plaintext history by default; the optional session history lives in

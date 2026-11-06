@@ -28,9 +28,9 @@ commit message looks like:
 | `test`     | New or changed tests only                                      |
 | `chore`    | Tooling, deps, gitignore, scripts — nothing user-visible       |
 
-**Scopes** (optional, pick the closest): `relay`, `client`, `console`,
-`firmware`, `spec`, `conformance`, `tools`, `docs`, `infra`. Older history
-uses `server` for the relay. Examples:
+**Scopes** (optional, pick the closest): `relay`, `client`, `android`,
+`console`, `firmware`, `spec`, `conformance`, `tools`, `docs`, `infra`. Older
+history uses `server` for the relay. Examples:
 
 ```
 feat(relay): the sequencing relay — pure core, SQLite outbox, factory-built app
@@ -64,9 +64,10 @@ git tag pre-v0.1.1    # next verified milestone
   (`.venv/bin/python -m pytest -q`), the browser tier passes when run
   deliberately on a host with Chromium (`.venv/bin/python -m pytest -m e2e tests/e2e`),
   the front ends pass (`npm test` in `client/` and `console/`), the firmware
-  runners pass when firmware changed, the conformance oracle and the drift
-  guard are in sync, and README/CHANGELOG test counts and feature text match
-  reality.
+  runners pass when firmware changed, the Android core and the device tier
+  pass when `android/` changed (the latter on an emulator or a phone), the
+  conformance oracle and the drift guard are in sync, and README/CHANGELOG
+  test counts and feature text match reality.
 - Each milestone gets a `## [pre-v0.1.x]` entry in `CHANGELOG.md`.
 - The cut discipline: verify → commit the work → convert `[Unreleased]` →
   tag the cut commit.
@@ -81,7 +82,8 @@ git tag pre-v0.1.1    # next verified milestone
    contract, the oracle and their generated outputs
 1. `.venv/bin/python -m pytest -q` — core, store, relay, reference renderer,
    conformance, the timing guard, and the integration tests that drive the
-   headless device from `client/dist` (build the client first, or they skip)
+   headless device from `client/dist` (build the client first, or they skip).
+   The browser and device tiers are deselected here; see 6 and 7
 2. Client or console changed → `npm test` and `npm run typecheck` in that
    directory; a renderer change also needs
    `.venv/bin/python conformance/run.py --player "node client/dist/conformance.js" --profile <P>`
@@ -95,19 +97,30 @@ git tag pre-v0.1.1    # next verified milestone
    the JSON, the regenerated consumers and the expected timelines together
 5. Firmware changed → `python3 firmware/haptic_out/run_tests.py`,
    `python3 firmware/app/ziv_qemu/run_ziv_tests.py` and
-   `python3 firmware/band/run_band_tests.py`
+   `python3 firmware/band/run_band_tests.py`. The ESP-IDF glue
+   (`firmware/band/esp/`, `firmware/app/ziv_qemu/main/`) changed →
+   `idf.py build` in both projects and the QEMU captures too, when the
+   toolchain is installed (optional locally; CI's `qemu-boot` job does it)
 6. Client or console changed in a way a browser would show →
-   `.venv/bin/python -m pytest -m e2e tests/e2e` on a host where Chromium
-   launches (it skips otherwise)
-7. Behavior changed → add a `CHANGELOG.md` entry under `[Unreleased]` or the
+   `.venv/bin/python -m pytest -m e2e tests/e2e` — optional locally, since it
+   needs a Chromium that can launch (`.venv/bin/python -m playwright install
+   --with-deps chromium`) and skips otherwise; CI's `browser` job runs it on
+   every push
+7. `android/` changed → `./gradlew :core:test`, the conformance player on
+   both profiles and `:app:assembleDebug`; then the device tier,
+   `.venv/bin/python -m pytest -m device tests/device`, when an emulator or a
+   phone is attached — optional locally, and no CI job runs it
+8. Behavior changed → add a `CHANGELOG.md` entry under `[Unreleased]` or the
    current milestone; counts come from the run you just made
-8. Commit with a conventional message
+9. Commit with a conventional message
 
 The guards are belt-and-suspenders: the pre-commit hook blocks at commit
 time, the suite (`tests/test_timing_guard.py`, `tests/test_conformance.py`)
 fails in local runs even if a hook is never installed, and GitHub Actions
-(`.github/workflows/ci.yml`) runs the same checks plus every suite on every
-push to `main` or `product`. Drift cannot be committed or pushed either way.
+(`.github/workflows/ci.yml`) runs the same checks plus every suite — the
+browser tier included — on every push to `main` or `product`; the `qemu-boot`
+job is non-blocking until its first run there. Drift cannot be committed or
+pushed either way.
 
 ## Docs map
 
@@ -122,6 +135,7 @@ push to `main` or `product`. Drift cannot be committed or pushed either way.
 | `docs/HAPTIC_TIMING_SPEC.md` | The feel-timing spec and its generated consumers |
 | `conformance/README.md` | The oracle, the golden set and the player interface |
 | `client/README.md` | The web renderer, its headless driver and its limits |
+| `android/README.md` | The native phone renderer: build, conformance, the emulator, a phone on the LAN, what is unverified |
 | `console/README.md` | The console, its routes and its accessibility checklist |
 | `firmware/band/README.md` | The band as a device renderer; what runs where; what is unverified |
 | `firmware/haptic_out/README.md` | The sequencer and the bench |

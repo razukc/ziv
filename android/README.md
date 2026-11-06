@@ -88,7 +88,9 @@ $ANDROID_HOME/platform-tools/adb wait-for-device shell 'while [ "$(getprop sys.b
 
 The emulator needs KVM: the user must be able to open `/dev/kvm`
 (`sudo gpasswd -a $USER kvm`, then log in again; or `sudo setfacl -m u:$USER:rw /dev/kvm`).
-On a minimal Ubuntu it also needs `libxkbfile1` (`sudo apt install libxkbfile1`).
+On a minimal Ubuntu it also needs `libxkbfile1` and `libpulse0`
+(`sudo apt install libxkbfile1 libpulse0`). With those in place the `ziv` AVD
+(Android 15 system image) booted headless here in about 138 s.
 
 Then the integration test, which boots the relay in-process on a loopback port
 (reachable from the emulator as `10.0.2.2`), installs the debug APK, launches
@@ -102,8 +104,27 @@ cd ..
 ```
 
 It is deselected by default (`pyproject.toml` `addopts`) and skips, naming the
-reason, when adb, the APK or a booted emulator is missing. The debug build
-accepts the setup as launch extras, so the same thing by hand is:
+reason, when adb, the APK or a booted emulator is missing.
+
+Last run (2026-11-06, the `ziv` AVD on KVM): **3 passed in 82.67 s** — the app
+enrolls by code, connects and plays a message to `played`; a compose reaches
+it as `body_pending` and then plays the echoed words; a process restart comes
+back with the saved key and `last_acked`. Two fixes came out of that first
+run:
+
+- **`pm clear` resets runtime grants.** The harness clears the app between
+  tests; after a clear the notification-permission dialog from the first
+  launch stayed on top of the task, and a relaunch brought that task forward
+  instead of recreating the activity under it, so the launch extras never
+  arrived. The test now re-grants `POST_NOTIFICATIONS` after clearing.
+- **The renderer starts before the permission prompt.** The activity used to
+  ask for the notification permission first and start the service after; it
+  now starts `RendererService` and then asks. The permission only decides
+  whether the status notification is shown — the wearer's channel never waits
+  on a dialog.
+
+The debug build accepts the setup as launch extras, so the same thing by hand
+is:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -192,19 +213,21 @@ for the session only.
 - **Plain HTTP is a debug-build, private-network affordance** (the emulator
   host, loopback, RFC 1918 and link-local); the release build is TLS only.
 
-## What could not be verified here
+## What has run, and what has not
 
-- **No emulator boot on this machine.** `emulator -avd ziv …` stops with
-  `ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)`; the user
-  is not in the `kvm` group and granting access needs root. The emulator binary
-  also wants `libxkbfile.so.1`, which this Ubuntu lacks (`libxkbfile1`). So
-  `tests/device/test_android_renderer.py` has not run against the app; it skips
-  with the reason. The protocol it exercises is the one the JVM `DeviceTest`
-  proves on a fake clock, and the Android layer around it has compiled but not
-  executed.
-- **No phone, no motor.** Whether a 50 ms pulse and a 30 ms slot gap are legible
-  on a phone motor, and how far `Handler.postDelayed` jitter stays inside the
-  10 ms tolerance under load, are open until a wearer has felt it and a logcat
-  timeline has been diffed against the reference.
+- **The emulator, yes.** When this landed, `emulator -avd ziv …` stopped with
+  `ProbeKVM: This user doesn't have permissions to use KVM (/dev/kvm)` and the
+  binary wanted `libxkbfile.so.1`. With the user in the `kvm` group and
+  `libxkbfile1` and `libpulse0` installed, the AVD boots and
+  `tests/device/test_android_renderer.py` passes (above). So the Android layer
+  — the service, the socket, the SQLite queue, enrollment, the restart path —
+  has executed, on an emulator.
+- **No phone, no motor.** The emulator reports a Vibrator, but there is nothing
+  to feel. Whether a 50 ms pulse and a 30 ms slot gap are legible on a phone
+  motor, and how far `Handler.postDelayed` jitter stays inside the 10 ms
+  tolerance under load, are open until a wearer has felt it and a logcat
+  timeline has been diffed against the reference. A phone on the LAN against
+  a relay inside WSL2 also has not been tried; the section above says what
+  that needs.
 - **No TalkBack session.** The accessibility notes describe what the layout
   declares; nobody has driven it with a screen reader or a braille display.

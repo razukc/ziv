@@ -22,12 +22,16 @@ acknowledges; the relay sequences through a per-wearer outbox in SQLite;
 one reference renderer defines correct timing, and a conformance harness
 holds every renderer to it. What exists: the relay (`ziv/`, `ziv-relay`),
 the web renderer (`client/`, the reference `single_actuator` device and a
-foreground-only demo), the accessible console (`console/`), the band
-firmware around the proven sequencer (`firmware/band/`, host-proven,
-conformant on both profiles, uncompiled for the ESP32-S3), spec v4 with the
-word gap, the kinds table and the two profiles, and the suites that gate
-every push. What does not exist yet: a renderer that works with the screen
-off, a band on a wrist, and any wearer who has felt the result.
+foreground-only demo, proven in headless Chromium), the native Android
+renderer (`android/`, a foreground service that works with the screen off,
+12/12 on both profiles, proven on the emulator), the accessible console
+(`console/`), the band firmware around the proven sequencer
+(`firmware/band/`, host-proven, conformant on both profiles, built for the
+ESP32-S3 on ESP-IDF v5.5 and booted under QEMU with the demo's 27 HAP events
+matching the bench at zero drift), spec v4 with the word gap, the kinds table
+and the two profiles, and the suites that gate every push — five CI jobs,
+written but never run on GitHub. What does not exist yet: a phone that has
+vibrated, a band on a wrist, and any wearer who has felt the result.
 
 ## Next
 
@@ -49,32 +53,36 @@ off, a band on a wrist, and any wearer who has felt the result.
 
 ### The phone
 
-- [ ] **The native phone renderer** — an Android app with a foreground
-      service that vibrates with the screen off, keeps its queue across
-      process restarts, and implements the same contract as the band with the
-      `single_actuator` profile; the web renderer is its reference and its
-      conformance entry is the template. No JDK or SDK here yet
-- [ ] **The web renderer in a real browser** — run the page on an Android
-      phone and the five browser e2e tests on a host where Chromium launches;
-      promote the e2e tier into CI
+- [ ] **A real phone session** — install the debug APK on an Android phone
+      over the LAN (a relay inside WSL2 needs Windows port forwarding or
+      mirrored networking; [android/README.md](../android/README.md)), feel
+      the single-actuator slots on a real motor, and diff a logcat timeline
+      against the reference. The Android layer has run on the emulator only,
+      where the Vibrator API exists but there is nothing to feel
+- [ ] **The web renderer in a browser on a phone** — the five browser tests
+      pass in headless Chromium and run in CI's `browser` job; the page on an
+      Android phone remains
 
 ### The console
 
 - [ ] **A session with a screen reader and a braille display** — the console
-      is axe-clean in jsdom and checked by hand against its checklist; nothing
-      has run with NVDA, VoiceOver or a display yet
+      is axe-clean in jsdom and in headless Chromium and checked by hand
+      against its checklist; the Android app declares its TalkBack semantics;
+      nothing has run with TalkBack, NVDA, VoiceOver or a display yet
 
 ### The wrist
 
-- [ ] **Fill the `qemu-boot` IDF install step** — the CI skeleton's gated
-      steps go live on the first green boot; then promote the job to blocking
-      ([QEMU_SIMULATION_LADDER.md](QEMU_SIMULATION_LADDER.md) rung-2 discipline)
-- [ ] **Rung-2 QEMU differ green in CI** — Espressif-QEMU boot capture vs the
-      derived demo fixture (`tools/qemu_timeline.py`), the last rung before
-      on-wrist work
-- [ ] **Compile the band for the ESP32-S3** — everything under
-      `firmware/band/esp/`, the I²C bus's device path and the FreeRTOS task
-      are written against ESP-IDF 5.x and uncompiled
+- [ ] **Push the branch so the five CI jobs run** — `relay`, `renderers`,
+      `browser`, `firmware` and `qemu-boot` are written and green locally but
+      have never run on GitHub; after `qemu-boot`'s first green run there,
+      delete its `continue-on-error`
+      ([QEMU_SIMULATION_LADDER.md](QEMU_SIMULATION_LADDER.md) promote-a-check
+      discipline)
+- [ ] **A real board (rung H)** — the band builds for the ESP32-S3 and boots
+      under QEMU with the mock bus, but no I²C transaction has executed, no
+      motor has moved and no real Wi-Fi or TLS frame has been carried; the
+      first `hello`/`hello.ack` over `wss://` from a devkit is the first
+      thing to watch
 - [ ] **Import order lands** — 6× DRV2605L + the I²C mux, LRA motors
       ([HARDWARE_SHOPPING_GIGANEPAL.md](HARDWARE_SHOPPING_GIGANEPAL.md) tracks
       local vs import and every verified price)
@@ -89,6 +97,12 @@ off, a band on a wrist, and any wearer who has felt the result.
 
 ### The relay
 
+- [ ] **The budget against the profile** — the 15 s default (`ZIV_BUDGET_MS`)
+      leaves about nine letters on a single-actuator device; in the one live
+      compose the model kept `take pills` and dropped the time from "remember
+      to take the pills at nine tonight". Either the budget scales with the
+      profile and the pace, or the composer is steered to keep time words, or
+      both; decide with the wearer sessions
 - [ ] **Sender notifications** — `NotifySender` is a no-op today; senders
       poll `GET /utterances/{id}`. A subscription or webhook per sender, with
       the same content-free discipline as events
@@ -102,11 +116,26 @@ off, a band on a wrist, and any wearer who has felt the result.
 - [ ] **A token-aware feel-tool path** — the hosted feel-tool stays offline
       and keyless; a path from the feel-tool to a wearer's own relay is open
 - [ ] **First tagged release `0.1.0`** — when the channel is validated with at
-      least one reader session and a renderer that works with the screen off
-      ships
+      least one reader session and the native renderer has played on a real
+      phone
 
 ## Shipped
 
+- [x] **The verification round** — the browser tier passes in headless
+      Chromium (5) and is the `browser` CI job; one real model compose; TLS
+      served with a self-signed pair; the device tier passes on the emulator
+      (3) after the `pm clear` permission fix; the rung-2 differ accepts the
+      raw QEMU capture (`74cd273`, `3803bde`)
+- [x] **The band on the device toolchain; QEMU rungs 1 and 2** — both images
+      build on ESP-IDF v5.5 at `-Wall -Wextra -Werror`; the demo's 27 HAP
+      events match the bench with zero drift under icount; the band boots,
+      backs off without a radio; six device-only defects fixed; the
+      `qemu-boot` job is a real build-boot-diff, non-blocking until its first
+      run on GitHub (`acb67fb`)
+- [x] **The native phone renderer** — `android/`: a JVM core conformant
+      12/12 on both profiles (46 tests), a foreground-service app with the
+      queue in SQLite and amplitude waveforms, three device tests; built and
+      emulator-proven, not yet on a phone (`1a16661`)
 - [x] **The cutover** — `agent/` retired with its server-paced relay, PWA,
       JSON stores and 233-test suite; one generated Python table at
       `ziv/haptics/tables.py`; the root `.venv`; CI as three blocking jobs
@@ -154,7 +183,7 @@ off, a band on a wrist, and any wearer who has felt the result.
       bus (`pre-v0.1.28`, `pre-v0.1.30`); 459 checks since the band work
 - [x] **QEMU boot app (rung 1)** — the host-portable core of the ESP-IDF app
       that boots the real sequencer, proven against the derived 27-line HAP
-      fixture (49 checks); the QEMU boot itself waits for an IDF install
+      fixture (49 checks); the QEMU boot itself landed with `acb67fb` above
 - [x] **Community tooling** — Discussions, the "Tried it" feedback form, the
       outreach letters ([COMMUNITY_SETUP.md](COMMUNITY_SETUP.md))
 

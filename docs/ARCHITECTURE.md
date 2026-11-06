@@ -448,15 +448,28 @@ firmware, then an integration pass and the cutover that retired `agent/`.
 Each workstream is an entry under `[Unreleased]` in
 [CHANGELOG.md](../CHANGELOG.md), with the counts from the runs that proved it.
 The table and the order below stay as the record of how the old tree mapped
-onto this design. What remains unverified: the native Android renderer is not
-built, and the web client stands in as a foreground-only reference renderer
-(§5.4). The band has not been flashed or booted under QEMU, so everything
-under `firmware/band/esp/`, the I²C bus's device path and the FreeRTOS task
-are written but uncompiled. No surface has run in a real browser, with a
-screen reader or with a braille display. The single-actuator slot timings and
-the word gap have not been felt by a wearer. The preflight gate left with the
-old API, and a `ziv-relay check` is future work. `NotifySender` is a no-op
-and senders poll.
+onto this design. Later the same day a verification round closed most of what
+the first note listed as unverified. The native Android renderer of §5.4 is
+built (`android/`) and has run on the emulator: 46 JVM tests, 12/12 against
+the reference on both profiles, and three device-tier tests that enroll,
+play, compose and resume after a process restart against a live relay. The
+band builds on ESP-IDF v5.5 for the ESP32-S3 at `-Wall -Wextra -Werror` and
+boots under Espressif QEMU, where the boot demo's 27 HAP events match the
+bench with zero drift (ladder rung 2) and the band initialises NVS and six
+mock drivers, plays the boot ramp-up and backs off its transport without a
+panic. The browser tier passes (five tests in headless Chromium) and is a CI
+job. The relay served TLS directly with a self-signed pair, and one real
+model compose succeeded through `NebiusComposer` — showing that the 15 s
+default budget leaves about nine letters on `single_actuator`, so the model
+dropped the time from a reminder; that question is on the roadmap. What
+remains unverified: a real ESP32-S3 board (no I²C transaction has executed,
+no motor has moved, no real Wi-Fi or TLS frame has been carried by the band);
+a real phone and its motor (the emulator's Vibrator API exists, but there is
+nothing to feel); any TalkBack, screen-reader or braille-display session; the
+single-actuator slot timings and the word gap with wearers; the five CI jobs
+on GitHub (the branch has never been pushed); and a phone on the LAN against
+a relay inside WSL2. A `ziv-relay check` is still future work, and
+`NotifySender` is a no-op: senders poll.
 
 What exists today maps onto the target like this.
 

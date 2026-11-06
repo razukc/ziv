@@ -14,6 +14,88 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only, then the rebuild
 
+- **The verification round** — every gap the previous documentation listed
+  as unverified on this machine was closed or named (Ubuntu on WSL2,
+  2026-11-06). The browser tier runs: after Chromium's shared libraries were
+  installed, `pytest -m e2e tests/e2e` is **5 passed in 63.19 s**, and it is
+  now the `browser` CI job (`playwright install --with-deps chromium`, both
+  front ends built, the tier). The live composer works: one real Nebius Token
+  Factory call through `NebiusComposer` with the key from `.env` succeeded in
+  2.5 s — "remember to take the pills at nine tonight" became `take pills`
+  after the three-attempt fit loop, 14790 ms against a 15000 ms budget on
+  `single_actuator`; the 15 s default leaves about nine letters on that
+  profile, so the model dropped the time, and the budget-versus-profile
+  question is now on the roadmap. TLS serves: `ziv-relay run` with
+  `ZIV_TLS_CERT`/`ZIV_TLS_KEY` (a self-signed pair) answered
+  `https://127.0.0.1:8793/health` and refused plain HTTP on that port. The
+  device tier runs: the `ziv` AVD (Android 15, KVM) booted headless in about
+  138 s and `pytest -m device tests/device` is **3 passed in 82.67 s** —
+  enroll and play to `played`, compose as `body_pending` then the body, a
+  process restart that resumes with the saved key and `last_acked`. One
+  harness fix was needed: `pm clear` resets runtime grants, so the
+  notification-permission dialog from the first launch stayed on top of the
+  task and a relaunch never recreated the activity under it; the test
+  re-grants after clearing, and the app now starts its renderer before asking
+  for the permission. The rung-2 differ accepts the raw QEMU capture — the
+  ROM's `Build:`, `rst:`, `SPIWP:`, `mode:`, `load:` and `entry` lines and
+  every log level — instead of exiting 2 on them. Python suite **166 passed**
+  with the browser and device tiers deselected; client **55**; console
+  **20**; CI is five jobs, none of which has run on GitHub yet (`74cd273`,
+  `3803bde`).
+
+- **The band builds and boots on ESP-IDF 5.5; rungs 1 and 2 are real** —
+  with ESP-IDF v5.5 and Espressif's QEMU fork installed, the QEMU boot app
+  and the band component both build for the ESP32-S3 at `-Wall -Wextra
+  -Werror` with zero warnings (`ziv_qemu.bin` 0x30dd0 bytes; `ziv_band.bin`
+  0xe24d0 bytes with `esp_websocket_client` 1.8.0 from the registry), and the
+  band's websocket, NVS, Wi-Fi and I²C glue compiled against the real
+  headers without a change. The boot demo runs under QEMU and its 27 HAP
+  events match the bench fixture — `PASS — 27 HAP events matched within
+  tolerance`, zero drift under `-icount shift=5,sleep=off`; the band boots on
+  the device toolchain, initialises NVS and six mock drivers, plays the boot
+  ramp-up, reports that no Wi-Fi is configured and backs off its transport
+  without a panic or a reboot. Both captures are committed as evidence. Six
+  defects the host build could not see were fixed: a component-relative
+  include path, an END event repeated on every idle step after the demo, a
+  boot-relative HAP epoch the differ could never match, tick-based deadline
+  waits that lose whole ticks under emulation (replaced by `esp_timer`
+  one-shots), cross-core wakes on an unpinned task, and a band main loop that
+  blocked forever without Wi-Fi. `firmware/qemu_capture.sh` is the bounded
+  capture for CI, docs and local runs alike, and the `qemu-boot` CI job is a
+  real build-boot-diff on the `espressif/idf:v5.5` container, still
+  `continue-on-error` until it has run once on GitHub. A real board remains
+  unverified: no I²C transaction has executed, no motor has moved, no real
+  Wi-Fi or TLS frame has been carried (`acb67fb`).
+
+- **The native Android renderer** — the phone renderer of
+  `docs/ARCHITECTURE.md` §5.4, written now that a JDK and the Android SDK are
+  on this machine. A pure JVM core (`android/core`) holds the spec model, a
+  sequencer that matches the reference renderer label for label (all twelve
+  golden utterances on both profiles, compared text for text against
+  `conformance/expected`), a self-correcting player, the device state machine
+  ported from the web client, the hello-first transport and a conformance
+  player — **12/12 on both profiles** through `conformance/run.py`. The app
+  (`android/app`) is a foreground service that owns the WebSocket, the queue
+  in SQLite, the Vibrator with amplitude waveforms, enrollment by code and
+  backoff with a fresh hello, behind a Views-based screen with large labelled
+  controls and live regions for TalkBack; debug builds allow cleartext only
+  to the emulator host and private ranges, release is TLS only. Three
+  device-tier tests install the debug APK on an attached emulator or phone
+  and drive it against a live relay, skipping cleanly when none is attached.
+  **46** JVM tests; a **7.6 MB** debug APK. The emulator could not boot when
+  this landed (the user was not in the `kvm` group); it did in the
+  verification round above. No real phone has run it (`1a16661`).
+
+- **The echo composer never cuts content** — it used to drop trailing words
+  to fit the budget, so "take meds at nine" could play as "take meds" and
+  lose the time. It now plays the whole intent, or the intent without
+  function words with the sender's view marked lossy, or fails with
+  `over_budget` — never a prefix; and an intent that could never fit is
+  refused when it is scheduled, not discovered when it fires. Found while
+  documenting the rebuilt tree, in the same commit as the README, CLAUDE.md,
+  CONTRIBUTING, roadmap and architecture status that described it; 166 tests
+  passed (`d935031`).
+
 - **The tree is cut over to the new architecture** — `agent/` left the tree:
   the server-paced relay, its PWA, the JSON stores and their 233-test suite,
   with the scripts that only made sense for them (the service-worker cache
