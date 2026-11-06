@@ -1,0 +1,29 @@
+{
+  "name": "ziv-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Ziv console: a small accessible web app for senders, caregivers and the wearer. Talks to the relay's sender HTTP API; never plays haptics.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "gen:types": "node scripts/gen-types.mjs",
+    "check:types-fresh": "node scripts/gen-types.mjs --check",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "mock": "node mock/server.mjs",
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "axe-core": "4.14.0",
+    "esbuild": "0.28.2",
+    "jsdom": "31.0.0",
+    "json-schema-to-typescript": "16.0.0",
+    "typescript": "5.9.3"
+  }
+}
