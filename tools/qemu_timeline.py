@@ -34,11 +34,14 @@ OUT_C_PATH = DEMO_C_PATH  # the derived fixture lives inside ziv_demo_sequence.c
 
 HAP_LINE_RE = re.compile(r"^HAP (\d+) (.+)$")
 TOLERANCE_MS = 10
+# Everything a QEMU capture prints that is not a HAP line: the ROM's boot
+# banner (Build:, rst:, SPIWP:, mode:, load:, entry), the bootloader's and
+# app's log lines at every level (I/W/E/D/V), and a few free-text lines.
 BOOT_CHATTER_RE = re.compile(
-    r"^(ESP-ROM:|I \(\d+\) |Project conf:|Flash:)|"
+    r"^(ESP-ROM:|Build:|rst:|SPIWP:|mode:|load:|entry |Project conf:|Flash:)|"
+    r"^[IWEDV] \(\d+\) |"
     r"^cpu_start:|Starting app|This is|https?://|"
-    r"^rst cause|boot mode|BLE startup|connect|"
-    r"^I \(\d+\) "
+    r"^rst cause|boot mode|BLE startup|connect"
 )
 
 

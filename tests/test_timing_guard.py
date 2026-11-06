@@ -207,7 +207,12 @@ def test_qemu_timeline_boot_check_golden(tmp_path):
     expected = bzd.demo_fixture_lines()
     bench = tmp_path / "bench_hap.log"
     bench.write_text("\n".join(expected) + "\n", encoding="utf-8")
-    qemu_lines = ["ESP-ROM:esp32s3-20210310", "I (312) cpu_start: Starting app", ""]
+    # the real capture's chatter: the ROM banner, bootloader and app log lines at
+    # every level, then the demo — none of it may be mistaken for a HAP event
+    qemu_lines = ["ESP-ROM:esp32s3-20210310", "Build:Mar 27 2021", "rst:0x1 (POWERON),boot:0x8 (SPI_FLASH_BOOT)",
+                  "SPIWP:0xee", "mode:DIO, clock div:1", "load:0x3fce2810,len:0x178c", "entry 0x403c98d4",
+                  "I (312) cpu_start: Starting app", "W (355) rtcinit: o_code calibration fail",
+                  "E (400) something: loud but not a beat", ""]
     qemu_lines += [_shift_at(ln, 3) for ln in expected]
     qemu = tmp_path / "qemu.log"
     qemu.write_text("\n".join(qemu_lines) + "\n", encoding="utf-8")
