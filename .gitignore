@@ -72,3 +72,14 @@ firmware/band/host/band_tests
 firmware/band/host/band_tests.exe
 firmware/band/host/host_transport_test
 firmware/band/host/host_transport_test.exe
+
+# ESP-IDF build outputs (firmware/app/ziv_qemu, firmware/band/esp_project);
+# dependencies.lock stays tracked
+firmware/**/build/
+firmware/**/sdkconfig
+firmware/**/sdkconfig.old
+firmware/**/managed_components/
+# The QEMU boot captures are tracked evidence (QEMU_SIMULATION_LADDER.md
+# rungs 1-2) — exempt from the *.log rule above
+!firmware/app/ziv_qemu/qemu_boot.log
+!firmware/band/esp_project/qemu_boot.log

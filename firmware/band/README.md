@@ -19,7 +19,8 @@ firmware/band/
     test_band.c            the C unit tests
     fake_relay.py          a relay for the transport test (validates frames with ziv.wire)
     host_transport_test.c  the C side of the loopback transport test
-  esp/                     the ESP-IDF glue — written, NOT compiled here (see esp/README.md)
+  esp/                     the ESP-IDF glue — compiles against ESP-IDF v5.5, boots in QEMU (see esp/README.md)
+  esp_project/             the smallest IDF project wrapping esp/ (CMakeLists, sdkconfig.defaults, dependencies.lock, qemu_boot.log)
   run_band_tests.py        builds and runs all of the above
 ../third_party/cJSON/      cJSON 1.7.18 (MIT), the host's JSON; the device uses IDF's `json`
 ```
@@ -119,11 +120,16 @@ firmware/app/ziv_qemu/host_player --profile single_actuator --pace 420 < conform
 
 ## What is unverified
 
-- Everything in `esp/` and `firmware/haptic_out/drv2605_i2c_esp32.c`'s
-  device path: written against ESP-IDF 5.x, never compiled (no IDF here).
-  The host build compiles `drv2605_i2c_esp32.c` to its stubs so the file at
-  least parses under the warning flags.
+- A board. `esp/` and `firmware/haptic_out/drv2605_i2c_esp32.c` compile
+  against ESP-IDF v5.5 (`esp_project`, `-Wall -Wextra -Werror`) and the band
+  boots under Espressif QEMU with the mock bus and no radio
+  (`esp_project/qemu_boot.log`), but no `i2c_master` transaction has executed
+  and no motor has moved. The host build still compiles
+  `drv2605_i2c_esp32.c` to its stubs so the file parses under the warning
+  flags there too.
 - The feel. The host proves timing to the millisecond against the oracle;
   whether a 30 ms slot gap reads on skin is ladder rung H.
 - TLS and the real relay's websocket: the fake relay speaks the frames over
-  plain TCP lines; the websocket adapter is the unverified part above.
+  plain TCP lines; the websocket adapter is compiled and its client is
+  created at boot, but it has never carried a frame — a live `hello` over
+  Wi-Fi is the first devkit test.

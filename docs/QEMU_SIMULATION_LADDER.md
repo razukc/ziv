@@ -17,9 +17,9 @@ gaps land exactly on seams we already own.
 | Rung | What runs | What proves | Status |
 |---|---|---|---|
 | 0 | Bench suite: real sequencer, mock bus, virtual clock (`firmware/haptic_out/run_tests.py`) | timing tables + state machine produce exact dot-mask timelines | **shipped** (274 checks) |
-| 1 | **QEMU boot app** (`firmware/app/ziv_qemu`): the real `haptic_out` + task loop inside an ESP-IDF app, haptic bus → the bench mock, keys/mic → injected/console events | the binary boots in QEMU, FreeRTOS runs it, and the scripted demo plays the correct timelines on the emulated chip | **core shipped** — `ziv_app` proven on the bench (49 checks, the full derived `HAP` fixture); QEMU boot pending an IDF install |
-| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | **differ shipped** — reads the *derived* fixture (generator cross-checked against the generated `k_demo_expected[]`); QEMU boot itself pending an IDF install; CI job skeleton in place (`qemu-boot`, continue-on-error — its one marked gap is the IDF install) |
-| 3 | **Transport seam** (`firmware/band`): the relay protocol — hello/ack, utterance open/body/cancel, progress/played/nack, prefs, ping/pong, reconnect with backoff and jitter, resume by `last_acked`+held — behind a frame vtable; on the host newline-JSON over TCP against `firmware/band/host/fake_relay.py`, on the band `esp_websocket_client` | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | **host-proven** — `firmware/band/run_band_tests.py`: unit tests against a scripted adapter, the loopback run against the fake relay (every up frame validated with `ziv.wire`, order asserted), plus the conformance player on both profiles (12/12); the websocket adapter is written, not compiled (no IDF here) |
+| 1 | **QEMU boot app** (`firmware/app/ziv_qemu`): the real `haptic_out` + task loop inside an ESP-IDF app, haptic bus → the bench mock, keys/mic → injected/console events | the binary boots in QEMU, FreeRTOS runs it, and the scripted demo plays the correct timelines on the emulated chip | **proven** — builds with ESP-IDF v5.5 (`ziv_qemu.bin` 0x30dd0 bytes), boots in Espressif QEMU 9.0.0 (esp32s3), plays all 27 `HAP` lines; capture committed as `firmware/app/ziv_qemu/qemu_boot.log`. Bench proof unchanged (49 checks) |
+| 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (icount virtual clock, or wall clock interactively); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; ±10 ms) | **proven** — `PASS — 27 HAP events matched within tolerance`, zero drift under `-icount shift=5,sleep=off` (three runs); the `qemu-boot` CI job builds both images, boots both, diffs (still continue-on-error until its first green run on GitHub) |
+| 3 | **Transport seam** (`firmware/band`): the relay protocol — hello/ack, utterance open/body/cancel, progress/played/nack, prefs, ping/pong, reconnect with backoff and jitter, resume by `last_acked`+held — behind a frame vtable; on the host newline-JSON over TCP against `firmware/band/host/fake_relay.py`, on the band `esp_websocket_client` | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | **host-proven, device-compiled, QEMU-booted** — `firmware/band/run_band_tests.py`: unit tests against a scripted adapter, the loopback run against the fake relay (every up frame validated with `ziv.wire`, order asserted), plus the conformance player on both profiles (12/12); the band builds against ESP-IDF v5.5 with the registry's `esp_websocket_client` (`firmware/band/esp_project`, `ziv_band.bin` 0xe24d0 bytes) and boots in QEMU with the mock bus and no radio: NVS, the queue, the websocket client created, the transport backing off (`firmware/band/esp_project/qemu_boot.log`). A live relay over real Wi-Fi is still unverified |
 | 4 | **Audio seam**: capture reads frames from an injectable source (canned WAV in QEMU/host; real I²S on band) | capture → Omni payload framing testable without a mic | speced |
 | H | Hardware bring-up (HARDWARE_BRINGUP.md) | the one thing no simulator answers: does it *feel* right | gated on boards |
 
@@ -56,14 +56,25 @@ bench share one bus implementation, so rung-2 equivalence compares like with lik
   HAP <at_ms> <evt:START|BUZZ|END> <mode:MARK|PATTERN|WORD|PREFIX> <mask_hex> <buzz_ms> <gap_ms> <seq>
   ```
 
-  `at_ms` is `esp_timer_get_time()/1000` (monotonic). Silence is derivable
+  `at_ms` is `esp_timer_get_time()/1000` (monotonic), rebased to the demo's
+  start on the device so both logs share the bench's epoch (boot time is not
+  part of the timeline). Silence is derivable
   (BUZZ end → next BUZZ start), so gaps are asserted, not logged. Because the
   lines originate in the event stream, they are the *real firmware's* testimony —
   not a parallel model of it.
 
 **The playback loop** is the same pull model `haptic_out_task.c` uses
-(`haptic_out_step(now)` → next deadline; delay until deadline). On the band the
-loop body is a FreeRTOS task; here it is the same function called from `app_main`.
+(`haptic_out_step(now)` → next deadline; wait until deadline). On the band the
+loop body is a FreeRTOS task; here it is a FreeRTOS task started from `app_main`,
+pinned to CPU0. The wait is an `esp_timer` one-shot armed at the absolute
+deadline plus a task notification, not `vTaskDelay()`: under QEMU the emulated
+periodic tick loses whole ticks when the host is late, and because the
+sequencer schedules each beat from `now`, a tick-based wait turned every slip
+into permanent drift (measured +84 ms over the demo on a quiet host). Two
+other things the first boot taught: a 50 ms idle poll must not step an idle
+sequencer (its contract reports END on every idle step — `ziv_app_step` now
+owes exactly one END per play), and the component's source paths are relative
+to `main/`, not the project.
 
 **Scripted boot demo** (runs automatically at boot — this is what rung 2 diffs):
 the stage chain is defined once as the `DEMO_STAGES` table in
@@ -99,8 +110,9 @@ the app's stage table, the bench fixture, and this table move together, and
 `ziv play pattern <id>` · `ziv play word <letters>` · `ziv play mark <name>` ·
 `ziv play prefix <tail>` · `ziv stop` · `ziv status`. The dispatch layer ships
 now — `ziv_pattern_index` / `ziv_mark_index` / `ziv_tail_index` in `ziv_app.c`,
-bench-verified — and the console-component wiring lands with the first QEMU
-boot. Chord-key input is *not* simulated here: `braille_in` (plan §5) does not
+bench-verified — and the console-component wiring is still pending: the first
+QEMU boot landed without it (the demo needs no input), so today the UART is
+output-only. Chord-key input is *not* simulated here: `braille_in` (plan §5) does not
 exist yet, and its future host seam (console/GPIO-injected key events) is
 designed when the module is — the console's command parser is the seam's
 template.
@@ -110,16 +122,21 @@ no I²S setup — image stays small, boot stays fast, and nothing links a driver
 QEMU cannot satisfy. The network returns at rung 3 behind the `band_frame_io`
 vtable (`firmware/band`, host-proven) and the mic at rung 4 behind its own.
 
-**Running it** (after the one-time `python $IDF_PATH/tools/idf_tools.py install
-qemu-xtensa`; on this machine see
-[QEMU_WINDOWS_INSTALL.md](./QEMU_WINDOWS_INSTALL.md) — ESP-IDF + the QEMU fork
-on Windows, with a smoke test whose pass criteria are the derived `HAP`
-fixture (see the demo-chain block above — generated, not hand-counted):
+**Running it** (install: [QEMU_WINDOWS_INSTALL.md](./QEMU_WINDOWS_INSTALL.md),
+whose Linux/WSL2 section is the recipe that was executed). Pass criteria are
+the derived `HAP` fixture (the demo-chain block above — generated, not
+hand-counted):
 
 ```sh
-idf.py qemu monitor        # interactive: console + HAP lines in the terminal
-idf.py qemu                # capture stdout, Ctrl-A q to exit
+cd firmware/app/ziv_qemu
+idf.py set-target esp32s3 && idf.py build     # proven: ziv_qemu.bin binary size 0x30dd0 bytes
+idf.py qemu monitor                           # interactive: console + HAP lines in the terminal
+# bounded, deterministic capture of UART0 to a file (what rung 2 and CI use):
+QEMU_UNTIL="$(tail -1 bench_hap.log)" ../../qemu_capture.sh . qemu_boot.log
 ```
+
+`sdkconfig.defaults` carries only the target; `build/`, `sdkconfig` and
+`managed_components/` are ignored, `qemu_boot.log` is tracked as evidence.
 
 ## Rung 2 — equivalence
 
@@ -139,10 +156,36 @@ idf.py qemu                # capture stdout, Ctrl-A q to exit
    `run_ziv_tests.py` proves this plumbing every CI run by diffing the
    bench log against the fixture; the QEMU job reuses the identical
    invocation with the boot capture as the second log.
-3. If jitter ever pollutes the diff beyond tolerance, the lever is QEMU's
-   `icount` virtual-clock mode passed via
-   `idf.py qemu --qemu-extra-args="..."` ⚠ (verify icount support in the
-   Espressif fork before relying on it).
+3. **Proven.** With the esp_timer wake (above) and `firmware/qemu_capture.sh`
+   (`-icount shift=5,sleep=off`):
+
+   ```
+   PASS — 27 HAP events matched within tolerance
+   ```
+
+   with no within-tolerance notes at all — every one of the 27 timestamps
+   equals the bench's (0, 0, 140, 350, 650, 1270, … 6820, 7310), three runs
+   out of three, including one under load average 13. The jitter lever
+   turned out to be a necessity, not an option; what was measured on the
+   way (WSL2, 8 cores):
+
+   | Mode | Max drift over the 27 events | Note |
+   |---|---|---|
+   | wall clock, tick-based wait (`vTaskDelay`) | +10 ms on a semi-idle host, **+84 ms** quiet, **+1039 ms** at load 13 | whole-tick slips (+10/+20/+30): the emulated periodic alarm loses ticks when the host is late; each slip shifts the rest of the timeline because the sequencer schedules from `now` |
+   | wall clock, esp_timer wait, task unpinned | +80…+210 ms per wait in a 1.3–5 s window after boot | cross-core wake of a halted vCPU under multi-threaded TCG |
+   | wall clock, esp_timer wait, pinned to CPU0 | **+2 ms** (PASS) in one run, one **+95 ms** slip in the next | usable interactively; not for a gate |
+   | `-icount shift=auto` | +75 ms by 1.3 s | auto raises the shift until each guest instruction costs ms of virtual time |
+   | `-icount shift=5,sleep=off` | **0 ms**, three runs | deterministic; ROM start-up loop costs ~35 s of host time, then the demo takes 4 s |
+   | `-icount shift≤3,sleep=off` | — | never got past the ROM's start-up loop in 20 s (host time ∝ 2⁻ˢʰⁱᶠᵗ) |
+
+   Two gaps found on the way, both outside the firmware: the differ's
+   boot-chatter filter (`BOOT_CHATTER_RE` in `tools/qemu_timeline.py`) knows
+   `I (…)` lines but not the ROM's own (`Build:`, `rst:`, `SPIWP:`, `mode:`,
+   `load:`, `entry`) nor `W (…)`/`E (…)` levels, so on a real capture it
+   exits 2 (`Unrecognized HAP line: 'Build:Mar 27 2021'`); until it learns
+   them the differ is fed `grep '^HAP '` of the capture (the saved log keeps
+   everything). And `run_ziv_tests.py` deletes the `bench_hap.log` it makes,
+   so the CI job emits it again with `host_demo --hap-log`.
 
 ## Rungs 3–4 — the network and mic seams
 
@@ -173,18 +216,17 @@ Same vtable discipline as `drv2605_bus`, extracted before the relay exists:
 
 ## CI shape (rung ≥ 1 lands)
 
-GitHub Actions job `qemu-boot`: install Espressif QEMU prebuilt (x86_64 Linux),
-`idf.py build`, boot headless ~30 s, then
-`python tools/qemu_timeline.py bench_hap.log qemu.log` — the expected side
-(the derived `k_demo_expected` fixture) and the comparison logic already
-exist and are exercised on every CI run by the host suite's boot-check step,
-so the job's only new work is producing `qemu.log`. The job now exists as a
-skeleton (`qemu-boot`, `continue-on-error`): the bench side runs for real on
-every push, and the only unfilled step is the marked ESP-IDF + Espressif QEMU
-install — the boot-capture and differ steps are gated on its `available`
-output and light up when the install lands, with nothing else to change.
-After the first green run, make the job blocking — same promote-a-check
-discipline as the drift guard.
+GitHub Actions job `qemu-boot` (filled in): runs in the `espressif/idf:v5.5`
+container, installs `libsdl2-2.0-0 libslirp0` and
+`idf_tools.py install qemu-xtensa`, builds `ziv_qemu`, captures its boot with
+`firmware/qemu_capture.sh` (icount, sentinel = the bench log's last line),
+runs `tools/qemu_timeline.py` on the capture's HAP lines, then builds
+`firmware/band/esp_project`, boots it the same way and asserts the band's
+boot shape (app_main reached, "wifi: unavailable", the ramp-up's HAP lines,
+≥2 "transport: connect failed", no panic, exactly one reset line). Both logs
+are uploaded as artifacts. It is still `continue-on-error: true` because this
+branch has never been pushed; after its first green run on GitHub, make it
+blocking — same promote-a-check discipline as the drift guard.
 
 ## What this ladder does not answer
 
@@ -198,8 +240,8 @@ discipline as the drift guard.
 
 ## Verify at bring-up (⚠ carried per repo discipline)
 
-- Exact QEMU machine name/args for S3 (`-M esp32s3 …`) per the fork's README at install time.
+- ✓ QEMU machine args for S3: `-M esp32s3`, efuse device `nvram.esp32c3.efuse` (sic — the fork reuses the C3 class), `-nic user,model=open_eth`; taken from IDF 5.5's `tools/idf_py_actions/qemu_ext.py` and reproduced in `firmware/qemu_capture.sh`. The `timer.esp32s3.timg … wdt_disable` global `idf.py qemu` passes is rejected by QEMU 9.0.0 ("invalid class name") — harmless so far (no watchdog fired in any capture), kept for parity.
 - GPIO emulation coverage (moot for rung 1 — no keys are wired yet — but bounds rung-H prep).
-- `icount` determinism support (rung 2 lever, not a dependency).
-- Flash-image merge behavior (`qemu_flash.bin` auto-generation) across IDF versions.
-- Dual-core timing fidelity under TCG (the pull model is single-task; fine for this ladder, ⚠ for anything that later assumes SMP timing).
+- ✓ `icount`: supported by the fork; `shift=5,sleep=off` is deterministic and exact (rung 2 above), with the ROM start-up cost noted there.
+- ✓ Flash-image merge: `esptool merge_bin --fill-flash-size <CONFIG_ESPTOOLPY_FLASHSIZE> @flash_args`, as `idf.py qemu` does; 2 MB (ziv_qemu) and 4 MB (band) both boot.
+- Dual-core timing fidelity under TCG: the unpinned-task result above is the first data point (cross-core wakes are slow in wall-clock mode); the ladder's loops are now pinned to CPU0. ⚠ for anything that later assumes SMP timing.

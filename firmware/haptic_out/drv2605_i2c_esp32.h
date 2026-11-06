@@ -1,11 +1,12 @@
 /*
  * drv2605_i2c_esp32.h — the band's I2C bus (ESP-IDF 5.x driver/i2c_master).
  *
- * UNVERIFIED ON HARDWARE: written against the ESP-IDF 5.x i2c_master API
+ * COMPILED, NOT EXECUTED: builds against ESP-IDF v5.5's i2c_master API
  * (i2c_new_master_bus / i2c_master_bus_add_device / i2c_master_transmit /
- * i2c_master_transmit_receive) but no ESP-IDF is installed where this was
- * written, so the device path has not been compiled.  Everything ESP-IDF
- * is under #if defined(ESP_PLATFORM); the host build sees only stubs.
+ * i2c_master_transmit_receive) as part of the band image with -Wall -Wextra
+ * -Werror, but QEMU boots the mock bus, so no I2C transaction has run —
+ * unverified on hardware.  Everything ESP-IDF is under
+ * #if defined(ESP_PLATFORM); the host build sees only stubs.
  */
 #ifndef DRV2605_I2C_ESP32_H
 #define DRV2605_I2C_ESP32_H

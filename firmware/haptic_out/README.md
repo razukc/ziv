@@ -18,9 +18,9 @@ construction, not by convention.
 | `mock_drv2605.h` / `.c` | bench mock of the DRV2605L bus (register files + fault injection) | bench only |
 | `test_haptic_out.c` | bench tests: exact timelines vs the generated tables | bench only |
 | `run_tests.py` | build + run the bench tests with a host C compiler | bench only |
-| `drv2605_i2c_esp32.h` / `.c` | ESP-IDF I2C bus on `driver/i2c_master.h` (TCA9548A mux, one-hot select) — **unverified on hardware**; compiles to stubs on the host | band (stubs on bench) |
-| `haptic_out_task.h` / `.c` | FreeRTOS task owning the sequencer — **unverified on hardware** | band |
-| `CMakeLists.txt` | ESP-IDF component build (excludes bench-only files) | band |
+| `drv2605_i2c_esp32.h` / `.c` | ESP-IDF I2C bus on `driver/i2c_master.h` (TCA9548A mux, one-hot select) — **compiles against ESP-IDF v5.5**, never executed (QEMU boots the mock; **unverified on hardware**); compiles to stubs on the host | band (stubs on bench) |
+| `haptic_out_task.h` / `.c` | FreeRTOS task owning the sequencer — **compiles against ESP-IDF v5.5** (linked into the band image, not started by it; **unverified on hardware**) | band |
+| `CMakeLists.txt` | ESP-IDF component build (excludes bench-only files) — not used by either project yet (the band compiles these sources directly, the QEMU app compiles them with the mock); kept as the standalone-component shape | band |
 
 The band's utterance path — decoder, queue, turn, transport — lives in
 [`firmware/band/`](../band/README.md) and drives this module through
@@ -84,7 +84,7 @@ beat for beat.
 No compiler on this box? `winget install w64devkit` (Windows) or
 `sudo apt install gcc` (WSL), then re-run.
 
-## Wiring the band (unverified on hardware)
+## Wiring the band (compiled and QEMU-booted; unverified on hardware)
 
 1. `drv2605_bus_esp32_init(&bus, &pins)` creates the `i2c_master` bus, the
    mux device handle and the one shared DRV2605 handle, and fills the
@@ -103,9 +103,23 @@ channel number; the bench mock now refuses any control byte that is not
 one-hot (`test_mux_select_contract`), so that regression fails on the bench
 before it reaches a board.
 
-The ESP-IDF files are written against IDF 5.x but have not been compiled
-(no IDF on the bench); the register map and the sequencer are what the
-bench locks down. Parts, wiring, and the staged flash-and-feel test live in
+**Where this stands.** The sequencer and driver run on the emulated chip:
+`firmware/app/ziv_qemu` boots them in Espressif QEMU on the mock bus and
+their 27-line demo timeline matches the bench exactly
+(`docs/QEMU_SIMULATION_LADDER.md`, rungs 1–2 proven). `drv2605_i2c_esp32.c`
+and `haptic_out_task.c` compile against ESP-IDF v5.5 with `-Wall -Wextra
+-Werror -Wunused-parameter -Wsign-compare` as part of the band image
+(`firmware/band/esp_project`) — the IDF 5.x `i2c_master` API, FreeRTOS tick
+macros and queue calls are spelled right — but no `i2c_master` transaction
+has executed and no motor has moved: QEMU emulates no I²C peripheral worth
+trusting and the band boots with `CONFIG_ZIV_BAND_HAPTIC_MOCK=y`. The
+register map and the sequencer are what the bench locks down; the bus is
+what a board verifies. One finding from the emulated chip that matters on
+silicon: a deadline wait built on the FreeRTOS tick (`vTaskDelay`, as
+`haptic_out_task.c` does) is good to one tick and drifts if ticks are lost;
+the QEMU app moved to an `esp_timer` one-shot wake for a millisecond-exact
+timeline — do the same here if the HAP diff is ever run against a board.
+Parts, wiring, and the staged flash-and-feel test live in
 [HARDWARE_BRINGUP.md](../../docs/HARDWARE_BRINGUP.md).
 
 ## Change discipline

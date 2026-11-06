@@ -52,6 +52,7 @@ typedef struct {
     void *sink_ctx;
     bool demo_done;      /* scripted boot demo finished */
     int demo_stage;      /* index into k_demo_sequence[] */
+    bool end_pending;    /* a play started (or was stopped) and its END line is still owed */
 } ziv_app;
 
 void ziv_app_init(ziv_app *app, drv2605_bus *bus, ziv_hap_sink sink, void *sink_ctx);
@@ -60,6 +61,14 @@ void ziv_app_init(ziv_app *app, drv2605_bus *bus, ziv_hap_sink sink, void *sink_
  * Advance the timeline. now_ms is the monotonic time in ms; returns the
  * time of the next state change, now_ms when the caller should call again
  * immediately (START / a chained play), 0 when idle. Emits HAP lines.
+ *
+ * Safe to call while idle: the sequencer's own contract is that stepping
+ * it when nothing plays reports END (that is how a stop surfaces), so this
+ * layer emits one END per play — or per stop of a play — and nothing on
+ * any further idle step. The device loop (app_main.c) polls at 50 ms when
+ * idle; without this guard every poll printed a spurious "HAP <t> END"
+ * (found at the first QEMU boot; the bench's walk stops at 0 and never saw
+ * it).
  */
 uint32_t ziv_app_step(ziv_app *app, uint32_t now_ms);
 

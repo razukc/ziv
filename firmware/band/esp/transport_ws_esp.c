@@ -1,7 +1,10 @@
 /*
- * transport_ws_esp.c — the band_frame_io adapter on esp_websocket_client
- * (UNVERIFIED: written against ESP-IDF 5.x + espressif/esp_websocket_client
- * 1.x, not compiled here).
+ * transport_ws_esp.c — the band_frame_io adapter on esp_websocket_client.
+ *
+ * Compiled against ESP-IDF v5.5 + espressif/esp_websocket_client (the
+ * component registry) and booted under QEMU, where the link gate keeps it
+ * from ever opening a socket; a live relay connection over real Wi-Fi is
+ * still unverified (firmware/band/esp/README.md).
  *
  * The WebSocket does the framing, so this adapter only moves whole text
  * frames: the client's event handler copies each complete text message into
@@ -44,6 +47,7 @@ typedef struct {
     size_t assembled;
     uint32_t dropped_oversize;
     bool gone;                       /* the link dropped: recv_frame reports -1 once */
+    bool link_up;                    /* the station has an IP (transport_ws_esp_set_link) */
 } ws_ctx;
 
 static ws_ctx s_ws;
@@ -115,6 +119,7 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *e
 static int ws_connect(void *vctx)
 {
     ws_ctx *c = (ws_ctx *) vctx;
+    if (!c->link_up) { return -1; }   /* no IP yet: fail fast, the protocol layer backs off */
     c->gone = false;
     xEventGroupClearBits(c->events, BIT_CONNECTED | BIT_DISCONNECTED);
     if (esp_websocket_client_start(c->client) != ESP_OK) { return -1; }
@@ -154,6 +159,11 @@ static void ws_close(void *vctx)
     ws_msg m;
     while (xQueueReceive(c->inbox, &m, 0) == pdTRUE) { free(m.data); }
     c->gone = true;
+}
+
+void transport_ws_esp_set_link(bool up)
+{
+    s_ws.link_up = up;
 }
 
 int transport_ws_esp_init(band_frame_io *io, const char *uri)

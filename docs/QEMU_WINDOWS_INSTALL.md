@@ -1,15 +1,91 @@
-# ESP-IDF + Espressif QEMU on this Windows machine — install + smoke test
+# ESP-IDF + Espressif QEMU — install + smoke test (Linux/WSL2 first, then the Windows notes)
 
-**Goal:** run `idf.py qemu monitor` on [firmware/app/ziv_qemu](../firmware/app/ziv_qemu/)
-so the real Ziv firmware boots in Espressif's QEMU fork and plays the scripted
-demo's `HAP` timeline on the emulated UART — ladder rung 1's boot
-([QEMU_SIMULATION_LADDER.md](./QEMU_SIMULATION_LADDER.md)). Written for this
-machine: Windows, Git Bash, system Python 3.14, project at
+**Goal:** boot [firmware/app/ziv_qemu](../firmware/app/ziv_qemu/) in Espressif's
+QEMU fork so the real Ziv firmware plays the scripted demo's `HAP` timeline on
+the emulated UART — ladder rungs 1 and 2
+([QEMU_SIMULATION_LADDER.md](./QEMU_SIMULATION_LADDER.md)). Both rungs are
+**proven on Linux/WSL2** with the recipe below; the Windows notes that follow
+are the older, unexecuted map for the same install.
+
+> Nothing here touches hardware, drivers, or admin rights beyond `apt` — QEMU is
+> a user-space program and the install goes under your user directory. No USB
+> drivers are needed for simulation.
+
+## Linux / WSL2 — exactly what worked here (Ubuntu on WSL2, ESP-IDF v5.5)
+
+```sh
+# 1. packages — IDF's Linux prerequisites; python3-venv is the one that is easy to forget
+sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv \
+    cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+# 2. ESP-IDF v5.5 with shallow submodules, then the esp32s3 toolchain
+mkdir -p ~/esp && cd ~/esp
+git clone -b v5.5 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git
+cd esp-idf && ./install.sh esp32s3
+
+# 3. the Espressif QEMU fork (the only QEMU with an esp32s3 machine) + its shared libraries
+. ./export.sh
+python tools/idf_tools.py install qemu-xtensa
+sudo apt-get install -y libsdl2-2.0-0 libslirp0
+```
+
+Every shell that builds or boots needs the IDF environment **and** the QEMU
+directory — the tool is marked optional, so `export.sh` never adds it:
+
+```sh
+. ~/esp/esp-idf/export.sh
+export PATH="$HOME/.espressif/tools/qemu-xtensa/esp_develop_9.0.0_20240606/qemu/bin:$PATH"
+idf.py --version               # ESP-IDF v5.5
+qemu-system-xtensa --version   # QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)
+```
+
+### Smoke test — rung 1 and rung 2 in five commands
+
+From the repo root:
+
+```sh
+cd firmware/app/ziv_qemu
+idf.py set-target esp32s3 && idf.py build          # ziv_qemu.bin binary size 0x30dd0 bytes
+python3 run_ziv_tests.py && ./host_demo --hap-log > bench_hap.log    # the bench side
+cd ../../..
+QEMU_UNTIL="$(tail -1 firmware/app/ziv_qemu/bench_hap.log)" \
+    firmware/qemu_capture.sh firmware/app/ziv_qemu firmware/app/ziv_qemu/qemu_boot.log
+grep '^HAP ' firmware/app/ziv_qemu/qemu_boot.log > /tmp/qemu_hap.log
+python3 tools/qemu_timeline.py firmware/app/ziv_qemu/bench_hap.log /tmp/qemu_hap.log
+# PASS — 27 HAP events matched within tolerance
+```
+
+[`firmware/qemu_capture.sh`](../firmware/qemu_capture.sh) boots the built image
+the way `idf.py qemu` does (same flash/efuse images and machine arguments) but
+with UART0 to a file, a hard time cap, and `-icount shift=5,sleep=off`, which
+makes the guest clock deterministic — the capture then matches the bench to the
+millisecond regardless of host load. Expect ~40 s: the ROM's start-up polling
+loop is slow under icount (it is ~1.2 s of virtual time), the demo itself takes
+4 s. `QEMU_ICOUNT=` (empty) gives wall-clock mode, which boots in 0.3 s but
+whose timestamps depend on the host (see the ladder doc's rung-2 numbers). The
+committed [`qemu_boot.log`](../firmware/app/ziv_qemu/qemu_boot.log) is one such
+capture. The `grep` exists because `tools/qemu_timeline.py`'s boot-chatter
+filter does not yet know the ROM's own lines (`Build:`, `rst:`, `SPIWP:`,
+`mode:`, `load:`, `entry`) or `W (…)` log levels and exits 2 on them.
+
+Interactive, with the console and the HAP lines in the terminal:
+
+```sh
+cd firmware/app/ziv_qemu && idf.py qemu monitor     # Ctrl-] exits
+```
+
+The band builds and boots the same way (mock haptic bus, no radio — the
+default Kconfig): `cd firmware/band/esp_project && idf.py set-target esp32s3 &&
+idf.py build`, then `firmware/qemu_capture.sh firmware/band/esp_project
+firmware/band/esp_project/qemu_boot.log` — see
+[firmware/band/esp/README.md](../firmware/band/esp/README.md).
+
+---
+
+# Windows notes (the original map — not executed; ⚠ throughout)
+
+Written for a Windows machine with Git Bash, system Python 3.14, project at
 `C:\code\playground\nebius`. One-time setup; every step has a check.
-
-> Nothing here touches hardware, drivers, or admin rights — QEMU is a user-space
-> program and the install goes under your user directory (default
-> `C:\Espressif`). No USB drivers are needed for simulation.
 
 ## 0. Know before you install
 
@@ -119,9 +195,9 @@ again (or reset in QEMU with Ctrl-A x, restart) replays it.
   prebuilt QEMU, ~30 s headless boot, assert the 27-line sequence) goes from
   `continue-on-error` to blocking once green — same promote-a-check discipline
   as the drift guard.
-- **Rung 2**: `tools/qemu_timeline.py <bench.log> <qemu.log>` — capture the
-  monitor output to a file (`idf.py qemu | tee qemu.log`) and the bench side
-  via the harness's HAP emitter (speced; next ladder item).
+- **Rung 2**: landed on Linux (see the top of this file): `firmware/qemu_capture.sh`
+  for the capture, `host_demo --hap-log` for the bench side,
+  `tools/qemu_timeline.py` for the diff.
 
 *Every version number, path, and QEMU flag here is marked or implied ⚠ per
 repo discipline: verify against the installer and the Espressif QEMU README at

@@ -1,0 +1,5 @@
+# ziv_qemu — committed build defaults (idf.py applies these to a fresh
+# sdkconfig).  Nothing beyond the target is needed: the app is main + its
+# requirements, 2 MB flash, the default partition table, the 100 Hz tick
+# (the loop's deadlines come from esp_timer, not the tick — app_main.c).
+CONFIG_IDF_TARGET="esp32s3"

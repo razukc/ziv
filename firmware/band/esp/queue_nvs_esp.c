@@ -1,6 +1,8 @@
 /*
- * queue_nvs_esp.c — the queue's persistence vtable on NVS (UNVERIFIED:
- * written against ESP-IDF 5.x nvs_flash, not compiled here).
+ * queue_nvs_esp.c — the queue's persistence vtable on NVS.  Compiled against
+ * ESP-IDF v5.5 and exercised at every QEMU boot (the load of an empty
+ * namespace: "queue: 0 held"); a save after a real utterance is still
+ * unverified.
  *
  * One blob under namespace "ziv", key "queue": the byte image
  * band_queue_encode() produces (ids, kinds, letters, flags — no durations).

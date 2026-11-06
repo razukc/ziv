@@ -95,30 +95,76 @@ jobs:
         run: python firmware/band/run_band_tests.py
 
   qemu-boot:
-    name: QEMU boot — ESP32-S3 app boots the demo (non-blocking until ESP-IDF is provisioned)
+    name: QEMU boot — ESP32-S3 images build, the demo's HAP timeline matches the bench, the band boots
+    # Non-blocking until the first green run on GitHub (this branch has never
+    # been pushed); then delete continue-on-error — the same promote-a-check
+    # discipline as the drift guard.
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    container: espressif/idf:v5.5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Espressif QEMU (the fork with the esp32s3 machine), its shared libraries, a host gcc for the bench side
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libsdl2-2.0-0 libslirp0 gcc libc6-dev
+          git config --global --add safe.directory '*'
+          . "$IDF_PATH/export.sh"
+          python "$IDF_PATH/tools/idf_tools.py" install qemu-xtensa
+          # the tool is optional, so export.sh never puts it on PATH
+          ls -d "${IDF_TOOLS_PATH:-$HOME/.espressif}"/tools/qemu-xtensa/*/qemu/bin | head -1 >> "$GITHUB_PATH"
+      - name: Bench side — host demo, its HAP log (run_ziv_tests.py deletes its own copy, so emit it again)
+        working-directory: firmware/app/ziv_qemu
+        run: |
+          python3 run_ziv_tests.py
+          ./host_demo --hap-log > bench_hap.log
+      - name: Build ziv_qemu (rung 1)
+        working-directory: firmware/app/ziv_qemu
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py set-target esp32s3
+          idf.py build
+      - name: Boot ziv_qemu under QEMU — bounded capture (rung 1)
+        # -icount: deterministic virtual time (docs/QEMU_SIMULATION_LADDER.md rung 2);
+        # the ROM's start-up loop costs ~35 s of host time in that mode, hence the cap.
+        run: |
+          . "$IDF_PATH/export.sh"
+          qemu-system-xtensa --version | head -1
+          QEMU_UNTIL="$(tail -1 firmware/app/ziv_qemu/bench_hap.log)" \
+            firmware/qemu_capture.sh firmware/app/ziv_qemu firmware/app/ziv_qemu/qemu_boot.log 600
+      - name: Rung 2 — the boot's HAP timeline vs the bench (derived fixture)
+        # tools/qemu_timeline.py's chatter filter predates a real boot log: it
+        # does not know the ROM's lines (Build:, rst:, SPIWP:, mode:, load:,
+        # entry) or W/E log levels and exits 2 on them, so it is fed the HAP
+        # lines until it learns them (the saved capture keeps everything).
+        working-directory: firmware/app/ziv_qemu
+        run: |
+          grep '^HAP ' qemu_boot.log > qemu_hap.log
+          python3 ../../../tools/qemu_timeline.py bench_hap.log qemu_hap.log
+      - name: Build the band (firmware/band/esp_project; fetches esp_websocket_client from the registry)
+        working-directory: firmware/band/esp_project
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py set-target esp32s3
+          idf.py build
+      - name: Boot the band under QEMU — mock bus, no radio, transport in backoff
+        run: |
+          . "$IDF_PATH/export.sh"
+          QEMU_UNTIL='transport: connect failed' QEMU_UNTIL_COUNT=3 \
+            firmware/qemu_capture.sh firmware/band/esp_project firmware/band/esp_project/qemu_boot.log 600
+          log=firmware/band/esp_project/qemu_boot.log
+          grep -q 'Calling app_main' "$log"
+          grep -q 'wifi: unavailable' "$log"
+          grep -q '^HAP .* BUZZ PATTERN ramp-up' "$log"
+          test "$(grep -c 'transport: connect failed' "$log")" -ge 2
+          ! grep -q 'Guru Meditation\|abort()\|Task watchdog' "$log"
+          test "$(grep -c '^rst:' "$log")" -eq 1   # one power-on reset, no reboot
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          python-version: "3.12"
-      - name: Bench side — host demo HAP log and differ
-        working-directory: firmware/app/ziv_qemu
-        run: python run_ziv_tests.py
-      # Fill this step to make the job real: ESP-IDF (espressif/idf image or
-      # idf.py on the runner) plus `idf_tools.py install qemu-xtensa`, then
-      # echo "available=true" >> "$GITHUB_OUTPUT". See docs/QEMU_WINDOWS_INSTALL.md.
-      - name: Provision ESP-IDF + Espressif QEMU
-        id: idf
-        if: ${{ false }}
-        run: echo "fill this step — see docs/QEMU_WINDOWS_INSTALL.md"
-      - name: Boot the app under QEMU (bounded capture)
-        if: steps.idf.outputs.available == 'true'
-        working-directory: firmware/app/ziv_qemu
-        run: timeout 60 idf.py qemu > qemu.log 2>&1 || true
-      - name: Rung-2 equivalence — boot log vs derived fixture
-        if: steps.idf.outputs.available == 'true'
-        working-directory: firmware/app/ziv_qemu
-        run: python ../../../tools/qemu_timeline.py bench_hap.log qemu.log
+          name: qemu-boot-logs
+          path: |
+            firmware/app/ziv_qemu/qemu_boot.log
+            firmware/app/ziv_qemu/bench_hap.log
+            firmware/band/esp_project/qemu_boot.log

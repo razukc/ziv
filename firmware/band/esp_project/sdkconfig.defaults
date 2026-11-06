@@ -1,0 +1,8 @@
+# Ziv band — committed build defaults (idf.py applies these to a fresh
+# sdkconfig).  The Ziv band options (haptic mock, Wi-Fi SSID/password, relay
+# URI, device key) keep their Kconfig defaults: mock bus on, radio off.  Set
+# credentials in menuconfig only — never commit real values here.
+CONFIG_IDF_TARGET="esp32s3"
+# Wi-Fi + websocket + TLS do not fit the 1 MB factory slot of the 2 MB default.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

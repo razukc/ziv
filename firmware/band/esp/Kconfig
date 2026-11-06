@@ -1,8 +1,25 @@
 menu "Ziv band"
 
+    config ZIV_BAND_HAPTIC_MOCK
+        bool "Haptic bus: the bench mock DRV2605 (no I2C) — QEMU and motor-less boards"
+        default y
+        help
+            y: the sequencer drives firmware/haptic_out/mock_drv2605.c — the
+            same bus the bench suite and the rung-1 QEMU app use.  No I2C
+            traffic, so the image boots under QEMU and on a bare devkit.
+            n: the real driver/i2c_master bus to the TCA9548A mux and the six
+            DRV2605L (drv2605_i2c_esp32.c) — the hardware bring-up setting
+            (HARDWARE_BRINGUP.md).
+
     config ZIV_WIFI_SSID
         string "Wi-Fi SSID"
         default ""
+        help
+            Empty (the default) leaves the radio off: app_main logs that
+            Wi-Fi is unavailable and the transport stays offline, backing
+            off.  That is the QEMU boot (no radio there) and the state of an
+            unconfigured board.  Set it in menuconfig, never in a committed
+            sdkconfig.defaults.
 
     config ZIV_WIFI_PASSWORD
         string "Wi-Fi password"
@@ -32,18 +49,22 @@ menu "Ziv band"
 
     config ZIV_I2C_PORT
         int "I2C port"
+        depends on !ZIV_BAND_HAPTIC_MOCK
         default 0
 
     config ZIV_I2C_SDA_GPIO
         int "I2C SDA GPIO"
+        depends on !ZIV_BAND_HAPTIC_MOCK
         default 8
 
     config ZIV_I2C_SCL_GPIO
         int "I2C SCL GPIO"
+        depends on !ZIV_BAND_HAPTIC_MOCK
         default 9
 
     config ZIV_I2C_HZ
         int "I2C clock (Hz)"
+        depends on !ZIV_BAND_HAPTIC_MOCK
         default 100000
         help
             100 kHz to start; 400 kHz if cell edges smear (HARDWARE_BRINGUP.md

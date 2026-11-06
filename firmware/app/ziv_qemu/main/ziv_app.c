@@ -49,13 +49,14 @@ void ziv_app_init(ziv_app *app, drv2605_bus *bus, ziv_hap_sink sink, void *sink_
     app->sink_ctx = sink_ctx;
     app->demo_done = false;  /* nothing has finished; running-ness is demo_stage == -1 */
     app->demo_stage = -1;
+    app->end_pending = false;
 }
 
 void ziv_app_run_demo(ziv_app *app)
 {
     app->demo_stage = 0;
     app->demo_done = false;
-    (void) ziv_app_play_demo_stage(app, 0);
+    if (ziv_app_play_demo_stage(app, 0)) { app->end_pending = true; }
 }
 
 /* Play the stage at k_demo_sequence[stage]. Returns false when the stage is
@@ -85,6 +86,8 @@ static void demo_advance(ziv_app *app)
         || !ziv_app_play_demo_stage(app, app->demo_stage)) {
         app->demo_done = true;
         app->demo_stage = -1;
+    } else {
+        app->end_pending = true;
     }
 }
 
@@ -132,6 +135,10 @@ uint32_t ziv_app_step(ziv_app *app, uint32_t now_ms)
     char payload[HAPTIC_OUT_MAX_WORD_LEN + 1];
     char line[160];
 
+    /* Idle and nothing owed: do not step the sequencer (it would report a
+     * spurious END — see the header). */
+    if (!haptic_out_is_playing(&app->haptic) && !app->end_pending) { return 0; }
+
     for (;;) {
         ev = (haptic_out_event_t) 0xFF;   /* sentinel, as the bench does */
         memset(&st, 0, sizeof st);
@@ -160,6 +167,7 @@ uint32_t ziv_app_step(ziv_app *app, uint32_t now_ms)
         if (ev == HAPTIC_OUT_EV_END) {
             (void) snprintf(line, sizeof line, "HAP %lu END", (unsigned long) now_ms);
             emit(app, line);
+            app->end_pending = false;
             break;
         }
         /* No event: idle or waiting on the deadline. */
@@ -178,6 +186,9 @@ uint32_t ziv_app_step(ziv_app *app, uint32_t now_ms)
 
 void ziv_app_stop(ziv_app *app)
 {
+    /* a stop mid-play still owes its END line (the next step reports it);
+     * a stop while idle owes nothing */
+    if (haptic_out_is_playing(&app->haptic)) { app->end_pending = true; }
     haptic_out_stop(&app->haptic);
     app->demo_stage = -1;
     app->demo_done = false;
@@ -187,28 +198,36 @@ int ziv_app_play_pattern(ziv_app *app, int pat_idx)
 {
     app->demo_stage = -1;
     app->demo_done = false;
-    return (int) haptic_out_play_pattern(&app->haptic, (haptic_pattern) pat_idx);
+    int rc = (int) haptic_out_play_pattern(&app->haptic, (haptic_pattern) pat_idx);
+    if (rc == 0) { app->end_pending = true; }
+    return rc;
 }
 
 int ziv_app_play_mark(ziv_app *app, int mark_idx)
 {
     app->demo_stage = -1;
     app->demo_done = false;
-    return (int) haptic_out_play_mark(&app->haptic, (uint8_t) mark_idx);
+    int rc = (int) haptic_out_play_mark(&app->haptic, (uint8_t) mark_idx);
+    if (rc == 0) { app->end_pending = true; }
+    return rc;
 }
 
 int ziv_app_play_word(ziv_app *app, const char *word)
 {
     app->demo_stage = -1;
     app->demo_done = false;
-    return (int) haptic_out_play_word(&app->haptic, word);
+    int rc = (int) haptic_out_play_word(&app->haptic, word);
+    if (rc == 0) { app->end_pending = true; }
+    return rc;
 }
 
 int ziv_app_play_prefix(ziv_app *app, int tail_idx)
 {
     app->demo_stage = -1;
     app->demo_done = false;
-    return (int) haptic_out_play_prefix(&app->haptic, (haptic_tail) tail_idx);
+    int rc = (int) haptic_out_play_prefix(&app->haptic, (haptic_tail) tail_idx);
+    if (rc == 0) { app->end_pending = true; }
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,8 +1,12 @@
 /*
  * haptic_out_task.c — FreeRTOS task owning the haptic_out state machine.
  *
- * Device-only sketch (not compiled here: no ESP-IDF on the bench).  The
- * app never touches the sequencer directly — it posts commands to the
+ * Device-only; compiles against ESP-IDF v5.5 (linked into the band image,
+ * not started by it — the band's turn owns its sequencer), unverified on
+ * hardware.  Note for a board: the deadline wait here is tick-based
+ * (pdMS_TO_TICKS / xQueueReceive), good to one tick; the rung-1 QEMU app
+ * moved to an esp_timer one-shot wake for a millisecond-exact timeline.
+ * The app never touches the sequencer directly — it posts commands to the
  * queue and the task drives haptic_out_step() on the FreeRTOS tick, so the
  * rest of the firmware cannot block on haptic I/O.  The task is a thin
  * shell: all timing logic lives in haptic_out.c, which the bench drives

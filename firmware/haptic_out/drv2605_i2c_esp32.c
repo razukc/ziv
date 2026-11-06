@@ -1,8 +1,9 @@
 /*
  * drv2605_i2c_esp32.c — ESP-IDF I2C bus for the haptic_out module.
  *
- * UNVERIFIED ON HARDWARE (no ESP-IDF where this was written): implements
- * the drv2605_bus vtable over the ESP-IDF 5.x driver/i2c_master API so the
+ * Compiled against ESP-IDF v5.5 (the band image, -Wall -Wextra -Werror),
+ * never executed — QEMU boots the mock bus — so UNVERIFIED ON HARDWARE.
+ * Implements the drv2605_bus vtable over the driver/i2c_master API so the
  * bench-tested sequencer runs unchanged on the band.  The legacy
  * driver/i2c.h calls (i2c_master_write_to_device) are gone: that API is
  * deprecated in IDF 5 and gets removed in 6.
