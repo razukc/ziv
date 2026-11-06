@@ -71,3 +71,8 @@ docs/project.3a0c22d5.svg
 # Python packaging
 ziv.egg-info/
 *.egg-info/
+
+# Relay runtime data and local secrets (new layout: repo root)
+ziv_data/
+.env
+.venv/
