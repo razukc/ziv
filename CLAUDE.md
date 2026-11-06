@@ -4,78 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Ziv is a haptic message channel for deaf-blind wearers: a FastAPI relay (`agent/ziv_server.py`) pushes turn events over WebSocket to a phone PWA (`agent/ziv_client/index.html`) that plays them as vibro-braille via the Vibration API. The same timing numbers also drive the (not-yet-flashed) ESP32-S3 firmware in `firmware/`. The README's "What is built / what is next" table draws a hard line between what is **built and proven** and what is **next**. Do not move a claim across that line in docs without the matching code/test, and make no clinical or efficacy claims anywhere.
+Ziv is a haptic message channel for deaf-blind wearers. A relay (`ziv/`) admits, orders and tracks *utterances*; a device renderer — the web client (`client/`) today, the band firmware (`firmware/band/`) on the host, a native phone app next — plays each one on its own clock and acknowledges it; an accessible console (`console/`) is the senders' and caregivers' surface. One generated timing spec and one reference renderer define correct playback for every renderer. The design is `docs/ARCHITECTURE.md`; the tree implements it. The README's "What is built / what is next" table draws a hard line between what is **built and proven** and what is **next**. Do not move a claim across that line in docs without the matching code/test, and make no clinical or efficacy claims anywhere.
 
 ## Commands
 
-Python 3.10+ (CI uses 3.12). Deps live in `agent/requirements.txt`; `pytest` and `playwright` come from `agent/requirements-dev.txt`. A venv at `agent/venv/` is what the hooks and scripts look for first (it may carry the `ziglang` pip package as the C compiler).
+Python 3.12+ (CI uses 3.12), Node 24, a host C compiler for the firmware suites. The package installs into `.venv` at the repo root; the hook, the band runner and the conformance harness look there first.
 
 ```bash
-# run the relay (port 8787; PWA at http://127.0.0.1:8787/ziv_client/index.html)
-cd agent && python ziv_server.py          # no key needed; without NEBIUS_API_KEY the model path is text_echo
+# install
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+# or: uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+(cd client && npm ci && npm run build)      # the relay serves client/dist at /client/
+(cd console && npm ci && npm run build)     # and console/dist at /console/; GET / redirects there
 
-# hermetic suite (browser e2e deselected by pytest.ini addopts)
-cd agent && python -m pytest -q
-cd agent && python -m pytest -q tests/test_ziv_server.py                  # one module
-cd agent && python -m pytest -q tests/test_ziv_store.py::test_name        # one test
+# run the relay (settings from the environment or ./.env; everything has a default)
+.venv/bin/ziv-relay init                        # creates the database, mints the admin token once
+.venv/bin/ziv-relay run                         # http://127.0.0.1:8787; --host/--port/--allow-plain-http
+.venv/bin/ziv-relay enroll-code                 # a short-lived device enrollment code
+.venv/bin/ziv-relay sender add <label> --scopes send,read    # a scoped bearer token, shown once
+.venv/bin/ziv-relay events --tail 50 [--kind K] # the content-free event log
+# ZIV_DB_PATH, ZIV_HOST, ZIV_PORT, ZIV_ALLOW_PLAIN_HTTP (LAN bench only), ZIV_TLS_CERT/KEY, ZIV_ADMIN_TOKEN,
+# ZIV_BUDGET_MS, ZIV_OUTBOX_CAP, ZIV_SCHEDULE_CAP, ZIV_RETENTION_DAYS, NEBIUS_API_KEY, NEBIUS_BASE_URL,
+# ZIV_TEXT_MODEL … — the full list with defaults is ziv/relay/settings.py and the README's table.
 
-# browser tier (Playwright + a system Chrome/Edge; in-process uvicorn; ~75 s)
-cd agent && python -m pytest -m e2e
+# the Python suite (browser e2e and device-toolchain tests deselected by pyproject addopts)
+.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q tests/test_core_outbox.py                 # one module
+.venv/bin/python -m pytest -q tests/test_relay_http.py::test_name       # one test
+.venv/bin/python -m pytest -m e2e tests/e2e                             # browser tier; skips when Chromium cannot launch
 
-# timing drift guard: spec vs all 7 generated consumers (exit 1 on drift)
-python tools/haptic_timing.py
-python tools/haptic_timing.py --write     # regenerate consumers after editing docs/haptic-timing.json
+# the timing spec and the contract
+python3 tools/haptic_timing.py              # drift guard: spec vs all 7 generated consumers (exit 1 on drift)
+python3 tools/haptic_timing.py --write      # regenerate consumers after editing docs/haptic-timing.json
+.venv/bin/python -m ziv.wire schema/        # regenerate the JSON Schemas after editing ziv/wire.py
+(cd console && npm run gen:types)           # then regenerate the console's TypeScript from schema/
+(cd console && npm run gen:types -- --check)
 
-# firmware (host C compiler required: cc/gcc/clang/tcc, zig cc, or `pip install ziglang`; exit 2 = no compiler)
-python firmware/haptic_out/run_tests.py           # bench suite, mock DRV2605L
-python firmware/app/ziv_qemu/run_ziv_tests.py     # rung-1 host demo + HAP fixture diff (not a QEMU boot)
+# conformance (the cross-renderer oracle)
+.venv/bin/python conformance/run.py --check                 # expected/ agrees with the reference
+.venv/bin/python conformance/run.py --write                 # regenerate expected/ after a spec or reference change
+.venv/bin/python conformance/run.py --player "node client/dist/conformance.js" --profile single_actuator
+.venv/bin/python conformance/run.py --player "firmware/app/ziv_qemu/host_player" --profile six_actuator
 
-# PWA service-worker cache guard
-python scripts/ziv_client_cache.py --check        # fails if the client shell changed without a cache bump
-python scripts/ziv_client_cache.py --bump         # vN -> vN+1 in ziv_sw.js + record fingerprint
+# firmware (host C compiler required; exit 2 = no compiler)
+python3 firmware/haptic_out/run_tests.py            # bench suite, mock DRV2605L
+python3 firmware/app/ziv_qemu/run_ziv_tests.py      # rung-1 host demo + HAP fixture diff (not a QEMU boot)
+python3 firmware/band/run_band_tests.py             # band unit tests, host_player conformance on both profiles, transport test
 
-# relay hand-over gate: refuses a relay whose schedule loop cannot fire a reminder
-bash scripts/relay_preflight.sh                   # ZIV_RELAY=<origin> for a hosted relay
+# front ends
+(cd client && npm test && npm run typecheck)
+(cd console && npm test && npm run typecheck)
 
-# install the pre-commit hook once per clone (timing verify + bench + staged cache check)
+# install the pre-commit hook once per clone (drift guard, schema diff, oracle check, bench)
 git config core.hooksPath hooks
 ```
 
-CI (`.github/workflows/ci.yml`) runs: cache `--check`, the hermetic suite with `-m "not e2e"`, `tools/haptic_timing.py`, and `run_ziv_tests.py`. The `qemu-boot` job is informational (`continue-on-error`) until an ESP-IDF install step is filled in.
+Last observed counts (2026-11-06): pytest `164 passed, 5 deselected`; drift guard 7 consumers in sync; oracle 12 utterances × 2 profiles; web renderer 12/12 on both profiles; bench 459; rung-1 49; band 636 + conformance 12/12 × 2 + transport 9; client 55; console 20. Quote counts only from a run you made.
 
-Test harness notes: `agent/tests/conftest.py` puts both `agent/` and `tools/` on `sys.path`, so pytest works from `agent/` or the repo root, and tests import runtime modules by bare name (`ziv_relay`, `ziv_server`, `haptic_timing_gen`). Every test runs under a `faulthandler` watchdog (default 90 s, `ZIV_TEST_TIMEOUT_S` or `@pytest.mark.timeout(n)`); a hang writes `agent/tests/pytest-hang.txt` and exits non-zero.
+CI (`.github/workflows/ci.yml`) runs three blocking jobs — `relay` (drift guard, schema diff, oracle check, client build, pytest), `renderers` (client and console typecheck/test/build, the web renderer against the reference on both profiles) and `firmware` (bench, rung-1, band) — plus the non-blocking `qemu-boot` skeleton that waits for an ESP-IDF install step.
+
+Test harness notes: `ziv` is an installed package; `tests/conftest.py` does no `sys.path` work. Nothing in the suite sleeps for real time — anything that waits takes a clock (`ziv.relay.clock.FakeClock`), and the scheduler is driven by calling `tick(relay, now)`. `tests/relay_live.py` boots a real relay on a loopback port for the integration tests (which drive `client/dist/device-cli.js` on an instant clock) and for the e2e tier; both skip cleanly when `node`, the build or Chromium is missing.
 
 ## Architecture
 
-This section describes the tree as it is. The target shape, and the order of work to reach it, is `docs/ARCHITECTURE.md`; new work should move toward it rather than extend the current server-paced design.
+The tree is the architecture in `docs/ARCHITECTURE.md`; read that first. The map:
 
-**Three layers share one generated timing source.**
+**The wire contract — `ziv/wire.py`, schemas in `schema/`.** Every type that crosses a process boundary is defined here and nowhere else: the `Utterance` (words and intent, never milliseconds), the device frames both ways (`hello`, `hello.ack`, `utterance.open`, `utterance.body`, `utterance.cancel`, `pref.set`, `progress`, `played`, `nack`, `input.text`, `control`, `pref.changed`, `ping`/`pong`), the sender HTTP bodies and views, and the `Reason` enum every refusal carries. Models are `extra="forbid"` with hard sizes. `python -m ziv.wire schema/` emits the JSON Schemas the console's generated types (`console/src/generated/wire.ts`), the client's checks and the firmware decoder tests build against.
 
-- `docs/haptic-timing.json` is the only hand-edited home for every buzz/gap constant, the Grade-1 letter dot table, the 7 attention/lifecycle patterns, the 5 candidate name marks, and the prefix composition.
-- `tools/haptic_timing.py` generates and verifies 7 consumers: the JS block in `docs/haptic-name-marks.html` (the feel-tool), `firmware/haptic_out/haptic_timing.h`, `tools/haptic_timing_gen.py` (Python module used by the relay and tests), the tables in `docs/HAPTIC_TIMING_SPEC.md`, `firmware/app/ziv_qemu/main/ziv_demo_sequence.{h,c}` (via `tools/build_ziv_demo.py`'s `DEMO_STAGES`), and the demo-chain block in `docs/QEMU_SIMULATION_LADDER.md`. Generated regions are fenced with `haptic-timing:begin/end` markers.
-- **Never hand-edit a generated consumer.** Edit the JSON (or `DEMO_STAGES`), run `--write`, commit JSON + regenerated files together. The hook, the hermetic suite (`agent/tests/test_haptic_timing.py`) and CI all fail on drift.
-- `agent/haptic_timing_gen.py` is a tracked copy identical to `tools/haptic_timing_gen.py`; the server's `sys.path` puts `tools/` first, and only the `tools/` copy is drift-guarded. Treat the `agent/` copy as generated too.
-- Intentional asymmetry: the feel-tool spell box caps at 12 letters (`spell_max_letters`, page affordance) while firmware accepts 16 (`HAPTIC_OUT_MAX_WORD_LEN`, runtime ceiling). Do not unify them; the guard checks both.
+**The timing spec — `docs/haptic-timing.json` → seven consumers.** `tools/haptic_timing.py` generates and verifies the feel-tool's JS block (`docs/haptic-name-marks.html`), `firmware/haptic_out/haptic_timing.h`, `ziv/haptics/tables.py` (which also embeds the raw spec the relay serves at `GET /spec`), the tables in `docs/HAPTIC_TIMING_SPEC.md`, `firmware/app/ziv_qemu/main/ziv_demo_sequence.{h,c}` and the demo-chain block in `docs/QEMU_SIMULATION_LADDER.md`. Spec v4 added the word gap (520 ms), the working cadence (2000 ms), the kind → cue/tail table, the two renderer profiles and the conformance tolerance (10 ms).
 
-**Relay (`agent/`).**
+**The reference renderer — `ziv/haptics/reference.py`.** `timeline(utterance, profile, pace_ms)` is the definition of correct playback; `duration_ms` is the time budget admission charges; `diff` judges a player's timeline. It adds structure only; every number is read from `tables.py` at call time.
 
-- `ziv_relay.py` is the stdlib-only seam: `MessageGate` (queue-don't-interrupt; bounded at `MAX_QUEUED`=8, overflow is a visible `message:rejected`/HTTP 429, never a silent drop; thread-safe), `TurnTimeline` (every turn: kind cue → `processing` ticks → braille cells → `end-of-message` close → release → drain queued replays), lifecycle pattern constants, `TelemetryRing`. `ZivRelayAdapter` is a labelled placeholder, not what the server calls.
-- `ziv_server.py` owns transport and HTTP: `/ws` (one JSON frame per wearer-visible event, `{"type":"haptic","pattern":...,"ms":[...]}`), `/api/ziv/message`, `/api/ziv/compose`, `/api/ziv/schedule` (+ a background `schedule_loop`), `/inject/audio` (held as asset, 503 unless configured), `/api/ziv/inbox|prefs|timing|health|ready|model/check|control/*`, and the static PWA routes. `?session=<id>` on `/ws` and `session` in bodies give each band its own `RelaySession` (hub, gate, turn lock) via `SessionRegistry`. The turn runs through `run_message_turn`; `free: true` rides the last close so a redial never fires into a draining message.
-- Auth: setting `ZIV_RELAY_TOKEN` requires `?token=` on WS and `Authorization: Bearer` on content routes via the single `AUTHENTICATED` dependency list. New content-carrying routes must use it; `/api/ziv/timing`, `/api/ziv/health` and the client page stay open by design.
-- Model path: `compose_reminder_line` → `compose_with_nebius` (OpenAI-compatible client against Nebius Token Factory, Nemotron, `enable_thinking: false`). Without `NEBIUS_API_KEY` the intent fires verbatim and the wire says `source: text_echo`; with a key, `text_live`. Failures are loud and labelled, never silently substituted. `/api/ziv/compose` is the bring-your-own-key (BYOK) variant: the key in `X-Nebius-Key` is used once, never stored or logged, and scrubbed from errors.
-- `ziv_store.py`: `WearerMemory`, `MessageInbox` (cap 20), `ScheduledReminders` (cap 64), one atomic JSON file per key under gitignored `agent/ziv_data/`. Corrupt files are discarded and surfaced through `take_corrupt_files()` into `/api/ziv/health`; cap evictions are logged and counted, never silent.
-- Config comes from `agent/.env` (see `.env.example`): `ZIV_PORT`, `ZIV_FAKE_MODEL_SECONDS`, `ZIV_RELAY_TOKEN`, `NEBIUS_*`, `ZIV_TEXT_MODEL`, `ZIV_OMNI_MODEL`. Everything has a default; the server runs with nothing set.
+**The pure core — `ziv/core/`.** No I/O, no clocks of its own. `outbox.py` is the per-wearer state machine — `pending → sent → playing → played`, with `failed`, `expired` and `cancelled`; failover and `device_gone` return an entry to `pending`; a nack for `hidden`, `muted` or `queue_full` re-offers, every other nack fails. Every function takes a slice of state, an event and `now` and returns the new slice plus effects (`SendOpen`, `SendBody`, `SendCancel`, `NotifySender`, `LogEvent`). `admission.py` normalises text to words (digits become words, punctuation dropped, unencodable refused unless `allow_lossy`) and refuses over the budget; `schedule.py` claims due rows under a lease; `credentials.py` hashes keys and tokens and compares in constant time. A Hypothesis state machine in `tests/test_core_outbox.py` proves no loss, no duplication, bounded depth.
 
-**Client (`agent/ziv_client/`).** One self-contained `index.html` (band screens + operator console in one page, inline script), `ziv_sw.js` (cache-first shell, `const CACHE = "ziv-phone-band-vN"`), `ziv_manifest.json` (served as `manifest.json`). Several hermetic tests (`test_client_*_contract.py`) parse the client's inline JS as text and pin wire contracts against the server (health keys the badge reads, redial, busy-sheet, no dead controls). Renaming a health key or a client function will fail those tests on purpose; update both sides. **Any change to a file in the SW `SHELL` list needs `scripts/ziv_client_cache.py --bump` and the bumped `ziv_sw.js` + `scripts/ziv_client_shell_cache.json` staged in the same commit**, or installed PWAs keep the old page forever.
+**The store — `ziv/store/`.** One SQLite file, WAL, numbered migrations (`migrations/0001_init.sql`: wearers, devices, senders, utterances, schedule, prefs, replies, events, enroll_codes, meta), one transaction per transition, `BEGIN IMMEDIATE` around claims, an integrity check at start reported into `events`, retention by `RetentionPolicy`.
 
-**Firmware (`firmware/`).** `haptic_out/` is a host-portable C11 sequencer (pull model: `haptic_out_step(now_ms)` returns the next deadline; RTP mode on one DRV2605L per dot behind a TCA9548A mux) with a mock bus for the bench; the ESP-IDF I2C bus and FreeRTOS task are sketches. `app/ziv_qemu/` is the ESP-IDF boot app whose core (`ziv_app.c`) runs on the host and emits `HAP <at_ms> START|BUZZ|END ...` lines asserted against the derived 27-line fixture; `tools/qemu_timeline.py` diffs HAP logs (also used by the drift guard in self-check mode). Builds use `-Wall -Wextra -Werror -std=c11`. The simulation ladder (rungs 0–4, H) is in `docs/QEMU_SIMULATION_LADDER.md`.
+**The relay app — `ziv/relay/`.** `create_app(settings, clock=, store=, composer=, byok=)` is the only place the relay is assembled; there is no module state, and a test builds its own app. `service.Relay` is one unit of work per method: load the slice, call the core, write in one transaction, dispatch effects. `http.py` is the sender surface (bearer tokens scoped `send`/`read`/`admin`, every refusal JSON with a `reason`, status by `STATUS_FOR_REASON`); `ws.py` is the device socket (`/ws`; the first frame must be `hello` with the device key within the hello timeout or the socket closes 4401; a reader and a bounded writer per device); `scheduler.tick` claims, fires, expires, fails over, times out bodies, assigns and prunes; `composer.py` is `compose(intent, budget) -> words` behind one protocol with `Echo` (whole words dropped from the end until it fits, never letters), `Fake` and `Nebius` implementations, each measured with the same function admission uses; `static.py` serves the built front ends with hashed assets immutable and index pages `no-store`. `NotifySender` is accepted and ignored: senders poll `GET /utterances/{id}`.
 
-**Feel-tool (`docs/haptic-name-marks.html`).** Offline page, no relay; the hosted copy is deployed from `sites/feel-tool/` by copying it to `sites/feel-tool/public/index.html` (see `sites/feel-tool/SITE.md`). `tools/m1_summary.py` and `tools/rename_check.py` implement the naming protocol gates from `docs/NAMING_VALIDATION_PROTOCOL.md`; "Ziv" is a working title.
+**The renderer contract and the two profiles.** A renderer holds a bounded queue, plays one utterance at a time in the reference's order (prefix when present, cue, working pattern while `body_pending`, words with the pace inside a word and the word gap between, tail gap, close), reports `progress` at the cue, each word and the close, sends `played` when the close has finished on the actuator, and `nack`s with a reason when it cannot play. `six_actuator` drives a cell's dots together; `single_actuator` plays six 50 ms slots in dot order with a 30 ms slot gap and an 80 ms column break (530 ms per cell, provisional). Controls (stop, replay, replay word, skip, advance), pace and the advance mode (`auto`/`tap`) live on the device and sync through the relay as prefs.
+
+**The web renderer — `client/`.** `device.ts` is the state machine, `sequencer.ts` the pure timeline (the reference's model, label for label), `player.ts` the deadline scheduler (drift never accumulates), `queue.ts` the persisted queue, `transport.ts` hello-first with backoff and resume, `spec.ts` the durations resolved from `GET /spec`. Two Node entries: `dist/conformance.js` (the player for `conformance/run.py`) and `dist/device-cli.js` (the headless device the integration tests drive). It refuses to play while hidden and says so (`nack hidden`). Foreground only, by the browser's nature.
+
+**The console — `console/`.** Plain-DOM TypeScript against the generated types, esbuild with content-hashed assets, a strict same-origin CSP, a mock relay that validates bodies with Ajv, axe-core over every view. Accessibility is the acceptance criterion; the checklist is in its README. It never plays haptics.
+
+**The conformance harness — `conformance/`.** The cross-renderer oracle: twelve golden utterances, their expected timelines on both profiles (generated by `run.py --write`, drift-guarded by `--check`), and `--player "<command>" --profile P` for any renderer that reads an utterance on stdin and prints `{"t_ms","dot_mask","buzz_ms","label"}` lines. Same beat count, exact mask and buzz, start within ±10 ms. The reference player, the web renderer and the band's `host_player` all pass 12/12 on both profiles.
+
+**The firmware — `firmware/`.** `haptic_out/` is the host-portable C11 pull-model sequencer with a runtime pace and a generic beat mode, a mock DRV2605L bus and the bench. `band/` adds the utterance decoder (vendored cJSON, every schema cap a distinct error, nothing truncated), `turn.c` (one segment at a time into `haptic_out_play_beats`, matching the reference on both profiles), the bounded persisted queue with `last_acked`, and `transport.c` (the protocol behind a frame vtable: hello-first, backoff with jitter, resume by id, offline playback). What the runners prove: the bench (mock bus timings), rung 1 (the real sequencer's HAP log against the derived 27-line fixture on the host), the band suite (unit tests, `host_player` conformance, a loopback transport test against `host/fake_relay.py`, which validates every up frame with `ziv.wire`). What is unverified: everything under `firmware/band/esp/`, the device path of `drv2605_i2c_esp32.c` and the FreeRTOS task — written against ESP-IDF 5.x, never compiled (no IDF here); any QEMU boot; the feel on skin.
+
+## Rules that bind here
+
+- **Never hand-edit a generated file.** `ziv/haptics/tables.py`, `firmware/haptic_out/haptic_timing.h`, the fenced blocks in `docs/haptic-name-marks.html`, `docs/HAPTIC_TIMING_SPEC.md` and `docs/QEMU_SIMULATION_LADDER.md`, `ziv_demo_sequence.{h,c}`, everything in `schema/`, `console/src/generated/wire.ts` and `conformance/expected/`. Edit the source (`docs/haptic-timing.json`, `tools/build_ziv_demo.py`'s `DEMO_STAGES`, `ziv/wire.py`), regenerate, commit source and output together. The hook, the suite (`tests/test_timing_guard.py`, `tests/test_conformance.py`) and CI all fail on drift.
+- **When `ziv/wire.py` changes:** `python -m ziv.wire schema/`, then `cd console && npm run gen:types`, then commit all three. The console build refuses stale types by hash.
+- **No module state, injected clocks, no real sleeping in tests.** Build the app with `create_app`; take `Clock`; drive `FakeClock` and `tick(relay, now)`. A test that sleeps for real time is a bug.
+- **Every refusal carries a `Reason`.** New refusals add to `ziv.wire.Reason` (and `STATUS_FOR_REASON` when they reach HTTP); the console's `describeReason()` must then name it or its typecheck fails.
+- **No words in logs, events or health.** `events` rows and `Health` carry counts, states, reasons and durations only. The wire log on the client and the band shows frame types and ids. A bring-your-own-key credential reaches no log, event, row or response.
+- **Bounded and loud.** Every queue has a cap; every drop is counted; a missing key or a failed compose is labelled on the wire (`source: echo`, `reason: compose_failed`), never papered over.
+- **The 12-vs-16 asymmetry stays.** The feel-tool's `spell_max_letters` = 12 (page affordance) and the firmware's `HAPTIC_OUT_MAX_WORD_LEN` = 16 (runtime ceiling) are different settings for different layers; the drift guard checks both. Do not unify them.
+- **The device renders; the relay sequences.** Nothing in `ziv/` may sleep through playback or carry a millisecond on the wire.
+
+## Branches
+
+The `main` branch still carries the hackathon-era tree (the server-paced relay, the PWA, the demo and recording material). The `product` branch is the product direction described here; do not reintroduce that material there.
 
 ## Conventions
 
-- Conventional Commits, scopes `server|client|firmware|tools|docs|infra`; subject ≤ ~72 chars, imperative; body says why. One logical change per commit. Details in `CONTRIBUTING.md`.
+- Conventional Commits, scopes `relay|client|console|firmware|spec|conformance|tools|docs|infra` (`server` in older history); subject ≤ ~72 chars, imperative; body says why. One logical change per commit. Details in `CONTRIBUTING.md`.
 - Behavior changes get a `CHANGELOG.md` entry under `[Unreleased]`; README/CHANGELOG test counts must match a real run (the repo treats stale counts as a documentation bug).
-- Design principles that recur in code review here: bounded memory everywhere (every queue/inbox/schedule has a cap, every drop is logged and counted); no silent fallback (a missing key or failed model call is labelled on the wire, not papered over); the channel is serial, so nothing may cut into a playing turn.
-- The `main` branch still carries the hackathon-era material (Devpost drafts, judge repro, demo-VM deploy scripts, recording scripts). The `product` branch is the product-only direction; do not reintroduce that material there.
+- Design principles that recur in code review here: bounded memory everywhere (every queue has a cap, every drop is logged and counted); no silent fallback (a missing key or failed model call is labelled on the wire, not papered over); the channel is serial, so nothing may cut into a playing utterance — an arrival mid-play gets its cue and waits.
 - `CHANGELOG.md` is history and keeps its old wording (track prefixes, SkillForge-era entries); only `[Unreleased]` is edited.

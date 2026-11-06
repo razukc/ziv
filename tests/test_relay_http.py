@@ -391,3 +391,51 @@ def test_a_dist_without_index_is_refused_at_assembly(tmp_path):
     empty.mkdir()
     with pytest.raises(FileNotFoundError):
         create_app(Settings(db_path=str(tmp_path / "x.sqlite"), poll_s=0.0, console_dist=str(empty)))
+
+
+# --- the echo path never cuts content ---------------------------------------
+
+
+def _echo_budget_for(words: list[str], profile: str = "six_actuator") -> int:
+    from ziv.haptics import tables as T
+    from ziv.relay.composer import measure_words
+    from ziv.wire import Kind, Profile
+
+    return measure_words(words, kind=Kind.reminder, profile=Profile(profile), pace_ms=T.CELL_GAP_DEFAULT_MS)
+
+
+def test_compose_echo_drops_function_words_and_says_so_but_never_cuts_content(tmp_path):
+    """"take meds at nine" with room for three words plays "take meds nine" and is
+    marked lossy; with room for two words it fails over_budget rather than play
+    "take meds" and lose the time."""
+    from ziv.relay.composer import EchoComposer
+
+    with running(tmp_path, composer=EchoComposer(), budget_ms=_echo_budget_for(["take", "meds", "nine"])) as h:
+        r = h.client.post("/compose", json={"intent": "take meds at nine"}, headers=h.auth())
+        assert r.status_code == 201, r.text
+        view = r.json()
+        assert view["words"] == ["take", "meds", "nine"] and view["source"] == "echo" and view["lossy"] is True
+
+    (tmp_path / "two").mkdir()
+    with running(tmp_path / "two", composer=EchoComposer(), budget_ms=_echo_budget_for(["take", "meds"])) as h2:
+        r = h2.client.post("/compose", json={"intent": "take meds at nine"}, headers=h2.auth())
+        assert r.status_code == 201, r.text
+        view = r.json()
+        assert view["state"] == "failed" and view["reason"] == "over_budget" and view["words"] == []
+        assert "meds" not in json.dumps(h2.events())
+
+
+def test_schedule_refuses_an_intent_the_echo_path_could_never_fit(tmp_path):
+    """With no model configured, an intent that cannot fit even without its
+    function words is refused when scheduled, not discovered at fire time."""
+    from ziv.relay.composer import EchoComposer
+
+    from datetime import datetime, timezone
+
+    with running(tmp_path, composer=EchoComposer(), budget_ms=_echo_budget_for(["take", "meds"])) as h:
+        fire_at = datetime.fromtimestamp(h.clock.now() + 600, tz=timezone.utc).isoformat()
+        r = h.client.post("/schedule", json={"intent": "take meds at nine", "fire_at": fire_at}, headers=h.auth())
+        assert r.status_code == 413, r.text
+        assert r.json()["reason"] == "over_budget"
+        ok = h.client.post("/schedule", json={"intent": "meds", "fire_at": fire_at}, headers=h.auth())
+        assert ok.status_code in (200, 201), ok.text

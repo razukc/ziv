@@ -12,7 +12,137 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 > [HANDOVER_SKILLFORGE.md](docs/HANDOVER_SKILLFORGE.md). The changelog stays
 > because it is this repository's history.
 
-## [Unreleased] — the repo becomes Ziv-only
+## [Unreleased] — the repo becomes Ziv-only, then the rebuild
+
+- **The tree is cut over to the new architecture** — `agent/` left the tree:
+  the server-paced relay, its PWA, the JSON stores and their 233-test suite,
+  with the scripts that only made sense for them (the service-worker cache
+  guard, the demo preflight gate and the liveness probe, whose caching
+  premise the review showed to be a no-op and whose API no longer exists).
+  The generator now writes its Python tables to one place,
+  `ziv/haptics/tables.py`; the duplicate under `tools/` is gone. Every runner
+  and document points at the root `.venv` instead of `agent/venv`, and the
+  band suite finds an interpreter that imports `ziv` rather than a hard-coded
+  path. The old suite's timing-guard tests are ported to
+  `tests/test_timing_guard.py` against the new paths and extended to the v4
+  sections, so the checker is still proven to catch drift. CI is three
+  blocking jobs — relay, renderers, firmware — that run every suite, the
+  schema diff, the oracle check and the cross-renderer conformance, plus the
+  `qemu-boot` skeleton; the pre-commit hook checks the spec, the schemas, the
+  oracle and the bench. Python suite **164 passed, 5 deselected** (the
+  browser tier); drift guard 7 consumers in sync (`1a86c50`).
+
+- **The relay serves the front ends, composes on request, and is proven end
+  to end** — the built client and console are mounted at `/client/` and
+  `/console/` with hashed assets immutable and index pages uncached, and
+  `GET /` redirects to the console. `POST /compose` admits a `body_pending`
+  utterance at once, so the device cues and ticks, then composes through the
+  configured composer or a caller-supplied key used once and never stored,
+  and answers with the final view and its `source`. A nack for `hidden`,
+  `muted` or `queue_full` returns the utterance to pending and the device to
+  the back of the line until its next hello; every other nack fails it. The
+  web client reconnects with a fresh hello when it becomes visible again
+  after a hidden nack. A headless device driver built from the real client
+  code (`client/dist/device-cli.js`, an instant clock, JSON lines on stdout)
+  runs the renderer against a live relay; seven integration tests cover
+  pending-then-play, compose with echo, the hidden re-offer, a scheduled
+  reminder with its prefix, the cap, the budget and a wrong key. Five browser
+  tests are written and collected; they skip where Chromium cannot launch, as
+  on this host. Client **55** tests, console **20** (`56f21b3`).
+
+- **The band speaks the wire** — `haptic_out` gains a runtime pace and a
+  generic beat mode; the mock now models the TCA9548A control byte as a
+  one-hot mask and the ESP32 bus writes it that way (it used to write the raw
+  channel number, so dot 1 could never be selected); the FreeRTOS task uses
+  the real macro names and carries a 16-letter word whole; the bus sketch
+  moves to the `i2c_master` API. `firmware/band/` adds an utterance decoder
+  on vendored cJSON with distinct error codes and no partial results, a turn
+  player that compiles one segment at a time into beats and matches the
+  reference renderer on both profiles, a bounded persisted queue with
+  acknowledgement, and the relay protocol behind a frame vtable with
+  hello-first, backoff, resume by `last_acked` and offline playback — the
+  ladder's rung 3, proven against a fake relay on loopback that validates
+  every up frame with `ziv.wire`. `host_player` is the band's conformance
+  player. Bench **459 checks**, rung-1 **49** (27 HAP events matched), band
+  **636**, conformance **12/12** on `six_actuator` and on `single_actuator`,
+  transport **9 checks**; fixtures byte-identical. Everything under
+  `firmware/band/esp/` is written against ESP-IDF 5.x and not compiled here
+  (`80a60ff`).
+
+- **The sequencing relay** — the relay of `docs/ARCHITECTURE.md` §4, §6, §7
+  and §9. A pure core holds the outbox state machine (`pending → sent →
+  playing → played`, with `failed`, `expired` and `cancelled`), admission
+  (normalisation with digits as words, unencodable characters refused unless
+  lossy, the reference renderer's duration as the time budget, one cap per
+  wearer), the schedule's lease logic and credential hashing; a Hypothesis
+  state machine proves no loss, no duplication and bounded depth. SQLite in
+  WAL mode with numbered migrations applies every transition in one
+  transaction and claims due reminders under a lease, so a crash between
+  claim and fire redelivers. The application is built by
+  `create_app(settings, clock, store, composer)` with no module state: sender
+  HTTP with scoped bearer tokens and a `reason` on every refusal, a device
+  WebSocket authenticated by its first frame, a scheduler driven by
+  `tick(now)`, a composer protocol with echo, fake and Nebius implementations,
+  and a content-free events table behind a counts-only health. `ziv-relay`
+  runs, initialises, mints enrollment codes and sender tokens, and tails
+  events. Additive wire changes: three refusal reasons, a lossy flag on the
+  sender's view, schedule labels, and the enrollment, sender and reply views;
+  schemas regenerated. 124 tests when it landed, none sleeping real time;
+  they are part of the 164 above (`a188c50`).
+
+- **The accessible console** — a small TypeScript app with no framework,
+  typed against the JSON Schemas in `schema/` (the generated types carry a
+  hash of the schema directory and the build refuses when they are stale),
+  built by esbuild with content-hashed assets and a strict same-origin CSP.
+  Views for sign-in, send, utterances, schedule, preferences, devices,
+  senders and health. Accessibility is the acceptance bar: landmarks, one
+  `h1` per view with focus moved to it, labelled controls, errors tied through
+  `aria-describedby`, one polite live region that announces only
+  user-initiated results, polling that never steals focus or reorders a table
+  the user is in, reduced motion and forced colours honoured. A mock relay
+  validates every body against the schemas with Ajv, so the console cannot
+  drift from the contract. **20** tests including axe-core on every view. Not
+  yet run in a real browser or with a braille display (`c425fe3`).
+
+- **The web device renderer** — a device, not a console: it speaks the wire
+  contract from `ziv.wire` (hello first, `progress`, `played`, `nack`,
+  controls, prefs both ways), keeps a bounded persisted queue, plays each
+  utterance with a self-correcting local scheduler from durations derived at
+  runtime from `GET /spec`, and refuses to play while hidden with a nack that
+  says so. The pure sequencer is shared with a Node entry point
+  (`client/dist/conformance.js`) that `conformance/run.py` diffs against the
+  reference renderer: **12/12** on both profiles, identical timelines.
+  TypeScript built by esbuild with content-hashed assets and no service
+  worker; tests under Node's runner and happy-dom (**55** with the headless
+  driver). Not yet exercised in a real browser on a phone (`496bac4`).
+
+- **Spec v4, the reference renderer and the conformance harness** — the
+  timing spec gains the three things the device-rendered architecture needs
+  and nothing else: a word gap (520 ms, felt as a boundary at the default
+  pace and never longer than the prefix breath), the kind → cue/tail table,
+  and renderer profiles — the band's chord cells and a single-actuator
+  profile that encodes a letter as six 50 ms time slots in column order with
+  a column break (530 ms per cell, provisional until validated with wearers).
+  The generators emit the new tables into the Python module and the C header;
+  the firmware's tail enum and the 27-line demo fixture are byte-identical.
+  `ziv/haptics/reference.py` is now the oracle: `timeline()`,
+  `duration_ms()`, the JSONL interchange format and `diff()`. `conformance/`
+  holds twelve golden utterances, their expected timelines on both profiles,
+  a runner that diffs any player command against the live reference within
+  the spec's 10 ms tolerance, and the known-good Python player. The expected
+  files are drift-guarded against the reference: `run.py --check` reports
+  **12 utterances × 2 profiles** in sync (`6635f37`).
+
+- **The contract for the new architecture** — Phase 0 of the rebuild: a `ziv`
+  package with a pyproject and the `ziv-relay` entry point; `ziv.wire` as the
+  single wire contract (the utterance, the device frames both ways, the
+  sender bodies, hard sizes, refusal reasons) with JSON Schema emitted to
+  `schema/` by `python -m ziv.wire`; the timing generator writing its tables
+  into `ziv/haptics/tables.py` and embedding the raw spec so the relay can
+  serve it at `GET /spec` and renderers derive durations from the single
+  source; and a reference renderer with its final signature, so the relay,
+  the client, the console and the conformance work could proceed in parallel
+  against one definition (`14c59ce`).
 
 - **The target architecture is written down** — `docs/ARCHITECTURE.md`
   records the shape the review on 2026-11-06 argued for: utterances as the

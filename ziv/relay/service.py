@@ -85,7 +85,7 @@ from ziv.wire import (
 )
 
 from .clock import Clock
-from .composer import ComposeError, Composer
+from .composer import ComposeError, Composer, EchoComposer
 from .devices import DeviceConn, DeviceRegistry
 from .settings import Settings
 
@@ -425,6 +425,14 @@ class Relay:
         measured = admission.check_budget(probe, self._profile_for(wearer), prefs.pace_ms, self.settings.budget_ms)
         if isinstance(measured, Refusal):
             return self._refused(wearer, measured, "schedule")
+        if body.intent is not None and isinstance(self.composer, EchoComposer):
+            # no model will shorten this intent at fire time: it must fit now
+            if self.composer.fit(body.intent, self.settings.budget_ms, profile=self._profile_for(wearer),
+                                 pace_ms=prefs.pace_ms, kind=body.kind) is None:
+                return self._refused(wearer, Refusal(
+                    Reason.over_budget,
+                    "the intent does not fit the budget on this device and no model is configured to shorten it",
+                    {"budget_ms": self.settings.budget_ms}), "schedule")
         with self.store.tx(immediate=True):
             refusal = schedule.check_cap(self.store.schedule.count(wearer), self.settings.schedule_cap)
             if refusal is not None:
@@ -710,10 +718,15 @@ class Relay:
                        detail=type(exc).__name__)
             self.compose_failed(entry_id, Reason.compose_failed)
             return
-        self.event("compose", wearer=wearer, counts={"ok": 1, "words": len(words)})
-        self.compose_done(entry_id, words, composer.source)
+        lossy = False
+        if composer.source == Source.echo:
+            # the echo path may have dropped function words to fit: say so
+            n = admission.normalise(intent, allow_lossy=True)
+            lossy = isinstance(n, Refusal) or tuple(words) != tuple(n.words)
+        self.event("compose", wearer=wearer, counts={"ok": 1, "words": len(words), "lossy": int(lossy)})
+        self.compose_done(entry_id, words, composer.source, lossy=lossy)
 
-    def compose_done(self, entry_id: str, words: Sequence[str], source: Source) -> None:
+    def compose_done(self, entry_id: str, words: Sequence[str], source: Source, *, lossy: bool = False) -> None:
         now = self.clock.now()
         with self.store.tx(immediate=True):
             e = self.store.outbox.get(entry_id)
@@ -724,7 +737,7 @@ class Relay:
             probe = e.utterance.model_copy(update={"words": list(words), "body_pending": False})
             duration = admission.measure(probe, self._profile_for(e.wearer, e.device), prefs.pace_ms)
             try:
-                ne, fx = outbox.on_body(e, words, source, duration, now)
+                ne, fx = outbox.on_body(e, words, source, duration, now, lossy=lossy)
             except IllegalTransition as exc:
                 self.event("late_frame", wearer=e.wearer, detail=f"{exc.event} in {exc.state}")
                 return

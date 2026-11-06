@@ -241,7 +241,7 @@ def test_schedule_intent_body_pending_then_body(h: Harness):
         h.sync(ws)
         assert h.get(uid)["state"] == "played"
     compose = [e for e in h.events() if e["kind"] == "compose"]
-    assert compose and compose[-1]["counts"] == {"ok": 1, "words": 2}
+    assert compose and compose[-1]["counts"] == {"ok": 1, "words": 2, "lossy": 0}
     assert "pills" not in json.dumps(h.events())
     assert h.client.get("/health").json()["compose"]["ok"] == 1
 

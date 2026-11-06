@@ -274,6 +274,11 @@ seam instead of reaching the wrist (invariant 5, enforced structurally).
 
 ## 5. Architecture
 
+> **Current software architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md),
+> built on the `product` branch. The paragraphs below are the plan as written in
+> September 2026 and name modules of the tree that existed then (`agent/…`);
+> they are kept as the record of the reasoning, not as a map of the code.
+
 ```
 [wearable: ESP32-S3 N16R8]
   I2S mic ──► WAV/Opus capture (push-to-talk)

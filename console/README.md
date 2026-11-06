@@ -115,7 +115,7 @@ extra fields (`budget_ms`, `cap`).
 | `GET /devices` | read | list of `http-device-view` |
 | `POST /devices/enroll-code` | admin | `{"code": string, "expires": datetime}` |
 | `POST /senders` | admin | `{"label", "scopes": ["send","read"]}` → `{"token", ...}` with `sender` or `id`; shown once |
-| `GET /spec` | any token | the timing spec; the console reads only `constants.cell_gap_{min,max,default}_ms` and `ui.cell_gap_step_ms` for the pace field |
+| `GET /spec` | public | the timing spec; the console reads only `constants.cell_gap_{min,max,default}_ms` and `ui.cell_gap_step_ms` for the pace field |
 | `GET /health` | public | `http-health`, counts only |
 
 Auth is `Authorization: Bearer <token>`. 401 and 403 both map to the

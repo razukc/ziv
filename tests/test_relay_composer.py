@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from ziv.core import spec
+from ziv.wire import Reason
 from ziv.relay.composer import ComposeError, EchoComposer, FakeComposer, NebiusComposer, measure_words
 from ziv.wire import Kind, Profile
 
@@ -105,16 +106,23 @@ def test_transport_failure_is_a_kind():
     assert exc.value.detail == "provider transport_connecterror"
 
 
-def test_echo_drops_whole_words_never_letters():
+def test_echo_plays_the_whole_intent_or_drops_function_words_or_refuses():
+    """The echo path never cuts content: "meds at nine" must not become "meds at"."""
     e = EchoComposer()
     assert run(e.compose("take meds at 9", 15_000, profile=Profile.six_actuator, pace_ms=PACE)) == ["take", "meds", "at", "nine"]
+    trimmed = measure_words(["take", "meds", "nine"], kind=Kind.reminder, profile=Profile.six_actuator, pace_ms=PACE)
+    assert run(e.compose("take meds at nine", trimmed, profile=Profile.six_actuator, pace_ms=PACE)) == ["take", "meds", "nine"]
     tight = measure_words(["take", "meds"], kind=Kind.reminder, profile=Profile.six_actuator, pace_ms=PACE)
-    assert run(e.compose("take meds at nine", tight, profile=Profile.six_actuator, pace_ms=PACE)) == ["take", "meds"]
+    with pytest.raises(ComposeError) as exc:
+        run(e.compose("take meds at nine", tight, profile=Profile.six_actuator, pace_ms=PACE))
+    assert exc.value.reason == Reason.over_budget
+    assert e.fit("take meds at nine", tight, profile=Profile.six_actuator, pace_ms=PACE) is None
+    assert e.fit("take meds at nine", trimmed, profile=Profile.six_actuator, pace_ms=PACE) == ("take", "meds", "nine")
     with pytest.raises(ComposeError):
         run(e.compose("!!!", 15_000, profile=Profile.six_actuator, pace_ms=PACE))
     with pytest.raises(ComposeError):
         run(e.compose("supercalifragilistic", 100, profile=Profile.six_actuator, pace_ms=PACE))
-    assert e.health()["source"] == "echo" and e.health()["attempts"] == 4
+    assert e.health()["source"] == "echo" and e.health()["attempts"] == 5
 
 
 def test_fake_composer_is_scripted():

@@ -119,30 +119,56 @@ def _fit_words(line: str) -> tuple[str, ...] | None:
     return None if isinstance(n, Refusal) else n.words
 
 
+#: Words the echo path may drop to make an intent fit. Content words are never
+#: dropped: a reminder that loses its last word loses its time.
+FUNCTION_WORDS = frozenset(
+    "a an the to of for and please remember dont do my your me you at in on is are be it this that".split())
+
+
+def echo_candidates(intent: str) -> list[tuple[str, ...]]:
+    """What the echo path may play for ``intent``: the whole line, then the line
+    without function words. Never a shorter prefix."""
+    n = normalise(intent, allow_lossy=True)
+    if isinstance(n, Refusal) or not n.words:
+        return []
+    full = tuple(n.words)
+    trimmed = tuple(w for w in full if w not in FUNCTION_WORDS)
+    return [full] if not trimmed or trimmed == full else [full, trimmed]
+
+
 class EchoComposer:
-    """No model: the intent itself, normalised. If it does not fit the budget,
-    whole words are dropped from the end — never letters — and if even one word
-    does not fit, the compose fails loudly."""
+    """No model: the intent itself, normalised. If the whole line does not fit
+    the budget, function words are dropped; if it still does not fit, the
+    compose fails loudly with ``over_budget`` — content is never cut."""
 
     source = Source.echo
 
     def __init__(self) -> None:
         self.log = ComposeLog(self.source)
 
+    def fit(self, intent: str, budget_ms: int, *, profile, pace_ms, kind=Kind.reminder) -> tuple[str, ...] | None:
+        """The words the echo path would play, or ``None`` when nothing honest fits.
+        Used at schedule time so a sender learns now, not when the reminder fires."""
+        for cand in echo_candidates(intent):
+            if measure_words(list(cand), kind=kind, profile=profile, pace_ms=pace_ms) <= budget_ms:
+                return cand
+        return None
+
     async def compose(self, intent, budget_ms, *, profile, pace_ms, api_key=None, kind=Kind.reminder):
         t0 = time.monotonic()
-        words = _fit_words(intent)
-        if not words:
+        cands = echo_candidates(intent)
+        if not cands:
             self.log.record(Attempt("error", 0, 0, "no_letters"))
             raise ComposeError(detail="the intent has no letters to play")
-        while words:
-            d = measure_words(words, kind=kind, profile=profile, pace_ms=pace_ms)
+        d = 0
+        for cand in cands:
+            d = measure_words(list(cand), kind=kind, profile=profile, pace_ms=pace_ms)
             if d <= budget_ms:
                 self.log.record(Attempt("ok", int((time.monotonic() - t0) * 1000), 0))
-                return list(words)
-            words = words[:-1]
+                return list(cand)
         self.log.record(Attempt("error", 0, 0, "over_budget"))
-        raise ComposeError(detail="no prefix of the intent fits the budget")
+        raise ComposeError(Reason.over_budget,
+                           detail=f"the intent takes {d} ms on this device; the budget is {budget_ms} ms")
 
     def health(self) -> dict[str, object]:
         return self.log.health()

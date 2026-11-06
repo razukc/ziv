@@ -439,6 +439,25 @@ until the channel itself is validated with braille readers.
 
 ## 13. Path from the current tree
 
+**Status (2026-11-06):** this plan was executed. Instead of the incremental
+order listed at the end of this section, the work ran as parallel workstreams
+against a Phase-0 contract (`ziv.wire` with its schemas, and the reference
+renderer's final signature): spec v4 with the reference renderer and the
+conformance harness, the relay, the web renderer, the console, the band
+firmware, then an integration pass and the cutover that retired `agent/`.
+Each workstream is an entry under `[Unreleased]` in
+[CHANGELOG.md](../CHANGELOG.md), with the counts from the runs that proved it.
+The table and the order below stay as the record of how the old tree mapped
+onto this design. What remains unverified: the native Android renderer is not
+built, and the web client stands in as a foreground-only reference renderer
+(§5.4). The band has not been flashed or booted under QEMU, so everything
+under `firmware/band/esp/`, the I²C bus's device path and the FreeRTOS task
+are written but uncompiled. No surface has run in a real browser, with a
+screen reader or with a braille display. The single-actuator slot timings and
+the word gap have not been felt by a wearer. The preflight gate left with the
+old API, and a `ziv-relay check` is future work. `NotifySender` is a no-op
+and senders poll.
+
 What exists today maps onto the target like this.
 
 | Today | Becomes |

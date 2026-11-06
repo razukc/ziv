@@ -265,15 +265,17 @@ def on_expiry(entries: Sequence[OutboxEntry], now: float, late_policy: Late) -> 
 
 
 def on_body(
-    entry: OutboxEntry, words: Sequence[str], source: Source, duration_ms: int, now: float
+    entry: OutboxEntry, words: Sequence[str], source: Source, duration_ms: int, now: float,
+    *, lossy: bool = False,
 ) -> tuple[OutboxEntry, list[Effect]]:
     """The composer finished: fill the words of a ``body_pending`` utterance."""
     _require(entry, "body", State.pending, State.sent, State.playing)
     if not entry.utterance.body_pending:
         raise IllegalTransition(entry.id, entry.state, "body (not pending)")
     utt = entry.utterance.model_copy(update={"words": list(words), "body_pending": False, "source": source})
-    filled = entry.with_(utterance=utt, duration_ms=duration_ms, updated=now)
-    effects: list[Effect] = [LogEvent("body", entry.wearer, counts={"words": len(words), "duration_ms": duration_ms})]
+    filled = entry.with_(utterance=utt, duration_ms=duration_ms, updated=now, lossy=lossy or entry.lossy)
+    effects: list[Effect] = [LogEvent("body", entry.wearer,
+                                      counts={"words": len(words), "duration_ms": duration_ms, "lossy": int(lossy)})]
     if entry.device is not None:
         effects.insert(0, SendBody(entry.device, entry.id, tuple(words), source))
     return filled, effects
