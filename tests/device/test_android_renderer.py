@@ -123,6 +123,9 @@ def launch(adb: Adb, relay: LiveRelay, *, enroll_code: str | None, fresh: bool =
     adb.shell("am", "force-stop", PACKAGE, check=False)
     if fresh:
         adb.shell("pm", "clear", PACKAGE, check=False)
+        # pm clear resets runtime grants; without this the notification-permission dialog sits on
+        # top of the task and a later relaunch never recreates the activity underneath it
+        adb.shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
     adb.run("logcat", "-c", check=False)
     args = ["am", "start", "-W", "-n", ACTIVITY]
     if enroll_code is not None:

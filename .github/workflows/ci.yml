@@ -75,6 +75,29 @@ jobs:
           python conformance/run.py --player "node client/dist/conformance.js" --profile single_actuator
           python conformance/run.py --player "node client/dist/conformance.js" --profile six_actuator
 
+  browser:
+    name: Browser — Playwright drives the client and the console against a live relay
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install the package and a Chromium that can launch
+        run: |
+          pip install -e ".[dev]"
+          python -m playwright install --with-deps chromium
+      - name: Build both front ends
+        run: |
+          (cd client && npm ci && npm run build)
+          (cd console && npm ci && npm run build)
+      - name: Browser tier
+        run: python -X utf8 -m pytest -q -m e2e tests/e2e
+
   firmware:
     name: Firmware — bench, rung-1 host demo, band host suite, conformance
     runs-on: ubuntu-latest

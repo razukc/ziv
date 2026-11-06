@@ -298,7 +298,12 @@ class RendererService : Service() {
             TransportDeps(
                 url = urls.ws,
                 sockets = OkHttpSockets(handler),
-                makeHello = { dev.hello(key) },
+                makeHello = {
+                    dev.hello(key).also { h ->
+                        // content-free: ids and counts only, so an operator can see a resume happen
+                        Log.i(TAG, "hello profile=${h.profile} spec=${h.specVersion} last_acked=${h.lastAcked} held=${h.held.size}")
+                    }
+                },
                 onFrame = { frame -> dev.handleFrame(frame) },
                 timers = timers,
                 onStatus = { s, d ->

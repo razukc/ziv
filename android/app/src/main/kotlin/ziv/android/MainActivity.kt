@@ -92,13 +92,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         b.relayUrl.setText(settings.relayUrl ?: "")
+        // The renderer comes first: the wearer's channel must never wait on a dialog; the
+        // notification permission only decides whether the status notification is shown.
+        if (!handleDebugExtras(intent) && settings.enrolled) startRenderer(RendererService.startIntent(this))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        if (!handleDebugExtras(intent) && settings.enrolled) startRenderer(RendererService.startIntent(this))
     }
 
     override fun onNewIntent(intent: Intent) {
