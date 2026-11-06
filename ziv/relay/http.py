@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from ziv.core.model import SCOPE_ADMIN, SCOPE_READ, SCOPE_SEND, Refusal
 from ziv.haptics import tables
 from ziv.wire import (
+    ComposeBody,
     CreateSender,
     DeviceView,
     EnrollBody,
@@ -107,6 +108,20 @@ router = APIRouter()
 @router.post("/utterances", response_model=UtteranceView, status_code=201)
 async def post_utterance(body: SubmitUtterance, principal: Sends, relay: RelayDep) -> UtteranceView:
     return _unwrap(relay.submit(principal, body))
+
+
+@router.post("/compose", response_model=UtteranceView, status_code=201)
+async def post_compose(
+    body: ComposeBody,
+    principal: Sends,
+    relay: RelayDep,
+    x_nebius_key: Annotated[str | None, Header(min_length=8, max_length=256)] = None,
+) -> UtteranceView:
+    """The agent path (docs/ARCHITECTURE.md §4.5): admit a ``body_pending``
+    utterance at once, compose the words, answer with the entry as it stands.
+    ``X-Nebius-Key`` is a bring-your-own-key credential for this one compose:
+    it is passed to the composer and reaches no log, event, row or response."""
+    return _unwrap(await relay.compose(principal, body, api_key=x_nebius_key))
 
 
 @router.get("/utterances", response_model=list[UtteranceView])

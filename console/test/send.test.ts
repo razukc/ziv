@@ -131,3 +131,83 @@ test("Send: over budget and unauthorized errors are shown with their reasons", a
   await waitFor(() => (err2.textContent ?? "").length > 0, "the unauthorized error");
   assert.match(err2.textContent ?? "", /^Error: Not allowed with this token\. this token lacks the send scope/);
 });
+
+test("Send: Ask the agent posts the intent, carries the key only in a header, clears it, and shows the source", async () => {
+  mock.reset();
+  const { ctx, announced } = context("send-token");
+  const view = views.sendView(ctx);
+  dom.document.body.replaceChildren(view.element);
+  const form = view.element.querySelector("form") as HTMLFormElement;
+  const radios = form.querySelectorAll<HTMLInputElement>("input[type=radio]");
+  assert.equal(radios.length, 2);
+  for (const r of radios) assert.ok(form.querySelector(`label[for="${r.id}"]`), "each mode has a <label for>");
+  const agent = [...radios].find((r) => r.value === "agent")!;
+  const intentInput = form.querySelector("input[type=text][maxlength='200']") as HTMLInputElement;
+  const keyInput = form.querySelector("input[type=password]") as HTMLInputElement;
+  const textarea = form.querySelector("textarea") as HTMLTextAreaElement;
+  const kindSelect = form.querySelector("select") as HTMLSelectElement;
+  const submitBtn = form.querySelector("button[type=submit]") as HTMLButtonElement;
+
+  // type mode by default: the agent fields are hidden, the message field is shown
+  assert.equal(textarea.closest("div[hidden]"), null);
+  assert.ok(intentInput.closest("div[hidden]"), "intent is hidden in type mode");
+  assert.equal(submitBtn.textContent, "Send");
+  assert.equal(kindSelect.value, "message");
+
+  agent.checked = true;
+  agent.dispatchEvent(new (globalThis as unknown as { Event: typeof Event }).Event("change", { bubbles: true }));
+  assert.equal(intentInput.closest("div[hidden]"), null, "intent is shown in agent mode");
+  assert.ok(textarea.closest("div[hidden]"), "the message field is hidden in agent mode");
+  assert.equal(submitBtn.textContent, "Ask the agent");
+  assert.equal(kindSelect.value, "reminder", "a composed line defaults to a reminder");
+  assert.ok(form.querySelector(`label[for="${intentInput.id}"]`), "intent has a <label for>");
+  assert.ok(form.querySelector(`label[for="${keyInput.id}"]`), "the key field has a <label for>");
+
+  // an empty intent is refused locally
+  submit(form);
+  await waitFor(() => (form.querySelector(`#${intentInput.id}-error`)?.textContent ?? "").length > 0, "the intent error");
+  assert.equal(dom.document.activeElement, intentInput);
+  assert.match(announced.at(-1) ?? "", /^Error: say what the wearer should learn/);
+
+  // echo: no key, the relay plays the words as typed and says so
+  input(intentInput, "Take the meds at 9");
+  submit(form);
+  const result = view.element.querySelector("section.result") as HTMLElement;
+  await waitFor(() => !result.hidden, "the composed result");
+  assert.equal(result.querySelector("h2")?.textContent, "Composed");
+  assert.match(result.textContent ?? "", /take the meds at nine/);
+  assert.equal(result.querySelector(".source")?.getAttribute("data-source"), "echo");
+  assert.match(result.querySelector(".source")?.textContent ?? "", /^echo: /);
+  assert.match(announced.at(-1) ?? "", /^Composed: take the meds at nine\. .* Source echo\.$/);
+  assert.equal(mock.state.lastCompose?.key, null, "no key header when the field is empty");
+  assert.deepEqual(mock.state.lastCompose?.body, { intent: "Take the meds at 9", kind: "reminder" });
+  assert.equal(intentInput.value, "", "the intent is cleared for the next one");
+
+  // bring your own key: it travels in the header only, never in the body, and the field is emptied
+  input(intentInput, "water the plants");
+  input(keyInput, "sk-my-own-token-factory-key-000");
+  submit(form);
+  await waitFor(() => mock.state.lastCompose?.key !== null, "the compose with a key");
+  assert.equal(mock.state.lastCompose?.key, "sk-my-own-token-factory-key-000");
+  assert.equal(JSON.stringify(mock.state.lastCompose?.body).includes("sk-my-own"), false, "the key is not in the body");
+  assert.equal(keyInput.value, "", "the key field is cleared as soon as the request is sent");
+  await waitFor(() => (result.querySelector(".source")?.getAttribute("data-source") ?? "") === "live", "the live source");
+  assert.match(result.querySelector(".source")?.textContent ?? "", /^live: /);
+  assert.match(announced.at(-1) ?? "", /Source live\.$/);
+
+  // a read-only token is refused with the reason, and the key field stays empty
+  const ro = context("read-token");
+  const view2 = views.sendView(ro.ctx);
+  dom.document.body.replaceChildren(view2.element);
+  const form2 = view2.element.querySelector("form") as HTMLFormElement;
+  const agent2 = [...form2.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.value === "agent")!;
+  agent2.checked = true;
+  agent2.dispatchEvent(new (globalThis as unknown as { Event: typeof Event }).Event("change", { bubbles: true }));
+  input(form2.querySelector("input[type=text][maxlength='200']") as HTMLInputElement, "hello");
+  input(form2.querySelector("input[type=password]") as HTMLInputElement, "sk-should-be-cleared-anyway");
+  submit(form2);
+  const err2 = form2.querySelector(".form-error") as HTMLElement;
+  await waitFor(() => (err2.textContent ?? "").length > 0, "the unauthorized error");
+  assert.match(err2.textContent ?? "", /^Error: Not allowed with this token\. this token lacks the send scope/);
+  assert.equal((form2.querySelector("input[type=password]") as HTMLInputElement).value, "");
+});

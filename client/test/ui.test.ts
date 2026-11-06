@@ -173,12 +173,31 @@ test('an open utterance shows its words with the active letter marked; a hidden 
   assert.equal(vibrations.at(-1), 0);
   assert.match(app.logLines.at(-2) ?? '', /page hidden/);
 
+  // visible again: the relay holds what this page refused as pending until its next hello, so the
+  // page reconnects at once and the fresh hello asks for it back
+  assert.equal(FakeSocket.instances.length, 1);
+  hidden.value = false;
+  for (const cb of visibility) cb(false);
+  assert.equal(FakeSocket.instances.length, 2, 'a fresh socket after a hidden nack');
+  assert.equal(ws.readyState, 3, 'the old socket was closed');
+  const ws2 = FakeSocket.instances[1]!;
+  ws2.open();
+  assert.equal(ws2.sent[0]?.type, 'hello');
+  ws2.receive({ type: 'hello.ack', wearer: 'w_1', device: 'd_web', spec_version: rawSpec().version, prefs: {}, resend: [u] });
+  assert.deepEqual(ws2.sent.at(-1), { type: 'progress', id: u.id, phase: 'cue' });
+  // once the utterance has played, a plain visibility round trip (nothing refused) does not churn the socket
+  sched.runUntil(sched.now + 60_000);
+  assert.equal(ws2.sent.filter((f) => f.type === 'played').length, 1);
+  for (const cb of visibility) cb(true);
+  for (const cb of visibility) cb(false);
+  assert.equal(FakeSocket.instances.length, 2);
+
   const historyOn = $<HTMLInputElement>(doc, 'history-on');
   assert.equal($(doc, 'history-section').hidden, true);
   historyOn.checked = true;
   historyOn.dispatchEvent(new (doc.defaultView as unknown as typeof globalThis).Event('change'));
   assert.equal($(doc, 'history-section').hidden, false);
-  assert.equal(ws.sent.at(-1)?.type, 'pref.changed');
+  assert.equal(ws2.sent.at(-1)?.type, 'pref.changed');
 });
 
 test('enrollment posts the code and profile, stores the key, and enables Start', async () => {

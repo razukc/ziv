@@ -117,6 +117,19 @@ test("axe: zero serious or critical violations on every view, including error an
   bad = serious(await runAxe(dom));
   if (bad.length) report.push(`[send/result]\n${describeViolations(bad)}`);
 
+  // Send in "Ask the agent" mode, with its composed result shown.
+  const agentRadio = [...form.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.value === "agent")!;
+  agentRadio.checked = true;
+  agentRadio.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  bad = serious(await runAxe(dom));
+  if (bad.length) report.push(`[send/agent]\n${describeViolations(bad)}`);
+  input(form.querySelector("input[type=text][maxlength='200']") as HTMLInputElement, "take the meds");
+  submit(form);
+  await waitFor(() => !(dom.document.querySelector("main section.result") as HTMLElement).hidden, "composed result");
+  assert.match(dom.document.querySelector("main section.result")?.textContent ?? "", /echo/);
+  bad = serious(await runAxe(dom));
+  if (bad.length) report.push(`[send/agent-result]\n${describeViolations(bad)}`);
+
   // Devices with an enroll code displayed, Senders with a token displayed.
   await open("devices");
   (dom.document.querySelector("main section section button") as HTMLButtonElement).click();

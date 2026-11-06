@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 import ziv
 from ziv.core.model import Refusal
@@ -19,6 +19,7 @@ from .clock import Clock, SystemClock
 from .composer import Composer, EchoComposer, NebiusComposer
 from .service import Relay
 from .settings import Settings
+from .static import dist_router
 
 
 class BodyTooLarge(Exception):
@@ -77,17 +78,26 @@ def default_composer(settings: Settings) -> Composer:
     return EchoComposer()
 
 
+def byok_composer(settings: Settings) -> Composer:
+    """The model provider with no credential of its own: it can only compose
+    with a key the caller supplies for that one call (``POST /compose`` with
+    ``X-Nebius-Key``). Used when the relay itself has no key configured."""
+    return NebiusComposer(api_key=None, base_url=settings.nebius_base_url, model=settings.text_model)
+
+
 def create_app(
     settings: Settings,
     *,
     clock: Clock | None = None,
     store: Store | None = None,
     composer: Composer | None = None,
+    byok: Composer | None = None,
 ) -> FastAPI:
     clock = clock or SystemClock()
     store = store or Store(settings.db_path)
     composer = composer or default_composer(settings)
-    relay = Relay(settings, store, clock, composer)
+    byok = byok or byok_composer(settings)
+    relay = Relay(settings, store, clock, composer, byok_composer=byok)
     relay.start()
 
     @asynccontextmanager
@@ -141,4 +151,19 @@ def create_app(
 
     app.include_router(http.router)
     app.add_api_websocket_route("/ws", ws.endpoint)
+
+    # the built front ends, when a build exists (docs/ARCHITECTURE.md §11: one origin, no CORS)
+    mounted: list[str] = []
+    for prefix, directory in (("/client", settings.client_dist), ("/console", settings.console_dist)):
+        if directory:
+            app.include_router(dist_router(prefix, directory))
+            mounted.append(prefix)
+    if mounted:
+        home = "/console/" if "/console" in mounted else mounted[0] + "/"
+
+        @app.get("/", include_in_schema=False)
+        async def _root() -> RedirectResponse:
+            return RedirectResponse(url=home, status_code=302)
+
+    app.state.mounted_front_ends = mounted
     return app

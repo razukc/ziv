@@ -1,6 +1,7 @@
 // Build: TypeScript + esbuild -> dist/ with content-hashed assets and an
-// index.html that references them, plus the Node conformance entry.
-// No service worker, by design (docs/ARCHITECTURE.md §13).
+// index.html that references them, plus two Node entries: the conformance
+// player and the headless device driver (device-cli.js, self-contained: `ws`
+// is bundled into it). No service worker, by design (docs/ARCHITECTURE.md §13).
 import * as esbuild from 'esbuild';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -51,5 +52,19 @@ await esbuild.build({
   logLevel: 'warning',
 });
 
-const outputs = Object.keys(web.metafile.outputs).concat(['dist/index.html', 'dist/conformance.js']);
+await esbuild.build({
+  absWorkingDir: here,
+  entryPoints: ['src/device-cli.ts'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: ['node24'],
+  outfile: 'dist/device-cli.js',
+  // ws's optional native accelerators: left out, so its pure-JS paths run
+  external: ['bufferutil', 'utf-8-validate'],
+  banner: { js: "import { createRequire as __zivCreateRequire } from 'node:module'; const require = __zivCreateRequire(import.meta.url);" },
+  logLevel: 'warning',
+});
+
+const outputs = Object.keys(web.metafile.outputs).concat(['dist/index.html', 'dist/conformance.js', 'dist/device-cli.js']);
 for (const o of outputs.sort()) console.log(o);

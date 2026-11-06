@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from ziv.relay.settings import DEFAULT_NEBIUS_BASE_URL, DEFAULT_TEXT_MODEL, Settings, SettingsError
 
@@ -100,3 +101,19 @@ def test_cli_init_and_sender_and_events(tmp_path, capsys, monkeypatch):
     with TestClient(app) as c:
         assert c.get("/devices", headers={"Authorization": f"Bearer {token}"}).status_code == 200
         assert c.get("/devices", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_front_end_dist_settings_from_env(tmp_path):
+    from ziv.relay.settings import Settings, default_dist
+
+    built = tmp_path / "console-build"
+    built.mkdir()
+    (built / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    s = Settings.from_env({"ZIV_CONSOLE_DIST": str(built), "ZIV_CLIENT_DIST": "off"}, dotenv=False)
+    assert s.console_dist == str(built) and s.client_dist is None
+    # unset: the repo's own build when it exists, else off; never an error
+    s = Settings.from_env({}, dotenv=False)
+    assert s.client_dist == default_dist("client") and s.console_dist == default_dist("console")
+    for v in (s.client_dist, s.console_dist):
+        assert v is None or (v.endswith("dist") and (Path(v) / "index.html").is_file())
+    assert "client_dist" in Settings().public() and Settings().client_dist is None

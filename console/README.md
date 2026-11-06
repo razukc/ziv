@@ -103,6 +103,7 @@ extra fields (`budget_ms`, `cap`).
 | Method and path | Needs | Body / answer |
 |---|---|---|
 | `POST /utterances` | send | `http-submit-utterance` → 201 `http-utterance-view`; 413 `over_budget`, 429 `queue_full`, 422 `unencodable` or `bad_request` |
+| `POST /compose` | send | `http-compose` (`intent`, `kind`, `label`, `expires_after_s`) → 201 `http-utterance-view` once the agent has composed: `source` is `live` when a model wrote the line, `echo` when the relay had no model and played the intent as typed; `state` is `failed` with `reason: compose_failed` when no line fit. Optional header `X-Nebius-Key`: the sender's own model credential, used for that one compose and kept nowhere |
 | `GET /utterances?state=<state>` | read | list of `http-utterance-view` |
 | `GET /utterances/{id}` | read | `http-utterance-view` |
 | `DELETE /utterances/{id}` | send | cancel; the view in its new state (or 204) |
@@ -119,7 +120,23 @@ extra fields (`budget_ms`, `cap`).
 
 Auth is `Authorization: Bearer <token>`. 401 and 403 both map to the
 `unauthorized` reason and are shown as such; the console never guesses a
-token's scopes, it shows the relay's refusal.
+token's scopes, it shows the relay's refusal. `describeReason()` in
+`src/api.ts` has a sentence for every `Reason` the schema carries; the
+typecheck fails when the schema grows a reason the console cannot name.
+
+### Send: type the words, or ask the agent
+
+The Send view has two modes. **Type the words** posts `POST /utterances`
+and shows the exact normalised words. **Ask the agent** posts an intent to
+`POST /compose` (docs/ARCHITECTURE.md §4.5): the relay admits a
+`body_pending` utterance at once, so the wearer feels the cue and the
+working pattern while the line is composed, and the answer carries the
+composed words with their `source`. The result names the source in plain
+words (`live: a model wrote the line` / `echo: your words, played as typed`),
+so the console never implies a model ran when it did not. The optional
+**Use my own Token Factory key** field sends the key in the `X-Nebius-Key`
+header of that one request and nothing else; the field is emptied as soon
+as the request is sent, whatever the outcome, and the console keeps no copy.
 
 ## Accessibility checklist
 
@@ -171,7 +188,7 @@ Security and privacy on the client
 are on conditions):
 
 - `test/api.test.ts` — the client against the mock: URL building, the bearer header (absent for `/health`), the local refusal when signed out, 201 echo of normalised words, 422/413/429/401/403 mapped to reasons, cap and cancel, schedule, pref clamping, admin routes, network and non-JSON failures.
-- `test/send.test.ts` — the Send view in jsdom: the letter count, a submit rendering words/budget/state and announcing once, an unencodable error rendered into the error slot (associated via `aria-describedby`) and the polite live region, over-budget and unauthorized errors.
+- `test/send.test.ts` — the Send view in jsdom: the letter count, a submit rendering words/budget/state and announcing once, an unencodable error rendered into the error slot (associated via `aria-describedby`) and the polite live region, over-budget and unauthorized errors; the Ask-the-agent mode (intent posted, key in the header only and cleared, `source` shown as echo or live).
 - `test/a11y.test.ts` — the whole shell: landmarks, headings, focus, labels on every control, captions on every table, axe-core with zero serious/critical violations, and polling that never moves focus.
 
 The mock validates every request body against the schemas with Ajv and

@@ -381,18 +381,50 @@ def test_input_text_control_and_pref_changed(h: Harness):
     assert "there" not in ev
 
 
-def test_nack_fails_with_the_devices_reason(h: Harness):
-    _, key = h.enroll()
+def test_nack_hidden_or_muted_requeues_until_the_devices_next_hello(h: Harness):
+    d1, key = h.enroll()
     uid = h.submit("hello").json()["id"]
     with h.device(key) as (ws, _):
         ws.send_json({"type": "nack", "id": uid, "reason": "muted"})
         h.sync(ws)
         view = h.get(uid)
-        assert view["state"] == "failed" and view["reason"] == "muted"
+        assert view["state"] == "pending" and view["reason"] == "muted" and view["device"] is None
+        h.tick()
+        assert h.get(uid)["state"] == "pending"            # not re-offered to the device that refused it
+    with h.device(key) as (ws, ack):
+        assert [u["id"] for u in ack["resend"]] == [uid]  # its next hello is a fresh chance
+        assert h.get(uid)["state"] == "sent"
+        ws.send_json({"type": "nack", "id": uid, "reason": "hidden"})
+        h.sync(ws)
+        assert h.get(uid) == h.get(uid) | {"state": "pending", "reason": "hidden", "device": None}
+    # a second device takes what the first refused
+    d2, key2 = h.enroll("phone", profile="single_actuator")
+    with h.device(key, last_acked=None) as (ws1, ack1), h.device(key2, profile="single_actuator") as (ws2, ack2):
+        pass
+    kinds = [e for e in h.events() if e["kind"] == "nack_requeued"]
+    assert len(kinds) == 2 and {e["reason"] for e in kinds} == {"muted", "hidden"}
+    assert kinds[0]["counts"] == {"tried": 1}
+
+
+def test_nack_final_reasons_fail_with_the_devices_reason(h: Harness):
+    _, key = h.enroll()
+    uid = h.submit("hello").json()["id"]
+    with h.device(key) as (ws, _):
+        ws.send_json({"type": "nack", "id": uid, "reason": "spec_mismatch"})
+        h.sync(ws)
+        view = h.get(uid)
+        assert view["state"] == "failed" and view["reason"] == "spec_mismatch"
         # a late frame for a terminal entry is logged, never raised
         ws.send_json({"type": "played", "id": uid, "started_ms": 0, "closed_ms": 1})
         h.sync(ws)
     assert any(e["kind"] == "late_frame" for e in h.events())
+    uid2 = h.submit("second").json()["id"]
+    with h.device(key) as (ws, ack):
+        assert [u["id"] for u in ack["resend"]] == [uid2]
+        ws.send_json({"type": "progress", "id": uid2, "phase": "cue"})
+        ws.send_json({"type": "nack", "id": uid2, "reason": "cancelled_by_wearer"})
+        h.sync(ws)
+        assert h.get(uid2)["state"] == "failed" and h.get(uid2)["reason"] == "cancelled_by_wearer"
 
 
 def test_profile_mismatch_with_enrollment_is_refused(h: Harness):

@@ -49,6 +49,26 @@ def _str(value: str | None, default: str | None) -> str | None:
     return value.strip()
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def default_dist(name: str) -> str | None:
+    """``<repo>/<name>/dist`` when it holds a built ``index.html``, else None (not served)."""
+    path = REPO_ROOT / name / "dist"
+    return str(path) if (path / "index.html").is_file() else None
+
+
+def _dist(value: str | None, name: str) -> str | None:
+    """A front end's dist directory from the environment: a path serves it, an
+    explicit ``off``/``none``/``0`` disables it, unset falls back to the repo's build."""
+    v = _str(value, None)
+    if v is None:
+        return default_dist(name)
+    if v.lower() in {"off", "none", "0", "false", "no"}:
+        return None
+    return v
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     db_path: str = "./ziv_data/ziv.sqlite"
@@ -78,6 +98,10 @@ class Settings:
     enroll_code_ttl_s: float = 600.0
     default_wearer: str = "w_1"
     wearer_name: str = "wearer"
+    # the built front ends the relay serves at /client/ and /console/ (None = not served).
+    # ``from_env`` defaults them to client/dist and console/dist at the repo root when those exist.
+    client_dist: str | None = None
+    console_dist: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None, *, dotenv: bool = True) -> "Settings":
@@ -121,6 +145,8 @@ class Settings:
             enroll_code_ttl_s=_float(g("ZIV_ENROLL_CODE_TTL_S"), d.enroll_code_ttl_s, "ZIV_ENROLL_CODE_TTL_S"),
             default_wearer=_str(g("ZIV_WEARER_ID"), d.default_wearer) or d.default_wearer,
             wearer_name=_str(g("ZIV_WEARER_NAME"), d.wearer_name) or d.wearer_name,
+            client_dist=_dist(g("ZIV_CLIENT_DIST"), "client"),
+            console_dist=_dist(g("ZIV_CONSOLE_DIST"), "console"),
         )
 
     def with_(self, **changes) -> "Settings":

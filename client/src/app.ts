@@ -109,6 +109,8 @@ export function mountApp(doc: Document, env: AppEnv): App {
   let lastView: DeviceView | null = null;
   let lastAnnounced = '';
   let starting = false;
+  /** the device refused an utterance because the page was hidden: a fresh hello asks for it back */
+  let refusedWhileHidden = false;
 
   const stored = (k: string): string | null => {
     try {
@@ -302,6 +304,7 @@ export function mountApp(doc: Document, env: AppEnv): App {
       setTimeout: env.setTimeout,
       clearTimeout: env.clearTimeout,
       send: (f) => {
+        if (f.type === 'nack' && f.reason === 'hidden') refusedWhileHidden = true;
         transport?.send(f);
       },
       isHidden: env.isHidden,
@@ -313,6 +316,11 @@ export function mountApp(doc: Document, env: AppEnv): App {
     env.onVisibility((hidden) => {
       log(hidden ? 'page hidden: playback stopped and refused' : 'page visible again');
       dev.onVisibility(hidden);
+      if (!hidden && refusedWhileHidden) {
+        // the relay holds what this page refused as pending and waits for this device's next hello
+        refusedWhileHidden = false;
+        transport?.reconnect();
+      }
     });
     transport = new Transport({
       url: wsUrlFor(relayUrl),

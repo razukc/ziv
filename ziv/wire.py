@@ -336,6 +336,20 @@ class SubmitUtterance(Strict):
         return self
 
 
+class ComposeBody(Strict):
+    """``POST /compose``: an intent the agent turns into the words (docs/ARCHITECTURE.md §4.5).
+
+    The relay admits a ``body_pending`` utterance at once, so the device cues
+    and plays the working pattern, then composes and sends ``utterance.body``.
+    A caller may supply its own model credential in the ``X-Nebius-Key``
+    header; it is used for that one call and never stored or logged."""
+
+    intent: Annotated[str, Field(min_length=1, max_length=200)]
+    kind: Kind = Kind.reminder
+    label: Label | None = None
+    expires_after_s: Annotated[int, Field(ge=60, le=86_400)] = 3600
+
+
 class UtteranceView(Strict):
     """What a sender sees about an utterance: the id, its state, the exact words
     that will be felt, and the budget it was measured against."""
@@ -458,6 +472,7 @@ SCHEMAS: dict[str, TypeAdapter] = {
     "device-frames-down": down_frame_adapter,
     "device-frames-up": up_frame_adapter,
     "http-submit-utterance": TypeAdapter(SubmitUtterance),
+    "http-compose": TypeAdapter(ComposeBody),
     "http-utterance-view": TypeAdapter(UtteranceView),
     "http-schedule": TypeAdapter(ScheduleBody),
     "http-schedule-view": TypeAdapter(ScheduleView),

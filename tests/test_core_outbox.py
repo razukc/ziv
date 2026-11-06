@@ -219,7 +219,8 @@ class OutboxMachine(RuleBasedStateMachine):
         d = data.draw(st.sampled_from(["d1", "d2"]))
         self._apply(e, "played", lambda: outbox.on_played(e, d, self.now, 100))
 
-    @rule(data=st.data(), reason=st.sampled_from([Reason.hidden, Reason.muted, Reason.spec_mismatch, Reason.body_timeout]))
+    @rule(data=st.data(), reason=st.sampled_from([Reason.hidden, Reason.muted, Reason.queue_full, Reason.spec_mismatch, Reason.body_timeout,
+                                              Reason.cancelled_by_wearer]))
     def nack(self, data, reason):
         if not self.entries:
             return
@@ -313,3 +314,54 @@ def test_counts_sum_to_entries(n, cap):
         if not isinstance(r, Refusal):
             entries.append(r[0])
     assert sum(outbox.counts(entries).values()) == len(entries) == min(n, cap)
+
+
+# --- the nack policy ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("reason", sorted(outbox.REQUEUE_ON_NACK))
+def test_nack_hidden_muted_queue_full_return_the_entry_to_pending(reason):
+    now = 0.0
+    e = make_entry(1, now)
+    sent, _ = outbox.assign([e], [DeviceSlot("d1", True, 1, True)], now)
+    back, fx = outbox.on_nack(sent[0], "d1", reason, now + 1)
+    assert back.state == State.pending and back.device is None and back.sent_at is None
+    assert back.reason == reason and back.tried == {"d1"} and back.updated == now + 1
+    assert [f.kind for f in fx] == ["nack_requeued"] and fx[0].reason == reason and fx[0].counts == {"tried": 1}
+    assert not any(isinstance(f, (SendCancel, SendBody)) for f in fx)
+    # the device that refused is not offered it again until it says hello; another device takes it
+    same, _ = outbox.assign([back], [DeviceSlot("d1", True, 1, True)], now + 2)
+    assert same[0].state == State.pending
+    other, fx = outbox.assign([back], [DeviceSlot("d1", True, 1, True), DeviceSlot("d2", True, 1, False, 1)], now + 2)
+    assert other[0].device == "d2" and other[0].state == State.sent
+    forgiven = outbox.forgive([back], "d1")
+    again, _ = outbox.assign(forgiven, [DeviceSlot("d1", True, 1, True)], now + 3)
+    assert again[0].device == "d1"
+
+
+def test_nack_while_playing_requeues_too_and_keeps_earlier_tried_devices():
+    now = 0.0
+    e = make_entry(1, now).with_(tried=frozenset({"d0"}))
+    sent, _ = outbox.assign([e], [DeviceSlot("d1", True, 1, True)], now)
+    playing, _ = outbox.on_progress(sent[0], "d1", Phase.cue, now + 1)
+    back, _ = outbox.on_nack(playing, "d1", Reason.muted, now + 2)
+    assert back.state == State.pending and back.tried == {"d0", "d1"}
+
+
+@pytest.mark.parametrize("reason", [Reason.body_timeout, Reason.spec_mismatch, Reason.expired, Reason.cancelled_by_wearer])
+def test_nack_final_reasons_fail_the_entry_and_tell_the_sender(reason):
+    now = 0.0
+    e = make_entry(1, now)
+    sent, _ = outbox.assign([e], [DeviceSlot("d1", True, 1, True)], now)
+    failed, fx = outbox.on_nack(sent[0], "d1", reason, now + 1)
+    assert failed.state == State.failed and failed.reason == reason and failed.device == "d1"
+    assert [type(f) for f in fx] == [LogEvent, outbox.NotifySender]
+    assert fx[0].kind == "failed" and fx[1].state == State.failed and fx[1].reason == reason
+
+
+def test_nack_from_a_device_that_no_longer_holds_it_is_a_logged_stale_nack():
+    now = 0.0
+    e = make_entry(1, now)
+    sent, _ = outbox.assign([e], [DeviceSlot("d1", True, 1, True)], now)
+    same, fx = outbox.on_nack(sent[0], "d2", Reason.hidden, now + 1)
+    assert same == sent[0] and fx[0].kind == "stale_nack"

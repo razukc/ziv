@@ -6,6 +6,7 @@
 // the relay's detail instead of swallowing it.
 
 import type {
+  ComposeBody,
   DeviceView,
   Health,
   Prefs,
@@ -56,9 +57,11 @@ export function reasonForStatus(status: number): ErrorReason {
       return "over_budget";
     case 429:
       return "queue_full";
-    case 400:
     case 404:
+      return "not_found";
     case 409:
+      return "conflict";
+    case 400:
     case 422:
       return "bad_request";
     default:
@@ -135,7 +138,12 @@ interface RequestOptions {
   query?: Record<string, string | undefined>;
   /** false for the public routes (health). */
   auth?: boolean;
+  /** Extra request headers for this one call (the bring-your-own-key header on compose). */
+  headers?: Record<string, string>;
 }
+
+/** The header that carries a caller's own model credential to `POST /compose`. */
+export const BYOK_HEADER = "X-Nebius-Key";
 
 export class Api {
   readonly baseUrl: string;
@@ -167,6 +175,18 @@ export class Api {
 
   submitUtterance(body: SubmitUtterance): Promise<UtteranceView> {
     return this.request<UtteranceView>("/utterances", { method: "POST", body });
+  }
+
+  /**
+   * Ask the agent (docs/ARCHITECTURE.md §4.5): the relay admits a body_pending
+   * utterance at once, composes the words and answers with the entry as it
+   * stands, `source` saying whether a model ran (`live`) or the intent was
+   * played as typed (`echo`). `apiKey`, when given, travels only in the
+   * request header for this one call; the console keeps no copy.
+   */
+  compose(body: ComposeBody, apiKey?: string): Promise<UtteranceView> {
+    const headers = apiKey ? { [BYOK_HEADER]: apiKey } : undefined;
+    return this.request<UtteranceView>("/compose", { method: "POST", body, headers });
   }
 
   listUtterances(state?: State): Promise<UtteranceView[]> {
@@ -242,6 +262,7 @@ export class Api {
       if (!token) throw new ApiError(0, "unauthorized", "not signed in: paste a token first");
       headers["Authorization"] = `Bearer ${token}`;
     }
+    if (options.headers) Object.assign(headers, options.headers);
     const init: RequestInit = { method, headers, credentials: "omit", cache: "no-store" };
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -319,6 +340,12 @@ export function describeReason(reason: ErrorReason): string {
       return "Not allowed with this token";
     case "bad_request":
       return "Rejected";
+    case "rate_limited":
+      return "Too many requests for this token";
+    case "not_found":
+      return "Not found";
+    case "conflict":
+      return "Already in a final state";
     case "network":
       return "No connection to the relay";
     case "unexpected":

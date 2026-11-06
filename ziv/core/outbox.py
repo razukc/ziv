@@ -200,10 +200,26 @@ def on_played(
     return played, [LogEvent("played", entry.wearer, counts=c), NotifySender(entry.id, State.played)]
 
 
+#: Nack reasons that say "not now, not here" rather than "never": the entry
+#: returns to pending and the device that refused is skipped until its next hello.
+REQUEUE_ON_NACK: frozenset[Reason] = frozenset({Reason.hidden, Reason.muted, Reason.queue_full})
+
+
 def on_nack(entry: OutboxEntry, device: str, reason: Reason, now: float) -> tuple[OutboxEntry, list[Effect]]:
+    """A device refused an entry it was handed. ``hidden``, ``muted`` and
+    ``queue_full`` are conditions of that device at that moment: the entry goes
+    back to pending with the reason recorded and the device in ``tried``, so
+    the next assignment prefers another device or waits for this one's next
+    hello (which forgives it). Every other reason (``body_timeout``,
+    ``spec_mismatch``, ``expired``, ``cancelled_by_wearer`` ...) is final: the
+    entry fails and the sender learns why."""
     _require(entry, "nack", State.sent, State.playing, State.pending)
     if entry.device != device:
         return entry, [LogEvent("stale_nack", entry.wearer, reason)]
+    if reason in REQUEUE_ON_NACK:
+        requeued = entry.with_(state=State.pending, device=None, sent_at=None, updated=now,
+                               reason=reason, tried=entry.tried | {device})
+        return requeued, [LogEvent("nack_requeued", entry.wearer, reason, {"tried": len(requeued.tried)})]
     failed = entry.with_(state=State.failed, updated=now, reason=reason)
     return failed, [LogEvent("failed", entry.wearer, reason), NotifySender(entry.id, State.failed, reason)]
 

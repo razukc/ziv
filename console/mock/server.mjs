@@ -45,6 +45,7 @@ function loadValidator(name) {
 }
 const validators = {
   submit: loadValidator("http-submit-utterance"),
+  compose: loadValidator("http-compose"),
   utteranceView: loadValidator("http-utterance-view"),
   schedule: loadValidator("http-schedule"),
   scheduleView: loadValidator("http-schedule-view"),
@@ -110,6 +111,8 @@ export function createMockServer(options = {}) {
     enrollCodes: new Map(), // code -> expires ms
     timers: new Set(),
     counters: { refused: 0, expired: 0, cancelled: 0 },
+    // what the last POST /compose carried (a test double may remember this; a relay never would)
+    lastCompose: null,
   };
 
   function reset() {
@@ -382,6 +385,29 @@ export function createMockServer(options = {}) {
           return { status: 200, body: publicView(u) };
         }
       }
+    }
+
+    if (path === "/compose" && method === "POST") {
+      // The agent path (docs/ARCHITECTURE.md §4.5): the relay admits a body_pending
+      // utterance, composes, and answers with the filled entry. The mock has no
+      // model: it echoes the intent (source "echo"), dropping trailing words until
+      // the line fits, or pretends a model ran when the caller brought a key.
+      const a = requireScope(req, "send");
+      if (a.error) return a.error;
+      const body = await readBody();
+      if (body.error) return body.error;
+      const bad = validate(validators.compose, body.json);
+      if (bad) return bad;
+      const key = req.headers["x-nebius-key"];
+      state.lastCompose = { body: body.json, key: typeof key === "string" ? key : null };
+      const n = normalise(body.json.intent, true);
+      if (!n.ok || n.words.length === 0) return problem(422, "unencodable", "the intent has no letters to play");
+      let words = n.words;
+      while (words.length > 1 && durationMs(spec, words, state.prefs.pace_ms, true) > budgetMs) words = words.slice(0, -1);
+      const r = admit({ words, kind: body.json.kind ?? "reminder", label: body.json.label ?? null }, a.who, "reminder");
+      if (r.error) return r.error;
+      r.view.source = key ? "live" : "echo";
+      return { status: 201, body: publicView(r.view) };
     }
 
     if (seg[0] === "schedule") {

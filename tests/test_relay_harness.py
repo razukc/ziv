@@ -43,7 +43,7 @@ class HangingComposer:
 
 
 class Harness:
-    def __init__(self, tmp_path, *, composer=None, **overrides: Any) -> None:
+    def __init__(self, tmp_path, *, composer=None, byok=None, **overrides: Any) -> None:
         from ziv.relay.settings import Settings
 
         self.clock = FakeClock(START)
@@ -51,7 +51,7 @@ class Harness:
         self.settings = Settings(
             db_path=str(tmp_path / "ziv.sqlite"), admin_token=ADMIN, allow_plain_http=True, poll_s=0.0, **overrides
         )
-        self.app = create_app(self.settings, clock=self.clock, composer=self.composer)
+        self.app = create_app(self.settings, clock=self.clock, composer=self.composer, byok=byok)
         self.relay = self.app.state.relay
         self.store = self.relay.store
         self.client = TestClient(self.app)

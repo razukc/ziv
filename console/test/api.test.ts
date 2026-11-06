@@ -165,6 +165,8 @@ test("network failure and non-JSON answers are labelled, not swallowed", async (
   const weird: typeof fetch = async () => new Response("<html>nope</html>", { status: 502, statusText: "Bad Gateway" });
   const a = new Api({ baseUrl: origin, token: () => "x", fetch: weird });
   await assert.rejects(a.getPrefs(), (err: unknown) => err instanceof ApiError && err.reason === "unexpected" && err.status === 502 && /nope/.test(err.detail));
-  assert.equal(reasonForStatus(404), "bad_request");
+  assert.equal(reasonForStatus(404), "not_found");
+  assert.equal(reasonForStatus(409), "conflict");
+  assert.equal(reasonForStatus(422), "bad_request");
   assert.equal(reasonForStatus(500), "unexpected");
 });

@@ -201,3 +201,193 @@ def test_health_and_events_carry_no_words(h: Harness):
     assert hj["compose"]["attempts"] == 0 and hj["devices_connected"] == 0
     kinds = {e["kind"] for e in h.events()}
     assert {"start", "integrity_check", "admitted", "refused", "scheduled"} <= kinds
+
+
+# --- the compose path (docs/ARCHITECTURE.md §4.5) ------------------------------
+
+
+def test_compose_admits_body_pending_then_fills_the_words_with_the_composers_source(h: Harness):
+    _, key = h.enroll()
+    h.composer.results.append(["pills", "now"])
+    with h.device(key) as (ws, _):
+        r = h.client.post("/compose", json={"intent": "remind me to take the pills", "label": "agent"}, headers=h.auth())
+        assert r.status_code == 201, r.text
+        view = r.json()
+        # the answer comes after the compose: the words are final, the source says a model ran
+        assert view["words"] == ["pills", "now"] and view["source"] == "live" and view["kind"] == "reminder"
+        assert view["state"] == "sent" and view["device"] is not None and view["duration_ms"] > 0
+        opened = h.frames_until(ws, "utterance.open")
+        utt = opened["utterance"]
+        assert utt["id"] == view["id"] and utt["body_pending"] is True and utt["words"] == []
+        assert utt["from"] == {"sender": "admin", "label": "agent"} and utt["prefix"]["tail"] == spec.tail_for("reminder")
+        assert utt["expires"] is not None and "not_before" not in utt
+        body = h.frames_until(ws, "utterance.body")
+        assert body == {"type": "utterance.body", "id": view["id"], "words": ["pills", "now"], "source": "live"}
+        assert h.composer.calls[0]["intent"] == "remind me to take the pills"
+        assert h.composer.calls[0]["api_key"] is None and h.composer.calls[0]["kind"] == "reminder"
+        ws.send_json({"type": "progress", "id": view["id"], "phase": "cue"})
+        ws.send_json({"type": "played", "id": view["id"], "started_ms": 0, "closed_ms": 4000})
+        h.sync(ws)
+        assert h.get(view["id"])["state"] == "played"
+    events = h.events()
+    assert [e["kind"] for e in events if e["kind"] in ("compose_requested", "compose")] == ["compose_requested", "compose"]
+    req = next(e for e in events if e["kind"] == "compose_requested")
+    assert req["counts"] == {"byok": 0, "live": 1}
+    assert "pills" not in json.dumps(events)
+
+
+def test_compose_without_a_device_is_pending_with_its_words_ready(h: Harness):
+    h.composer.results.append(["water", "plants"])
+    r = h.client.post("/compose", json={"intent": "water the plants", "kind": "message"}, headers=h.auth())
+    assert r.status_code == 201, r.text
+    assert r.json()["state"] == "pending" and r.json()["words"] == ["water", "plants"] and r.json()["kind"] == "message"
+    _, key = h.enroll()
+    with h.device(key) as (ws, ack):
+        [utt] = ack["resend"]
+        assert utt["body_pending"] is False and utt["words"] == ["water", "plants"] and utt["source"] == "live"
+
+
+def test_compose_failure_fails_the_entry_and_tells_the_device(h: Harness):
+    from ziv.relay.composer import ComposeError
+
+    _, key = h.enroll()
+    h.composer.results.append(ComposeError(detail="3 attempts over budget"))
+    with h.device(key) as (ws, _):
+        r = h.client.post("/compose", json={"intent": "something long"}, headers=h.auth())
+        assert r.status_code == 201, r.text
+        assert r.json()["state"] == "failed" and r.json()["reason"] == "compose_failed" and r.json()["words"] == []
+        uid = r.json()["id"]
+        assert h.frames_until(ws, "utterance.open")["utterance"]["id"] == uid
+        body = h.frames_until(ws, "utterance.body")
+        assert body == {"type": "utterance.body", "id": uid, "words": [], "source": "live", "error": "compose_failed"}
+    assert h.client.get("/health").json()["compose"]["failed"] == 1
+
+
+def test_compose_with_the_callers_key_passes_it_once_and_stores_it_nowhere(h: Harness):
+    byok_key = "sk-byok-caller-supplied-0123456789"
+    h.composer.results.append(["meds", "nine"])
+    r = h.client.post("/compose", json={"intent": "meds at 9"}, headers={**h.auth(), "X-Nebius-Key": byok_key})
+    assert r.status_code == 201, r.text
+    assert r.json()["source"] == "live" and r.json()["words"] == ["meds", "nine"]
+    assert h.composer.calls[0]["api_key"] == byok_key       # the relay's live composer, this one call
+    req = next(e for e in h.events() if e["kind"] == "compose_requested")
+    assert req["counts"]["byok"] == 1
+    everything = "\n".join([json.dumps(h.events()), h.db_dump(), h.client.get("/health").text,
+                            h.client.get("/utterances", headers=h.auth()).text, r.text])
+    assert byok_key not in everything
+
+
+def test_compose_echo_when_no_model_and_byok_when_the_caller_brings_a_key(tmp_path):
+    from ziv.relay.composer import EchoComposer, FakeComposer
+
+    byok = FakeComposer([["take", "pills"]])
+    with running(tmp_path, composer=EchoComposer(), byok=byok) as h:
+        r = h.client.post("/compose", json={"intent": "Take meds at 9"}, headers=h.auth())
+        assert r.status_code == 201, r.text
+        assert r.json()["source"] == "echo" and r.json()["words"] == ["take", "meds", "at", "nine"]
+        assert byok.calls == []
+        r = h.client.post("/compose", json={"intent": "Take meds at 9"},
+                          headers={**h.auth(), "X-Nebius-Key": "sk-byok-caller-supplied-0123456789"})
+        assert r.status_code == 201, r.text
+        assert r.json()["source"] == "live" and r.json()["words"] == ["take", "pills"]
+        assert byok.calls[0]["api_key"] == "sk-byok-caller-supplied-0123456789"
+        health = h.client.get("/health").json()["compose"]
+        assert health["source"] == "echo" and health["ok"] == 1 and health["byok"]["ok"] == 1
+        assert "sk-byok" not in json.dumps(health) and "sk-byok" not in h.db_dump()
+
+
+def test_compose_needs_the_send_scope_and_a_valid_body(h: Harness):
+    read_only = h.sender("reader", scopes=("read",))
+    r = h.client.post("/compose", json={"intent": "hi"}, headers=h.auth(read_only))
+    assert r.status_code == 401 and r.json()["reason"] == "unauthorized"
+    r = h.client.post("/compose", json={}, headers=h.auth())
+    assert r.status_code == 422 and r.json()["reason"] == "bad_request"
+    r = h.client.post("/compose", json={"intent": "x" * 201}, headers=h.auth())
+    assert r.status_code == 422
+    r = h.client.post("/compose", json={"intent": "hi", "expires_after_s": 1}, headers=h.auth())
+    assert r.status_code == 422
+    assert h.client.get("/utterances", headers=h.auth()).json() == []
+
+
+def test_compose_respects_the_cap(tmp_path):
+    with running(tmp_path, outbox_cap=1) as h:
+        h.submit("occupies the slot")
+        r = h.client.post("/compose", json={"intent": "one more"}, headers=h.auth())
+        assert r.status_code == 429 and r.json()["reason"] == "queue_full"
+        assert len(h.client.get("/utterances", headers=h.auth()).json()) == 1
+
+
+# --- the relay serves the front ends -----------------------------------------
+
+
+def _dist(tmp_path, name: str, asset: str) -> str:
+    d = tmp_path / name
+    d.mkdir()
+    (d / "index.html").write_text(f"<!doctype html><title>{name}</title><script src=\"{asset}\"></script>", encoding="utf-8")
+    (d / asset).write_text(f"console.log('{name}')", encoding="utf-8")
+    (d / f"{asset}.map").write_text("{}", encoding="utf-8")
+    (d / "manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / f"{name}-secret.txt").write_text("outside", encoding="utf-8")
+    return str(d)
+
+
+def test_front_ends_are_served_with_the_right_caching_and_fallbacks(tmp_path):
+    client_dist = _dist(tmp_path, "client", "main.QXL6QWXL.js")
+    console_dist = _dist(tmp_path, "console", "app-7BIZWKSN.js")
+    with running(tmp_path, client_dist=client_dist, console_dist=console_dist) as h:
+        r = h.client.get("/", follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == "/console/"
+        r = h.client.get("/console", follow_redirects=False)
+        assert r.status_code in (307, 308) and r.headers["location"].endswith("/console/")
+        for prefix, asset in (("/console", "app-7BIZWKSN.js"), ("/client", "main.QXL6QWXL.js")):
+            r = h.client.get(prefix + "/")
+            assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+            assert r.headers["cache-control"] == "no-store" and f"<title>{prefix[1:]}</title>" in r.text
+            r = h.client.get(f"{prefix}/{asset}")
+            assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=31536000, immutable"
+            assert r.headers["content-type"].startswith("text/javascript") and prefix[1:] in r.text
+            r = h.client.get(f"{prefix}/{asset}.map")
+            assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=31536000, immutable"
+            r = h.client.get(f"{prefix}/manifest.json")
+            assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+            assert r.headers["content-type"] == "application/json"
+            # a route-like path falls back to the page; a missing asset is a real 404
+            r = h.client.get(f"{prefix}/some/route")
+            assert r.status_code == 200 and f"<title>{prefix[1:]}</title>" in r.text
+            r = h.client.get(f"{prefix}/missing.ABCDEFGH.js")
+            assert r.status_code == 404
+            # nothing outside the directory is reachable
+            for escape in (f"{prefix}/../{prefix[1:]}-secret.txt", f"{prefix}/%2e%2e/{prefix[1:]}-secret.txt",
+                           f"{prefix}//etc/passwd", f"{prefix}/..%2f{prefix[1:]}-secret.txt"):
+                r = h.client.get(escape)
+                assert r.status_code in (200, 404) and "outside" not in r.text and "root:" not in r.text, escape
+        # the API is untouched by the mounts
+        assert h.client.get("/health").status_code == 200
+        assert h.client.get("/spec").json() == tables.SPEC
+        assert h.client.get("/utterances").status_code == 401
+
+
+def test_front_ends_are_off_when_no_dist_is_configured(h: Harness):
+    assert h.settings.client_dist is None and h.settings.console_dist is None
+    assert h.client.get("/", follow_redirects=False).status_code == 404
+    assert h.client.get("/console/").status_code == 404
+    assert h.client.get("/client/").status_code == 404
+    assert h.app.state.mounted_front_ends == []
+
+
+def test_only_the_client_mounted_sends_the_root_there(tmp_path):
+    client_dist = _dist(tmp_path, "client", "main.QXL6QWXL.js")
+    with running(tmp_path, client_dist=client_dist) as h:
+        r = h.client.get("/", follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == "/client/"
+        assert h.client.get("/console/").status_code == 404
+
+
+def test_a_dist_without_index_is_refused_at_assembly(tmp_path):
+    from ziv.relay.app import create_app
+    from ziv.relay.settings import Settings
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError):
+        create_app(Settings(db_path=str(tmp_path / "x.sqlite"), poll_s=0.0, console_dist=str(empty)))

@@ -47,6 +47,7 @@ from ziv.core.outbox import (
 from ziv.store import RetentionPolicy, Store
 from ziv.wire import (
     WIRE_VERSION,
+    ComposeBody,
     Control,
     CreateSender,
     DeviceView,
@@ -138,11 +139,14 @@ def schedule_view(s: ScheduleEntry) -> ScheduleView:
 
 
 class Relay:
-    def __init__(self, settings: Settings, store: Store, clock: Clock, composer: Composer) -> None:
+    def __init__(self, settings: Settings, store: Store, clock: Clock, composer: Composer,
+                 *, byok_composer: Composer | None = None) -> None:
         self.settings = settings
         self.store = store
         self.clock = clock
         self.composer = composer
+        # the provider with no key of its own, for a caller-supplied key when the relay's composer is echo
+        self.byok_composer = byok_composer
         self.devices = DeviceRegistry()
         self.retention = RetentionPolicy.from_days(settings.retention_days)
         self._buckets: dict[str, TokenBucket] = {}
@@ -324,6 +328,64 @@ class Relay:
             return Refusal(Reason.not_found, "no such utterance")
         return view_of(e)
 
+    # --- compose (the agent path, docs/ARCHITECTURE.md §4.5) ----------------
+
+    def composer_for(self, api_key: str | None) -> Composer:
+        """The relay's composer — or, when it has no model of its own and the
+        caller brought a key, the key-less provider that key will drive."""
+        if api_key and self.composer.source == Source.echo and self.byok_composer is not None:
+            return self.byok_composer
+        return self.composer
+
+    async def compose(self, principal: Principal, body: ComposeBody, *, api_key: str | None = None) -> UtteranceView | Refusal:
+        """Admit a ``body_pending`` utterance at once (the device cues and plays
+        the working pattern), compose the words, then answer with the entry as
+        it stands: filled and on its way, or failed with ``compose_failed``.
+        ``api_key`` is used for this one compose and reaches nothing else."""
+        now = self.clock.now()
+        wearer = principal.wearer
+        composer = self.composer_for(api_key)
+        try:
+            utt = Utterance(
+                id=self._new_id(now), wearer=wearer, kind=body.kind,
+                **{"from": {"sender": principal.sender_id, "label": body.label or principal.label[:40]}},
+                prefix=spec.prefix_for(body.kind), words=[], body_pending=True, source=composer.source,
+                expires=to_datetime(now + body.expires_after_s), spec_version=spec.spec_version(),
+            )
+        except ValidationError as exc:
+            return self._refused(wearer, Refusal(Reason.bad_request, "; ".join(e["msg"] for e in exc.errors())), "compose")
+        prefs = self.store.prefs.get(wearer)
+        profile = self._profile_for(wearer)
+        measured = admission.check_budget(utt, profile, prefs.pace_ms, self.settings.budget_ms)
+        if isinstance(measured, Refusal):
+            return self._refused(wearer, measured, "compose")
+        entry = OutboxEntry(utterance=utt, state=State.pending, created=now, updated=now,
+                            duration_ms=measured, budget_ms=self.settings.budget_ms)
+        with self.store.tx(immediate=True):
+            active = self.store.outbox.active(wearer)
+            result = outbox.admit(active, entry, self.settings.outbox_cap)
+            if isinstance(result, Refusal):
+                return self._refused(wearer, result, "compose")
+            entry, fx = result
+            self.store.outbox.insert(entry)
+            before = active + [entry]
+            after, fx2 = outbox.assign(before, self._slots(wearer), now)
+            self.store.outbox.save_changed(before, after)
+        self.apply(fx + fx2)
+        self.event("compose_requested", wearer=wearer,
+                   counts={"byok": int(bool(api_key)), "live": int(composer.source == Source.live)})
+        task = self._spawn_compose(entry.id, body.intent, wearer, body.kind, profile, prefs.pace_ms,
+                                   composer=composer, api_key=api_key)
+        try:
+            # shielded: a caller that goes away must not cancel a compose the device is already waiting on
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise  # the request itself was cancelled; the compose goes on
+            # the body timeout cancelled the compose: the entry is already failed
+        e = self.store.outbox.get(entry.id)
+        return view_of(e) if e is not None else Refusal(Reason.not_found, "the utterance vanished")
+
     def list_utterances(self, wearer: str, state: State | None = None, limit: int = 100) -> list[UtteranceView]:
         return [view_of(e) for e in self.store.outbox.list(wearer, state, limit)]
 
@@ -463,6 +525,9 @@ class Relay:
     # --- health -------------------------------------------------------------
 
     def health(self) -> Health:
+        compose: dict[str, object] = dict(self.composer.health())
+        if self.byok_composer is not None and self.byok_composer is not self.composer:
+            compose["byok"] = self.byok_composer.health()   # counts only, like every other line here
         return Health(
             status="ok", version=ziv.__version__, spec_version=spec.spec_version(), wire_version=WIRE_VERSION,
             devices_connected=self.devices.count(), outbox=self.store.outbox.counts(),
@@ -470,7 +535,7 @@ class Relay:
             caps={"outbox": self.settings.outbox_cap, "schedule": self.settings.schedule_cap,
                   "budget_ms": self.settings.budget_ms, "device_capacity": self.settings.device_capacity,
                   "max_body_bytes": self.settings.max_body_bytes},
-            compose=self.composer.health(),
+            compose=compose,
         )
 
     # --- devices (socket side) ----------------------------------------------
@@ -620,14 +685,20 @@ class Relay:
         if body_pending:
             self._spawn_compose(entry.id, row.intent or "", wearer, row.kind, profile, prefs.pace_ms)
 
-    def _spawn_compose(self, entry_id: str, intent: str, wearer: str, kind: Kind, profile: Profile, pace_ms: int) -> None:
-        task = asyncio.get_running_loop().create_task(self._compose(entry_id, intent, wearer, kind, profile, pace_ms))
+    def _spawn_compose(self, entry_id: str, intent: str, wearer: str, kind: Kind, profile: Profile, pace_ms: int,
+                       *, composer: Composer | None = None, api_key: str | None = None) -> asyncio.Task:
+        task = asyncio.get_running_loop().create_task(
+            self._compose(entry_id, intent, wearer, kind, profile, pace_ms, composer=composer, api_key=api_key))
         self._compose_tasks[entry_id] = task
         task.add_done_callback(lambda t, eid=entry_id: self._compose_tasks.pop(eid, None))
+        return task
 
-    async def _compose(self, entry_id: str, intent: str, wearer: str, kind: Kind, profile: Profile, pace_ms: int) -> None:
+    async def _compose(self, entry_id: str, intent: str, wearer: str, kind: Kind, profile: Profile, pace_ms: int,
+                       *, composer: Composer | None = None, api_key: str | None = None) -> None:
+        composer = composer or self.composer
         try:
-            words = await self.composer.compose(intent, self.settings.budget_ms, profile=profile, pace_ms=pace_ms, kind=kind)
+            words = await composer.compose(intent, self.settings.budget_ms, profile=profile, pace_ms=pace_ms,
+                                           api_key=api_key, kind=kind)
         except asyncio.CancelledError:
             raise
         except ComposeError as exc:
@@ -640,7 +711,7 @@ class Relay:
             self.compose_failed(entry_id, Reason.compose_failed)
             return
         self.event("compose", wearer=wearer, counts={"ok": 1, "words": len(words)})
-        self.compose_done(entry_id, words, self.composer.source)
+        self.compose_done(entry_id, words, composer.source)
 
     def compose_done(self, entry_id: str, words: Sequence[str], source: Source) -> None:
         now = self.clock.now()

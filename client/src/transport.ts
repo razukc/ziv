@@ -15,6 +15,8 @@ export interface TransportDeps {
   makeHello: () => Hello;
   onFrame: (frame: DownFrame) => void;
   onStatus?: (status: TransportStatus, detail: string) => void;
+  /** The socket closed with this code (4401 = the relay refused the device key). Called before any reconnect is scheduled. */
+  onClose?: (code: number) => void;
   log?: (line: string) => void;
   setTimeout: (fn: () => void, ms: number) => unknown;
   clearTimeout: (handle: unknown) => void;
@@ -52,6 +54,24 @@ export class Transport {
     this.ws = null;
     if (ws) ws.close();
     this.setStatus('closed', 'closed by the device');
+  }
+
+  /**
+   * Drop the socket and open a fresh one now, with a fresh hello: the device's
+   * way to say "offer me again" after it refused something (a hidden page that
+   * is visible again). The old socket's close is ignored; the backoff resets.
+   */
+  reconnect(): void {
+    this.closedByUs = false;
+    this.clearTimers();
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      this.d.log?.('reconnecting with a fresh hello');
+      ws.close();
+    }
+    this.backoff = this.d.backoffInitialMs ?? 1000;
+    this.open();
   }
 
   /** Send a frame; false (and a log line) when the socket is not open. */
@@ -108,6 +128,7 @@ export class Transport {
       this.ws = null;
       this.clearTimers();
       this.setStatus('closed', `code ${ev.code}`);
+      this.d.onClose?.(ev.code);
       if (!this.closedByUs) this.scheduleReconnect();
     };
   }
