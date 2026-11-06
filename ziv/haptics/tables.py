@@ -1,4 +1,4 @@
-"""haptic_timing_gen.py — GENERATED Python consumer of the timing spec.
+"""ziv.haptics.tables — GENERATED Python consumer of the timing spec.
 
 Do not edit by hand; regenerate with:  python tools/haptic_timing.py --write
 Source of truth: docs/haptic-timing.json (spec v4).
