@@ -23,15 +23,16 @@ def test_from_env_parses_every_knob():
         "ZIV_DB_PATH": "/tmp/x.sqlite", "ZIV_HOST": "0.0.0.0", "ZIV_PORT": "9000", "ZIV_ALLOW_PLAIN_HTTP": "yes",
         "ZIV_ADMIN_TOKEN": "t", "ZIV_BUDGET_MS": "12000", "ZIV_OUTBOX_CAP": "5", "ZIV_SCHEDULE_CAP": "7",
         "ZIV_HANDOFF_WINDOW_S": "4.5", "ZIV_BODY_TIMEOUT_S": "10", "ZIV_POLL_S": "0.5", "ZIV_RETENTION_DAYS": "2",
-        "NEBIUS_API_KEY": "k", "NEBIUS_BASE_URL": "https://p.example/v1", "ZIV_TEXT_MODEL": "m",
+        "NEBIUS_API_KEY": "sk-test-secret-7f3a9c", "NEBIUS_BASE_URL": "https://p.example/v1", "ZIV_TEXT_MODEL": "m",
     }
     s = Settings.from_env(env, dotenv=False)
     assert s.db_path == "/tmp/x.sqlite" and s.host == "0.0.0.0" and s.port == 9000 and s.allow_plain_http
     assert s.admin_token == "t" and s.budget_ms == 12000 and s.outbox_cap == 5 and s.schedule_cap == 7
     assert s.handoff_window_s == 4.5 and s.body_timeout_s == 10 and s.poll_s == 0.5 and s.retention_days == 2
-    assert s.nebius_api_key == "k" and s.nebius_base_url == "https://p.example/v1" and s.text_model == "m"
+    assert s.nebius_api_key == "sk-test-secret-7f3a9c" and s.nebius_base_url == "https://p.example/v1" and s.text_model == "m"
     assert s.compose_configured
-    assert "k" not in str(s.public().values()) and "admin_token" not in s.public()
+    # a distinctive secret: a one-letter key once matched the runner's own checkout path
+    assert "sk-test-secret-7f3a9c" not in str(s.public().values()) and "admin_token" not in s.public()
 
 
 def test_bad_values_are_loud():

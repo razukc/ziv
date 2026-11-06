@@ -119,10 +119,7 @@ jobs:
 
   qemu-boot:
     name: QEMU boot — ESP32-S3 images build, the demo's HAP timeline matches the bench, the band boots
-    # Non-blocking until the first green run on GitHub (this branch has never
-    # been pushed); then delete continue-on-error — the same promote-a-check
-    # discipline as the drift guard.
-    continue-on-error: true
+    # Blocking since its first green run on GitHub (run 42212509684, 2026-11-06).
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container: espressif/idf:v5.5
