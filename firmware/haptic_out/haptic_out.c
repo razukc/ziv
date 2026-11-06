@@ -38,7 +38,7 @@ static bool beat_info(const haptic_out *h, uint32_t *buzz_ms, uint32_t *gap_ms, 
         if (i >= len) { return false; }
         uint8_t li = HAPTIC_MARK_TABLE[h->mark_idx][i];
         *buzz_ms = haptic_cell_ms((char) ('a' + li));
-        *gap_ms = (i == len - 1) ? TAIL_GAP_MS : CELL_GAP_DEFAULT_MS;
+        *gap_ms = (i == len - 1) ? TAIL_GAP_MS : h->cell_gap_ms;
         *mask = HAPTIC_LETTER_MASKS[li];
         return true;
     }
@@ -55,7 +55,7 @@ static bool beat_info(const haptic_out *h, uint32_t *buzz_ms, uint32_t *gap_ms, 
         if (i >= h->word_len) { return false; }
         uint8_t li = (uint8_t) (h->word[i] - 'a');
         *buzz_ms = haptic_cell_ms((char) ('a' + li));
-        *gap_ms = (i == h->word_len - 1) ? TAIL_GAP_MS : CELL_GAP_DEFAULT_MS;
+        *gap_ms = (i == h->word_len - 1) ? TAIL_GAP_MS : h->cell_gap_ms;
         *mask = HAPTIC_LETTER_MASKS[li];
         return true;
     }
@@ -66,7 +66,7 @@ static bool beat_info(const haptic_out *h, uint32_t *buzz_ms, uint32_t *gap_ms, 
         if (i < mark_len) {
             uint8_t li = HAPTIC_MARK_TABLE[HAPTIC_PREFIX_MARK_INDEX][i];
             *buzz_ms = haptic_cell_ms((char) ('a' + li));
-            *gap_ms = (i == mark_len - 1) ? PREFIX_BREATH_MS : CELL_GAP_DEFAULT_MS;
+            *gap_ms = (i == mark_len - 1) ? PREFIX_BREATH_MS : h->cell_gap_ms;
             *mask = HAPTIC_LETTER_MASKS[li];
         } else {
             haptic_beat b = HAPTIC_PATTERN_TABLE[prefix_tail_pattern(h)][i - mark_len];
@@ -74,6 +74,14 @@ static bool beat_info(const haptic_out *h, uint32_t *buzz_ms, uint32_t *gap_ms, 
             *gap_ms = b.gap_after_ms;
             *mask = 0;
         }
+        return true;
+    }
+    case HAPTIC_OUT_MODE_BEATS: {
+        if (h->beats == NULL || i >= h->beats_len) { return false; }
+        const haptic_beat_ex *b = &h->beats[i];
+        *buzz_ms = b->buzz_ms;
+        *gap_ms = b->gap_after_ms;
+        *mask = b->dot_mask;
         return true;
     }
     default:
@@ -91,6 +99,9 @@ void haptic_out_init(haptic_out *h, drv2605_bus *bus)
     h->mark_idx = 0;
     h->pat = (haptic_pattern) 0;
     h->tail = (haptic_tail) 0;
+    h->beats = NULL;
+    h->beats_len = 0;
+    h->cell_gap_ms = CELL_GAP_DEFAULT_MS;
     h->playing = false;
     h->started = false;
     h->buzzing = false;
@@ -98,6 +109,19 @@ void haptic_out_init(haptic_out *h, drv2605_bus *bus)
     h->last_gap_ms = 0;
     h->next_deadline = 0;
     h->last_err = HAPTIC_OK;
+}
+
+uint16_t haptic_out_set_cell_gap_ms(haptic_out *h, uint32_t ms)
+{
+    if (ms < CELL_GAP_MIN_MS) { ms = CELL_GAP_MIN_MS; }
+    if (ms > CELL_GAP_MAX_MS) { ms = CELL_GAP_MAX_MS; }
+    h->cell_gap_ms = (uint16_t) ms;
+    return h->cell_gap_ms;
+}
+
+uint16_t haptic_out_cell_gap_ms(const haptic_out *h)
+{
+    return h->cell_gap_ms;
 }
 
 void haptic_out_stop(haptic_out *h)
@@ -110,6 +134,8 @@ void haptic_out_stop(haptic_out *h)
     h->mode = HAPTIC_OUT_MODE_IDLE;
     h->step_idx = 0;
     h->cur_dot_mask = 0;
+    h->beats = NULL;
+    h->beats_len = 0;
     (void) drv2605_stop_all(h->bus);   /* best-effort silence */
 }
 
@@ -163,6 +189,27 @@ haptic_err_t haptic_out_play_prefix(haptic_out *h, haptic_tail tail)
     return begin_play(h, HAPTIC_OUT_MODE_PREFIX);
 }
 
+haptic_err_t haptic_out_play_beats(haptic_out *h, const haptic_beat_ex *beats, uint16_t n)
+{
+    if (beats == NULL || n == 0) { return HAPTIC_ERR_INVALID_ARG; }
+    haptic_err_t err = begin_play(h, HAPTIC_OUT_MODE_BEATS);   /* stop() clears beats first */
+    h->beats = beats;
+    h->beats_len = n;
+    return err;
+}
+
+/* A play is over (END): back to idle, and the caller's beat list is
+ * released so the buffer may be reused or freed. */
+static void finish_play(haptic_out *h)
+{
+    h->playing = false;
+    h->draining = false;
+    h->mode = HAPTIC_OUT_MODE_IDLE;
+    h->step_idx = 0;
+    h->beats = NULL;
+    h->beats_len = 0;
+}
+
 /* Set the six dot channels from a bitmask (bit n = dot n, channel n). */
 static haptic_err_t drive_mask(drv2605_bus *bus, uint8_t mask)
 {
@@ -211,10 +258,7 @@ uint32_t haptic_out_step(haptic_out *h, uint32_t now_ms, haptic_out_event_t *ev,
 
     /* Not buzzing: either a gap elapsed, or the drain finished. */
     if (h->draining) {
-        h->playing = false;
-        h->draining = false;
-        h->mode = HAPTIC_OUT_MODE_IDLE;
-        h->step_idx = 0;
+        finish_play(h);
         if (ev) { *ev = HAPTIC_OUT_EV_END; }
         return 0;
     }
@@ -223,18 +267,14 @@ uint32_t haptic_out_step(haptic_out *h, uint32_t now_ms, haptic_out_event_t *ev,
     uint32_t buzz_ms = 0, gap_ms = 0;
     uint8_t mask = 0;
     if (!beat_info(h, &buzz_ms, &gap_ms, &mask)) {
-        h->playing = false;
-        h->mode = HAPTIC_OUT_MODE_IDLE;
-        h->step_idx = 0;
+        finish_play(h);
         if (ev) { *ev = HAPTIC_OUT_EV_END; }
         return 0;
     }
     haptic_err_t err = drive_mask(h->bus, mask);
     if (err != HAPTIC_OK) {
         h->last_err = err;
-        h->playing = false;
-        h->mode = HAPTIC_OUT_MODE_IDLE;
-        h->step_idx = 0;
+        finish_play(h);
         (void) drv2605_stop_all(h->bus);
         if (ev) { *ev = HAPTIC_OUT_EV_END; }
         return 0;

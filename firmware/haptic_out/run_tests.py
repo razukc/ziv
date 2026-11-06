@@ -26,7 +26,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SRCS = ["haptic_out.c", "drv2605.c", "mock_drv2605.c", "test_haptic_out.c"]
+# drv2605_i2c_esp32.c is the device bus; off ESP_PLATFORM it compiles to
+# stubs, and building it here holds it to the same zero-warning discipline.
+SRCS = ["haptic_out.c", "drv2605.c", "drv2605_i2c_esp32.c", "mock_drv2605.c", "test_haptic_out.c"]
 OUT = HERE / ("test_haptic_out.exe" if sys.platform == "win32" else "test_haptic_out")
 CFLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror"]
 

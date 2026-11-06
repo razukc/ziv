@@ -66,20 +66,20 @@ GND (all) ── common ground  each LRA ──► its DRV's OUT+/OUT−
 ## 3. Firmware bring-up
 
 1. **Install ESP-IDF 5.x** (Windows installer or the VS Code extension).
-2. **Resolve the I2C TODO** in `drv2605_i2c_esp32.c`. The sketch uses the
-   legacy `driver/i2c.h` API (`i2c_master_write_to_device`); that still
-   compiles but is deprecated. Either keep it for bring-up or port to
-   `driver/i2c_master.h` (recommended: register the mux once plus six device
-   handles, then transmit/receive-dev). Either way: set `SDA=8`, `SCL=9`
-   (common S3 default — any free GPIO works), `I2C_PORT=0`.
-3. **Resolve the task TODOs** in `haptic_out_task.c`: verify
-   `pdTicksToMs`/`pdMsToTicks` exist in your IDF version (some versions
-   spell them `pdTICKS_TO_MS`/`pdMS_TO_TICKS`); queue length 8 and 4 KB
-   stack are fine to start. Two small gaps to fill while you're there:
-   the sketch declares no header — create `haptic_out_task.h` declaring
-   `haptic_out_task_init` and the `haptic_post_*` helpers — and it has
-   no prefix poster; add `haptic_post_prefix(uint8_t t)` mirroring
-   `haptic_post_mark` with kind `'X'` (four lines, needed for stage E).
+2. **The I2C bus** (`drv2605_i2c_esp32.c`, header `drv2605_i2c_esp32.h`)
+   is written on the IDF 5.x `driver/i2c_master.h` API: one master bus, the
+   mux device handle and one shared DRV2605 handle (the six drivers share
+   0x5A behind the mux). Call `drv2605_bus_esp32_init(&bus, &pins)` with
+   `{port 0, SDA 8, SCL 9, 100 kHz}` (any free GPIO works). It has **not
+   been compiled against an IDF yet** — expect to fix a field name or two.
+   The mux select writes a one-hot control byte (`1 << channel`, bit n =
+   channel n); the earlier sketch wrote the raw channel number, which the
+   bench mock now refuses, so that bug cannot come back silently.
+3. **The task** (`haptic_out_task.c`, header `haptic_out_task.h`) uses the
+   real FreeRTOS macros (`pdMS_TO_TICKS`, `pdTICKS_TO_MS`), carries a
+   16-letter word whole, and posts `MARK` / `PAT` / `WORD` / `PREFIX` /
+   `PACE` / `STOP` (`haptic_post_prefix` exists for stage E). Queue length
+   8 and a 4 KB stack are fine to start. Unverified on a board, as above.
 4. **Create the app**: an `app_main` that builds the bus and starts the
    task, then plays the boot demo (§4 stage B–E commands):
 
@@ -105,6 +105,11 @@ GND (all) ── common ground  each LRA ──► its DRV's OUT+/OUT−
 
    Wire the app's CMakeLists to the component
    (`EXTRA_COMPONENT_DIRS` → the repo's `firmware/haptic_out`).
+   This is the bring-up app for the six stages below. The product firmware
+   — the utterance decoder, the queue, the turn and the relay transport —
+   is `firmware/band` (see its README and `firmware/band/esp/README.md`);
+   it is host-proven against the reference renderer and lands on the board
+   after stage F passes.
 5. **Build & flash**: `idf.py set-target esp32s3 && idf.py build` then
    `idf.py -p PORT flash monitor`.
 

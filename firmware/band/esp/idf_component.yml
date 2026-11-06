@@ -1,0 +1,6 @@
+## Component manifest for the Ziv band (UNVERIFIED: not built here).
+## esp_websocket_client moved out of ESP-IDF proper into the component
+## registry in IDF 5.x; this pulls it in with `idf.py build`.
+dependencies:
+  idf: ">=5.1"
+  espressif/esp_websocket_client: "^1.2.0"

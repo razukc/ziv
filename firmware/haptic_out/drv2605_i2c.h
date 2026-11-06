@@ -12,6 +12,7 @@
 #ifndef DRV2605_I2C_H
 #define DRV2605_I2C_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* Module-wide error codes (host-portable — no ESP-IDF types in this layer). */
@@ -38,6 +39,18 @@ typedef enum {
 #define TCA9548_REG_SELECT      0x00   /* bit n enables channel n */
 
 #define DRV2605_DOT_COUNT       6      /* braille dots 1..6, channels 0..5 */
+
+/* The TCA9548A control byte is a BITMASK, not a channel number: bit n
+ * enables channel n, and exactly one bit must be set to reach one DRV2605L
+ * (several bits would short the shared address 0x5A across channels; zero
+ * bits disconnects every channel).  Every select path — the ESP-IDF bus and
+ * the bench mock — goes through this one encoding, and the mock refuses any
+ * byte that is not exactly one set bit, so writing the raw channel index
+ * fails on the bench before it ever reaches a board. */
+static inline uint8_t tca9548_select_byte(uint8_t ch)
+{
+    return (uint8_t) (1u << ch);
+}
 
 /* One dot channel = one DRV2605L behind the mux. */
 typedef struct {

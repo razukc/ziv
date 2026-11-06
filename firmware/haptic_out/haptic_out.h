@@ -1,13 +1,22 @@
 /*
  * haptic_out.h — public API of the haptic_out module (plan §5).
  *
- * Three playback surfaces, all driven by the generated timing tables
+ * Five playback surfaces, all driven by the generated timing tables
  * (haptic_timing.h) so the band plays exactly what the phone mock plays:
  *
  *   haptic_out_play_mark(mi)      a candidate name mark (protocol §0)
  *   haptic_out_play_pattern(pi)   an attention pattern (plan §4)
  *   haptic_out_play_word(word)    any word, spelled one cell per letter
  *   haptic_out_play_prefix(tail)  mark → PREFIX_BREATH_MS → attention tail
+ *   haptic_out_play_beats(b, n)   any compiled timeline: a caller-owned list
+ *                                 of {dot_mask, buzz_ms, gap_after_ms} beats
+ *                                 (the band's turn module compiles an
+ *                                 utterance segment into one of these)
+ *
+ * The silence between cells inside MARK / WORD / PREFIX plays is the
+ * wearer's pace: a runtime variable, haptic_out_set_cell_gap_ms(), clamped
+ * to the spec envelope [CELL_GAP_MIN_MS, CELL_GAP_MAX_MS] and defaulting to
+ * CELL_GAP_DEFAULT_MS.  A beat list carries its own gaps.
  *
  * Pull model: the caller drives haptic_out_step() with the monotonic time
  * and gets back the next deadline.  On the band the FreeRTOS task
@@ -25,6 +34,7 @@
 #ifndef HAPTIC_OUT_H
 #define HAPTIC_OUT_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "drv2605_i2c.h"
@@ -37,8 +47,18 @@ typedef enum {
     HAPTIC_OUT_MODE_MARK,
     HAPTIC_OUT_MODE_PATTERN,
     HAPTIC_OUT_MODE_WORD,
-    HAPTIC_OUT_MODE_PREFIX
+    HAPTIC_OUT_MODE_PREFIX,
+    HAPTIC_OUT_MODE_BEATS       /* a caller-compiled beat list (haptic_out_play_beats) */
 } haptic_out_mode_t;
+
+/* One beat of a compiled timeline: the dots up (bit n = dot n+1, 0 = a
+ * whole-device pattern beat), how long they buzz, and the silence after.
+ * The caller owns the array for the whole play (until END or stop). */
+typedef struct {
+    uint8_t dot_mask;
+    uint16_t buzz_ms;
+    uint16_t gap_after_ms;
+} haptic_beat_ex;
 
 typedef enum {
     HAPTIC_OUT_EV_START,
@@ -66,6 +86,9 @@ typedef struct {
     uint8_t mark_idx;
     haptic_pattern pat;
     haptic_tail tail;
+    const haptic_beat_ex *beats;   /* BEATS mode: the caller's list */
+    uint16_t beats_len;
+    uint16_t cell_gap_ms;   /* the pace: silence between cells (MARK/WORD/PREFIX) */
     bool playing;
     bool started;           /* START event delivered */
     bool buzzing;           /* dots are up until next_deadline */
@@ -81,6 +104,20 @@ haptic_err_t haptic_out_play_mark(haptic_out *h, uint8_t mark_idx);
 haptic_err_t haptic_out_play_pattern(haptic_out *h, haptic_pattern pat);
 haptic_err_t haptic_out_play_word(haptic_out *h, const char *word);   /* a-z only */
 haptic_err_t haptic_out_play_prefix(haptic_out *h, haptic_tail tail);
+
+/* Play a caller-compiled beat list.  beats must stay valid until the END
+ * event (or haptic_out_stop); n must be >= 1.  Each beat is one BUZZ event
+ * with that beat's mask and durations, so the HAP log and the step model
+ * are unchanged.  The last beat's gap_after_ms is the trailing silence
+ * before END, exactly as a play's tail gap is. */
+haptic_err_t haptic_out_play_beats(haptic_out *h, const haptic_beat_ex *beats, uint16_t n);
+
+/* The pace: silence between cells inside a mark, word or prefix play.
+ * Clamped into [CELL_GAP_MIN_MS, CELL_GAP_MAX_MS]; haptic_out_init() sets
+ * CELL_GAP_DEFAULT_MS.  Takes effect from the next cell boundary.  Returns
+ * the value actually set. */
+uint16_t haptic_out_set_cell_gap_ms(haptic_out *h, uint32_t ms);
+uint16_t haptic_out_cell_gap_ms(const haptic_out *h);
 
 /* Advance the timeline.  now_ms is the current monotonic time in ms.
  * Returns the monotonic time of the next state change: call again at (or

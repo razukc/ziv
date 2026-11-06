@@ -76,3 +76,11 @@ ziv.egg-info/
 ziv_data/
 .env
 .venv/
+
+# Band host builds
+firmware/app/ziv_qemu/host_player
+firmware/app/ziv_qemu/host_player.exe
+firmware/band/host/band_tests
+firmware/band/host/band_tests.exe
+firmware/band/host/host_transport_test
+firmware/band/host/host_transport_test.exe

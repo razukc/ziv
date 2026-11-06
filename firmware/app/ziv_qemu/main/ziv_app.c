@@ -96,6 +96,7 @@ static const char *mode_name(haptic_out_mode_t mode)
     case HAPTIC_OUT_MODE_PATTERN: return "PATTERN";
     case HAPTIC_OUT_MODE_WORD:   return "WORD";
     case HAPTIC_OUT_MODE_PREFIX: return "PREFIX";
+    case HAPTIC_OUT_MODE_BEATS:  return "BEATS";
     default:                     return "?";
     }
 }

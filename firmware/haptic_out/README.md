@@ -18,9 +18,13 @@ construction, not by convention.
 | `mock_drv2605.h` / `.c` | bench mock of the DRV2605L bus (register files + fault injection) | bench only |
 | `test_haptic_out.c` | bench tests: exact timelines vs the generated tables | bench only |
 | `run_tests.py` | build + run the bench tests with a host C compiler | bench only |
-| `drv2605_i2c_esp32.c` | ESP-IDF I2C bus (TCA9548A mux) — **sketch** | band |
-| `haptic_out_task.c` | FreeRTOS task owning the sequencer — **sketch** | band |
+| `drv2605_i2c_esp32.h` / `.c` | ESP-IDF I2C bus on `driver/i2c_master.h` (TCA9548A mux, one-hot select) — **unverified on hardware**; compiles to stubs on the host | band (stubs on bench) |
+| `haptic_out_task.h` / `.c` | FreeRTOS task owning the sequencer — **unverified on hardware** | band |
 | `CMakeLists.txt` | ESP-IDF component build (excludes bench-only files) | band |
+
+The band's utterance path — decoder, queue, turn, transport — lives in
+[`firmware/band/`](../band/README.md) and drives this module through
+`haptic_out_play_beats()`.
 
 ## The design
 
@@ -45,6 +49,16 @@ waveform sequencer entirely.
 - `haptic_out_play_word("ziv")` — any word, one cell per letter
 - `haptic_out_play_prefix(tail)` — mark → `PREFIX_BREATH_MS` → attention tail
   (the §4 morning-brief moment: who is talking, then why)
+- `haptic_out_play_beats(beats, n)` — any compiled timeline: a caller-owned
+  list of `{dot_mask, buzz_ms, gap_after_ms}` beats, emitting the same
+  START/BUZZ/END events (the band's turn module compiles an utterance
+  segment into one of these; the bench proves a list reproduces a word play
+  beat for beat)
+
+**The pace is a runtime variable.** `haptic_out_set_cell_gap_ms()` sets the
+silence between cells inside a mark, word or prefix play, clamped to
+`[CELL_GAP_MIN_MS, CELL_GAP_MAX_MS]` and defaulting to `CELL_GAP_DEFAULT_MS`;
+patterns and beat lists carry their own gaps.
 
 Every play ends with the tail gap of silence before the END event, matching
 the phone's cadence so back-to-back plays never merge.
@@ -62,25 +76,36 @@ The runner auto-detects `cc`/`gcc`/`clang`/`tcc`/`zig` (or a real WSL
 install) and builds with `-Wall -Wextra -Werror -std=c11`. The suite drives
 the mock bus and asserts exact timelines — buzz start times, durations,
 gaps, and dot bitmasks — against the generated tables, plus fault
-injection (a dead dot channel) and the rename-arc property (tin/wiz spell
-the same arc as ziv).
+injection (a dead dot channel), the rename-arc property (tin/wiz spell
+the same arc as ziv), the mux control-byte contract, the runtime pace at
+the envelope's edges, and the beat mode reproducing a word and a pattern
+beat for beat.
 
 No compiler on this box? `winget install w64devkit` (Windows) or
 `sudo apt install gcc` (WSL), then re-run.
 
-## Wiring the band (sketch)
+## Wiring the band (unverified on hardware)
 
-1. `drv2605_bus_esp32()` builds the I2C vtable (TCA9548A select + per-channel
-   DRV2605 register access) — wire the ESP-IDF I2C driver flavour first.
+1. `drv2605_bus_esp32_init(&bus, &pins)` creates the `i2c_master` bus, the
+   mux device handle and the one shared DRV2605 handle, and fills the
+   vtable (`drv2605_bus_esp32()` fills the vtable alone).
 2. `haptic_out_task_init(&bus)` creates the FreeRTOS task and command queue;
-   the app posts `MARK` / `PAT` / `WORD` / `PREFIX` / `STOP` commands.
-3. The task drives `haptic_out_step()` on a timer; `END` is where the app
-   decides what happens next (e.g. unlock the next queued message).
+   the app posts `MARK` / `PAT` / `WORD` / `PREFIX` / `PACE` / `STOP`
+   commands (`haptic_out_task.h`). The band's utterance path does not go
+   through this queue — `firmware/band` owns its own `haptic_out`.
+3. The task drives `haptic_out_step()` on the FreeRTOS tick; `END` is where
+   the app decides what happens next.
 
-The `drv2605_i2c_esp32.c` and `haptic_out_task.c` files are deliberately
-sketches — the register map and the sequencer are what the bench tests
-lock down; the ESP-IDF glue needs a real board to finish. Parts, wiring,
-and the staged flash-and-feel test live in
+**The mux contract.** The TCA9548A control byte is a bitmask — bit n
+enables channel n — and exactly one bit must be set to reach one DRV2605L
+(`tca9548_select_byte(ch) == 1 << ch`). The first sketch wrote the raw
+channel number; the bench mock now refuses any control byte that is not
+one-hot (`test_mux_select_contract`), so that regression fails on the bench
+before it reaches a board.
+
+The ESP-IDF files are written against IDF 5.x but have not been compiled
+(no IDF on the bench); the register map and the sequencer are what the
+bench locks down. Parts, wiring, and the staged flash-and-feel test live in
 [HARDWARE_BRINGUP.md](../../docs/HARDWARE_BRINGUP.md).
 
 ## Change discipline

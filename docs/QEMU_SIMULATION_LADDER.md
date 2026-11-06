@@ -19,7 +19,7 @@ gaps land exactly on seams we already own.
 | 0 | Bench suite: real sequencer, mock bus, virtual clock (`firmware/haptic_out/run_tests.py`) | timing tables + state machine produce exact dot-mask timelines | **shipped** (274 checks) |
 | 1 | **QEMU boot app** (`firmware/app/ziv_qemu`): the real `haptic_out` + task loop inside an ESP-IDF app, haptic bus → the bench mock, keys/mic → injected/console events | the binary boots in QEMU, FreeRTOS runs it, and the scripted demo plays the correct timelines on the emulated chip | **core shipped** — `ziv_app` proven on the bench (49 checks, the full derived `HAP` fixture); QEMU boot pending an IDF install |
 | 2 | **Equivalence harness**: same scripted sequence on bench (virtual clock) and in QEMU (wall clock); `tools/qemu_timeline.py` diffs the two `HAP` logs | QEMU firmware timelines ≡ bench timelines (order, masks, durations; wall-clock tolerance) | **differ shipped** — reads the *derived* fixture (generator cross-checked against the generated `k_demo_expected[]`); QEMU boot itself pending an IDF install; CI job skeleton in place (`qemu-boot`, continue-on-error — its one marked gap is the IDF install) |
-| 3 | **Transport seam**: `ws_client` framing/reconnect/backoff behind a socket vtable; fake relay on host loopback; same vtable stubbed inside QEMU | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | speced |
+| 3 | **Transport seam** (`firmware/band`): the relay protocol — hello/ack, utterance open/body/cancel, progress/played/nack, prefs, ping/pong, reconnect with backoff and jitter, resume by `last_acked`+held — behind a frame vtable; on the host newline-JSON over TCP against `firmware/band/host/fake_relay.py`, on the band `esp_websocket_client` | relay round-trip logic is testable without WiFi — the code is exercised, the radio is not | **host-proven** — `firmware/band/run_band_tests.py`: unit tests against a scripted adapter, the loopback run against the fake relay (every up frame validated with `ziv.wire`, order asserted), plus the conformance player on both profiles (12/12); the websocket adapter is written, not compiled (no IDF here) |
 | 4 | **Audio seam**: capture reads frames from an injectable source (canned WAV in QEMU/host; real I²S on band) | capture → Omni payload framing testable without a mic | speced |
 | H | Hardware bring-up (HARDWARE_BRINGUP.md) | the one thing no simulator answers: does it *feel* right | gated on boards |
 
@@ -107,7 +107,8 @@ template.
 
 **WiFi/mic are absent on purpose.** The rung-1 app performs no `esp_wifi` init and
 no I²S setup — image stays small, boot stays fast, and nothing links a driver
-QEMU cannot satisfy. The network and mic return at rungs 3–4 behind vtables.
+QEMU cannot satisfy. The network returns at rung 3 behind the `band_frame_io`
+vtable (`firmware/band`, host-proven) and the mic at rung 4 behind its own.
 
 **Running it** (after the one-time `python $IDF_PATH/tools/idf_tools.py install
 qemu-xtensa`; on this machine see
@@ -147,12 +148,25 @@ idf.py qemu                # capture stdout, Ctrl-A q to exit
 
 Same vtable discipline as `drv2605_bus`, extracted before the relay exists:
 
-- **Transport**: `ws_client` owns framing (text JSON vs binary audio), reconnect
-  with bounded backoff, and state transitions. A `ziv_transport` vtable
-  (`connect`/`send`/`poll`/`close`) lets a host test drive it against a fake
-  relay on loopback (hermetic, fast, in pytest) and lets the QEMU app link a
-  logging stub — so rung 2-style equivalence extends to the network *logic*
-  even though QEMU has no WiFi.
+- **Transport** — shipped on the host as `firmware/band/transport.c`. The
+  protocol layer (hello first, the ack's prefs and resend list, utterance
+  open/body/cancel, progress/played/nack, pref.set/pref.changed, ping/pong,
+  exponential backoff with jitter, resume by `last_acked` + held ids) sits
+  behind a `band_frame_io` vtable (`connect`/`send_frame`/`recv_frame`/
+  `close`), so framing is the adapter's job: `host/frame_tcp_host.c` speaks
+  newline-delimited JSON over TCP to `host/fake_relay.py`, and
+  `esp/transport_ws_esp.c` (unverified, no IDF here) hands the same frames
+  to `esp_websocket_client`. `firmware/band/run_band_tests.py` is the rung's
+  runner: the unit tests drive the protocol against a scripted in-memory
+  adapter (frame shapes, order, nack reasons, backoff bands, resume), the
+  loopback test runs the real TCP path with the haptics on a virtual clock,
+  and the fake relay validates every up frame against the wire models and
+  asserts progress(cue) → progress(word…) → progress(close) → played in
+  queue order. The same runner builds `firmware/app/ziv_qemu/host_player`
+  and holds it to the reference renderer on both profiles — the band's
+  decoder + turn + sequencer are conformant before any radio exists. What
+  remains for QEMU is linking the vtable to a logging stub inside the image
+  (the code is the same; only the adapter changes).
 - **Audio**: capture reads from a `ziv_audio_source` (`read_frames`) — canned WAV
   host-side, real I²S driver on band. The Omni payload framing (plan §11's
   open question) gets its first tests at this rung, with no mic and no network.
@@ -179,7 +193,7 @@ discipline as the drift guard.
 | Does a 350 ms gap read as an ellipsis on skin? | H (feel is the product) |
 | LRA auto-calibration, per-dot strength, mux electricals | H |
 | Battery under WiFi bursts | H (rung 3 only proves the logic) |
-| Real TCP/TLS behavior against Token Factory | rung 3 fake → then live relay on devkit |
+| Real TCP/TLS behavior against the relay | rung 3 fake (shipped: `firmware/band/host/fake_relay.py`) → then the live relay's websocket on a devkit |
 | Omni audio payload acceptance | rung 4 framing → week-1 spike live |
 
 ## Verify at bring-up (⚠ carried per repo discipline)

@@ -4,8 +4,9 @@
 # bench tests are intentionally excluded — they build with a host C
 # compiler via run_tests.py, never on-device.
 #
-# TODO(on hardware): pick the ESP-IDF I2C driver flavour in
-# drv2605_i2c_esp32.c and add the component to the app's main CMakeLists.
+# drv2605_i2c_esp32.c uses driver/i2c_master.h (IDF 5.x; `driver` pulls in
+# esp_driver_i2c on 5.3+).  UNVERIFIED: no IDF where this was written.
+# The band app that links this component is firmware/band/esp.
 
 idf_component_register(
     SRCS

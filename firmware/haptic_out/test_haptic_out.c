@@ -8,7 +8,9 @@
  * the phone feel-tool plays.
  *
  * Build & run (host C compiler, e.g. gcc):
- *     cc -I. -o test_haptic_out haptic_out.c drv2605.c mock_drv2605.c test_haptic_out.c
+ *     cc -I. -o test_haptic_out haptic_out.c drv2605.c drv2605_i2c_esp32.c mock_drv2605.c test_haptic_out.c
+ * (drv2605_i2c_esp32.c compiles to stubs off ESP_PLATFORM; building it here
+ * keeps the device bus file honest under the same warning flags.)
  *     ./test_haptic_out            (or test_haptic_out.exe)
  * Or:  python run_tests.py
  */
@@ -290,6 +292,198 @@ static void test_early_step_returns_deadline(void)
     CHECK_EQ(mock_drive(&m, 0), DRV2605_DRIVE_DEFAULT, "dots unchanged by early call");
 }
 
+
+static void test_mux_select_contract(void)
+{
+    /* The TCA9548A control byte is a bitmask (bit n = channel n).  The
+     * mock refuses anything that is not exactly one set bit, so a bus that
+     * writes the raw channel number — the first ESP32 sketch did — fails
+     * here instead of on a board. */
+    mock_drv m; drv2605_bus bus;
+    mock_init(&m); mock_bus(&bus, &m);
+
+    for (uint8_t ch = 0; ch < DRV2605_DOT_COUNT; ch++) {
+        uint8_t control = tca9548_select_byte(ch);
+        CHECK_EQ(control, 1u << ch, "select byte is 1 << channel");
+        CHECK_EQ(bus.write_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, control), HAPTIC_OK,
+                 "one-hot control byte accepted by the mux");
+        CHECK_EQ(m.mux_select, ch, "control byte routes to its channel");
+        uint8_t back = 0;
+        CHECK_EQ(bus.read_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, &back), HAPTIC_OK, "mux reads back");
+        CHECK_EQ(back, control, "mux read-back is the control byte");
+    }
+    CHECK_EQ(m.mux_rejects, 0u, "no rejects for one-hot bytes");
+
+    /* the regression: raw channel numbers */
+    CHECK_EQ(bus.write_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, 0), HAPTIC_ERR_IO, "raw channel 0 (no bits) refused");
+    CHECK_EQ(bus.write_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, 3), HAPTIC_ERR_IO, "raw channel 3 (two bits) refused");
+    CHECK_EQ(bus.write_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, 5), HAPTIC_ERR_IO, "raw channel 5 (two bits) refused");
+    CHECK_EQ(bus.write_reg(bus.ctx, TCA9548_ADDR, TCA9548_REG_SELECT, 0x40), HAPTIC_ERR_IO, "bit 6 (no such channel) refused");
+    CHECK_EQ(m.mux_rejects, 4u, "every bad control byte counted");
+    CHECK_EQ(m.mux_select, 5, "a refused byte leaves the routing unchanged");
+
+    /* the vtable's select path goes through the same contract */
+    CHECK_EQ(bus.select_channel(bus.ctx, 2), HAPTIC_OK, "select_channel 2");
+    CHECK_EQ(m.mux_select, 2, "select_channel routes channel 2");
+    CHECK_EQ(mock_mux_control_byte(&m), 0x04, "control byte for channel 2 is 0x04");
+    CHECK_EQ(bus.select_channel(bus.ctx, 6), HAPTIC_ERR_INVALID_ARG, "select_channel past the last dot refused");
+}
+
+static void test_runtime_pace(void)
+{
+    haptic_out h; mock_drv m; drv2605_bus bus;
+    mock_init(&m); mock_bus(&bus, &m);
+    haptic_out_init(&h, &bus);
+
+    CHECK_EQ(haptic_out_cell_gap_ms(&h), CELL_GAP_DEFAULT_MS, "pace defaults to the spec default");
+    CHECK_EQ(haptic_out_set_cell_gap_ms(&h, 10), CELL_GAP_MIN_MS, "pace clamps up to the minimum");
+    CHECK_EQ(haptic_out_set_cell_gap_ms(&h, 9999), CELL_GAP_MAX_MS, "pace clamps down to the maximum");
+
+    /* a word at the fastest pace: cells land pace apart, the tail gap is untouched */
+    CHECK_EQ(haptic_out_set_cell_gap_ms(&h, CELL_GAP_MIN_MS), CELL_GAP_MIN_MS, "pace set to the minimum");
+    buzz_rec r[8];
+    CHECK_EQ(haptic_out_play_word(&h, "ziv"), HAPTIC_OK, "play ziv at min pace");
+    int n = run_play(&h, r, 8);
+    CHECK_EQ(n, 3, "ziv at min pace has 3 cells");
+    check_buzz(r, 0, 0, 290, CELL_GAP_MIN_MS, 0x35);
+    check_buzz(r, 1, 290 + CELL_GAP_MIN_MS, 170, CELL_GAP_MIN_MS, 0x0A);
+    check_buzz(r, 2, 290 + CELL_GAP_MIN_MS + 170 + CELL_GAP_MIN_MS, 290, TAIL_GAP_MS, 0x27);
+
+    /* a mark at a middle pace */
+    CHECK_EQ(haptic_out_set_cell_gap_ms(&h, 300), 300, "pace 300 accepted");
+    CHECK_EQ(haptic_out_play_mark(&h, 1), HAPTIC_OK, "play raz at pace 300");
+    n = run_play(&h, r, 8);
+    CHECK_EQ(n, 3, "raz has 3 cells");
+    check_buzz(r, 0, 0, 290, 300, 0x17);
+    check_buzz(r, 1, 590, 110, 300, 0x01);
+    check_buzz(r, 2, 1000, 290, TAIL_GAP_MS, 0x35);
+
+    /* a prefix at the slowest pace: the breath after the mark is not the pace */
+    CHECK_EQ(haptic_out_set_cell_gap_ms(&h, CELL_GAP_MAX_MS), CELL_GAP_MAX_MS, "pace set to the maximum");
+    CHECK_EQ(haptic_out_play_prefix(&h, HAPTIC_TAIL_MESSAGE), HAPTIC_OK, "play prefix at max pace");
+    n = run_play(&h, r, 8);
+    CHECK_EQ(n, 5, "prefix message = 3 cells + 2 tail beats");
+    check_buzz(r, 0, 0, 290, CELL_GAP_MAX_MS, 0x35);
+    check_buzz(r, 1, 290 + CELL_GAP_MAX_MS, 170, CELL_GAP_MAX_MS, 0x0A);
+    check_buzz(r, 2, 290 + CELL_GAP_MAX_MS + 170 + CELL_GAP_MAX_MS, 290, PREFIX_BREATH_MS, 0x27);
+    check_buzz(r, 3, 290 + CELL_GAP_MAX_MS + 170 + CELL_GAP_MAX_MS + 290 + PREFIX_BREATH_MS, 70, 160, 0);
+    check_buzz(r, 4, 290 + CELL_GAP_MAX_MS + 170 + CELL_GAP_MAX_MS + 290 + PREFIX_BREATH_MS + 70 + 160, 70, TAIL_GAP_MS, 0);
+
+    /* patterns carry their own gaps: the pace never touches them */
+    CHECK_EQ(haptic_out_play_pattern(&h, HAPTIC_PAT_DOUBLE_TAP), HAPTIC_OK, "double tap at max pace");
+    n = run_play(&h, r, 8);
+    CHECK_EQ(n, 2, "double tap has 2 beats");
+    check_buzz(r, 0, 0, 70, 160, 0);
+    check_buzz(r, 1, 230, 70, TAIL_GAP_MS, 0);
+
+    /* the pace survives a stop and a new play */
+    haptic_out_stop(&h);
+    CHECK_EQ(haptic_out_cell_gap_ms(&h), CELL_GAP_MAX_MS, "pace kept across stop");
+}
+
+/* Compile a word into a beat list from the generated tables — the same
+ * derivation haptic_out's WORD mode makes, written independently. */
+static uint16_t compile_word_beats(const char *word, uint16_t pace_ms, haptic_beat_ex *out)
+{
+    uint16_t n = 0;
+    while (word[n] != '\0') { n++; }
+    for (uint16_t i = 0; i < n; i++) {
+        uint8_t li = (uint8_t) (word[i] - 'a');
+        out[i].dot_mask = HAPTIC_LETTER_MASKS[li];
+        out[i].buzz_ms = haptic_cell_ms(word[i]);
+        out[i].gap_after_ms = (uint16_t) ((i == n - 1) ? TAIL_GAP_MS : pace_ms);
+    }
+    return n;
+}
+
+static void test_play_beats_equals_word(void)
+{
+    haptic_out h; mock_drv m; drv2605_bus bus;
+    mock_init(&m); mock_bus(&bus, &m);
+    haptic_out_init(&h, &bus);
+
+    static const uint16_t paces[2] = { CELL_GAP_DEFAULT_MS, CELL_GAP_MIN_MS };
+    for (int p = 0; p < 2; p++) {
+        haptic_out_set_cell_gap_ms(&h, paces[p]);
+        buzz_rec a[8], b[8];
+        haptic_beat_ex beats[8];
+        uint16_t nb = compile_word_beats("ziv", paces[p], beats);
+
+        CHECK_EQ(haptic_out_play_word(&h, "ziv"), HAPTIC_OK, "word ziv");
+        int na = run_play(&h, a, 8);
+        CHECK_EQ(haptic_out_play_beats(&h, beats, nb), HAPTIC_OK, "beats ziv");
+        CHECK_EQ(haptic_out_mode(&h), HAPTIC_OUT_MODE_BEATS, "mode is BEATS while a list plays");
+        int nbp = run_play(&h, b, 8);
+        CHECK_EQ(na, 3, "word ziv has 3 beats");
+        CHECK_EQ(nbp, na, "beat list and word have the same beat count");
+        for (int i = 0; i < na && i < nbp; i++) {
+            CHECK_EQ(b[i].at, a[i].at, "beat list / word: start time");
+            CHECK_EQ(b[i].buzz, a[i].buzz, "beat list / word: buzz");
+            CHECK_EQ(b[i].gap, a[i].gap, "beat list / word: gap");
+            CHECK_EQ(b[i].mask, a[i].mask, "beat list / word: dot mask");
+        }
+        /* END lands one tail gap after the last buzz in both */
+        uint32_t last_end = b[nbp - 1].at + b[nbp - 1].buzz + b[nbp - 1].gap;
+        CHECK_EQ(haptic_out_step(&h, last_end, NULL, NULL), 0, "beat list finished after its last gap");
+        CHECK(h.beats == NULL, "the list is released at END (the caller may reuse the buffer)");
+    }
+
+    /* the dot events of a beat list go to the bus exactly as a word's do */
+    {
+        haptic_beat_ex one[1] = { { HAPTIC_LETTER_MASKS['z' - 'a'], 290, TAIL_GAP_MS } };
+        CHECK_EQ(haptic_out_play_beats(&h, one, 1), HAPTIC_OK, "single beat");
+        haptic_out_event_t ev;
+        uint32_t now = haptic_out_step(&h, 0, &ev, NULL);    /* START */
+        now = haptic_out_step(&h, now, &ev, NULL);           /* BUZZ */
+        CHECK_EQ(ev, HAPTIC_OUT_EV_BUZZ, "beat buzz event");
+        CHECK_EQ(mock_drive(&m, 0), DRV2605_DRIVE_DEFAULT, "dot 1 up for z");
+        CHECK_EQ(mock_drive(&m, 1), 0, "dot 2 down for z");
+        CHECK_EQ(mock_drive(&m, 2), DRV2605_DRIVE_DEFAULT, "dot 3 up for z");
+        CHECK_EQ(mock_drive(&m, 4), DRV2605_DRIVE_DEFAULT, "dot 5 up for z");
+        CHECK_EQ(mock_drive(&m, 5), DRV2605_DRIVE_DEFAULT, "dot 6 up for z");
+        haptic_out_step(&h, now, &ev, NULL);                 /* buzz end */
+        for (int ch = 0; ch < 6; ch++) { CHECK_EQ(mock_drive(&m, (uint8_t) ch), 0, "all dots silent after the beat"); }
+        haptic_out_stop(&h);
+    }
+
+    /* a beat list reproduces a pattern too (mask 0 = whole-device beat) */
+    {
+        haptic_beat_ex pat[HAPTIC_END_OF_MESSAGE_LEN];
+        for (int i = 0; i < HAPTIC_END_OF_MESSAGE_LEN; i++) {
+            pat[i].dot_mask = 0;
+            pat[i].buzz_ms = HAPTIC_END_OF_MESSAGE[i].buzz_ms;
+            pat[i].gap_after_ms = HAPTIC_END_OF_MESSAGE[i].gap_after_ms;
+        }
+        buzz_rec a[8], b[8];
+        CHECK_EQ(haptic_out_play_pattern(&h, HAPTIC_PAT_END_OF_MESSAGE), HAPTIC_OK, "pattern end-of-message");
+        int na = run_play(&h, a, 8);
+        CHECK_EQ(haptic_out_play_beats(&h, pat, HAPTIC_END_OF_MESSAGE_LEN), HAPTIC_OK, "beats end-of-message");
+        int nb = run_play(&h, b, 8);
+        CHECK_EQ(na, HAPTIC_END_OF_MESSAGE_LEN, "end-of-message has 4 beats");
+        CHECK_EQ(nb, na, "beat list / pattern: beat count");
+        for (int i = 0; i < na && i < nb; i++) {
+            CHECK_EQ(b[i].at, a[i].at, "beat list / pattern: start time");
+            CHECK_EQ(b[i].buzz, a[i].buzz, "beat list / pattern: buzz");
+            CHECK_EQ(b[i].gap, a[i].gap, "beat list / pattern: gap");
+            CHECK_EQ(b[i].mask, 0, "beat list / pattern: mask 0");
+        }
+    }
+
+    /* invalid lists */
+    haptic_beat_ex dummy[1] = { { 0, 70, 160 } };
+    CHECK_EQ(haptic_out_play_beats(&h, NULL, 1), HAPTIC_ERR_INVALID_ARG, "NULL list rejected");
+    CHECK_EQ(haptic_out_play_beats(&h, dummy, 0), HAPTIC_ERR_INVALID_ARG, "empty list rejected");
+    CHECK_EQ(haptic_out_is_playing(&h), false, "a rejected list starts nothing");
+
+    /* stop mid-list silences and releases the list */
+    CHECK_EQ(haptic_out_play_beats(&h, dummy, 1), HAPTIC_OK, "one-beat list");
+    haptic_out_step(&h, 0, NULL, NULL);
+    haptic_out_step(&h, 0, NULL, NULL);
+    haptic_out_stop(&h);
+    CHECK(h.beats == NULL, "stop releases the list");
+    CHECK_EQ(haptic_out_is_playing(&h), false, "stopped");
+}
+
 int main(void)
 {
     test_ziv_mark();
@@ -303,6 +497,9 @@ int main(void)
     test_cancel_with_new_play();
     test_bus_fault();
     test_early_step_returns_deadline();
+    test_mux_select_contract();
+    test_runtime_pace();
+    test_play_beats_equals_word();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
