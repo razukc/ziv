@@ -13,8 +13,9 @@ is quiet, glance-free, and private by physics: nothing to overhear, nothing to
 look at.
 
 > The product plan lives in [docs/HAPTIC_COMPANION_PLAN.md](docs/HAPTIC_COMPANION_PLAN.md)
-> — the problem, the device concept, the interaction invariants, the
-> architecture, and the milestones. What is planned next is in
+> — the problem, the device concept, the interaction invariants, and the
+> milestones. The target software architecture is
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What is planned next is in
 > [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it

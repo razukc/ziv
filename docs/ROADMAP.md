@@ -14,6 +14,13 @@ actively working them. The product plan these items come from is
 > **Repo scope:** this repository is Ziv-only (since 2026-09-17). SkillForge
 > moved to its own repository — [HANDOVER_SKILLFORGE.md](HANDOVER_SKILLFORGE.md).
 
+## Where the product is going
+
+The target architecture is [ARCHITECTURE.md](ARCHITECTURE.md): the device
+renders and acknowledges, the relay sequences through a per-wearer outbox,
+and one reference renderer defines correct timing for every player. Its
+section 13 lists the order of work; items below are read against it.
+
 ## Where the product is
 
 The phone is the band today: the relay (`agent/ziv_server.py`) and the PWA

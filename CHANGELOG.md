@@ -14,6 +14,17 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only
 
+- **The target architecture is written down** — `docs/ARCHITECTURE.md`
+  records the shape the review on 2026-11-06 argued for: utterances as the
+  unit the device owns and acknowledges, device-side rendering with the
+  relay sequencing through a per-wearer outbox, a reference renderer that
+  defines correct timing for the band and the phone alike, a time budget in
+  place of a letter cap, SQLite with leased firing, device identity and
+  first-frame auth, a native phone renderer with a single-actuator slot
+  encoding, and a separate accessible console. Section 13 maps today's
+  modules onto it and orders the work. README, ROADMAP, CONTRIBUTING and
+  CLAUDE.md point at it.
+
 - **The repository is the product, not the submission** — every hackathon-era
   artifact left the tree: the Devpost drafts and upload checklist, the judge
   repro guide and its PDF, the honesty changelog, the demo script, the

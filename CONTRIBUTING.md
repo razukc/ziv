@@ -103,6 +103,7 @@ every push. Drift cannot be committed or pushed either way.
 | `CHANGELOG.md` | What shipped per milestone tag |
 | `docs/ROADMAP.md` | What's planned, with statuses |
 | `docs/HAPTIC_COMPANION_PLAN.md` | The product plan — invariants, phases, BOM |
+| `docs/ARCHITECTURE.md` | The target architecture and the path from the current tree |
 | `docs/HAPTIC_TIMING_SPEC.md` | The feel-timing spec and its generated consumers |
 | `docs/QEMU_SIMULATION_LADDER.md` | Bench → QEMU rungs, the promote-a-check discipline |
 | `docs/HARDWARE_BRINGUP.md` | Six-actuator on-wrist bring-up |

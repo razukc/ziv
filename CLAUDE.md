@@ -47,6 +47,8 @@ Test harness notes: `agent/tests/conftest.py` puts both `agent/` and `tools/` on
 
 ## Architecture
 
+This section describes the tree as it is. The target shape, and the order of work to reach it, is `docs/ARCHITECTURE.md`; new work should move toward it rather than extend the current server-paced design.
+
 **Three layers share one generated timing source.**
 
 - `docs/haptic-timing.json` is the only hand-edited home for every buzz/gap constant, the Grade-1 letter dot table, the 7 attention/lifecycle patterns, the 5 candidate name marks, and the prefix composition.
