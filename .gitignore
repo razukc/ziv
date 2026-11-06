@@ -1,11 +1,5 @@
 # Media
 media
-# Secrets
-agent/.env
-
-# Runtime data
-agent/pipeline_store.json
-
 # Logs and build artifacts
 *.log
 *.tsbuildinfo
@@ -28,8 +22,6 @@ firmware/app/ziv_qemu/.zig-cache-global/
 .zig-cache-global/
 
 # Python
-agent/venv/
-agent/__pycache__/
 __pycache__/
 *.pyc
 
@@ -45,10 +37,6 @@ Thumbs.db
 # Agent session state
 .freebuff/
 .codebuff/
-
-# The wearer's own data (relay v1: memory files + persistent inbox) — never
-# repo state.
-agent/ziv_data/
 
 # Local captures and operator scratch (never repo state)
 _tmp/

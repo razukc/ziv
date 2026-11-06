@@ -22,13 +22,13 @@ the generated `ziv/haptics/tables.py`.
 ## Commands
 
 ```bash
-PY=agent/venv/bin/python
+PY=.venv/bin/python
 
 $PY conformance/run.py --check          # expected/ agrees with the reference (the oracle's drift guard)
 $PY conformance/run.py --write          # regenerate expected/ after a spec or renderer change
 
 # hold a player to the reference on one profile
-$PY conformance/run.py --player "agent/venv/bin/python conformance/players/reference.py" --profile single_actuator
+$PY conformance/run.py --player ".venv/bin/python conformance/players/reference.py" --profile single_actuator
 $PY conformance/run.py --player "firmware/app/ziv_qemu/host_player" --profile six_actuator
 $PY conformance/run.py --player "node client/dist/conformance.js" --profile single_actuator
 

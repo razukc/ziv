@@ -103,7 +103,7 @@ Builds with the repo's `-std=c11 -Wall -Wextra -Werror`, then:
    goldens hand-derived from `haptic_timing.h` on both profiles, beat mode,
    controls, transport against a scripted adapter);
 2. `firmware/app/ziv_qemu/host_player` — the conformance player, then
-   `agent/venv/bin/python conformance/run.py --player … --profile
+   `.venv/bin/python conformance/run.py --player … --profile
    six_actuator` and `--profile single_actuator` (both must be 12/12);
 3. `host/host_transport_test` against `host/fake_relay.py` over loopback:
    the relay validates every up frame against `ziv.wire` and asserts

@@ -7,12 +7,12 @@ player, and the smallest complete example of the player interface.
 
 Run it by hand:
 
-    echo '{...utterance...}' | agent/venv/bin/python conformance/players/reference.py --profile six_actuator
+    echo '{...utterance...}' | .venv/bin/python conformance/players/reference.py --profile six_actuator
 
 or through the harness:
 
-    agent/venv/bin/python conformance/run.py \\
-        --player "agent/venv/bin/python conformance/players/reference.py" --profile single_actuator
+    .venv/bin/python conformance/run.py \\
+        --player ".venv/bin/python conformance/players/reference.py" --profile single_actuator
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ band play identical patterns by construction:
 
   - docs/haptic-name-marks.html        generated JS timing block + gap slider
   - firmware/haptic_out/haptic_timing.h  generated C constants + pattern tables
-  - tools/haptic_timing_gen.py         generated Python timing module (relay, tests, tools)
+  - ziv/haptics/tables.py              generated Python timing module (relay, tests, tools)
   - ziv/haptics/tables.py              the same module at its home in the ziv package
                                        (the reference renderer and the conformance
                                        harness read KINDS / PROFILES / constants from it)
@@ -38,10 +38,8 @@ SPEC_PATH = ROOT / "docs" / "haptic-timing.json"
 HTML_PATH = ROOT / "docs" / "haptic-name-marks.html"
 HEADER_PATH = ROOT / "firmware" / "haptic_out" / "haptic_timing.h"
 DOC_PATH = ROOT / "docs" / "HAPTIC_TIMING_SPEC.md"
-PY_PATH = ROOT / "tools" / "haptic_timing_gen.py"
-# The same generated module, at its home inside the ziv package (the relay,
-# the reference renderer and the new suite import it as ziv.haptics.tables).
-# tools/haptic_timing_gen.py stays until the old agent/ tree is retired.
+# The generated Python module: the relay, the reference renderer and the
+# suite import it as ziv.haptics.tables.
 PY_PKG_PATH = ROOT / "ziv" / "haptics" / "tables.py"
 DEMO_DIR = ROOT / "firmware" / "app" / "ziv_qemu" / "main"
 DEMO_H_PATH = DEMO_DIR / "ziv_demo_sequence.h"
@@ -752,7 +750,7 @@ def doc_tables(spec):
     return "\n".join(L)
 
 
-# --- Python consumer (tools/haptic_timing_gen.py) ---------------------------
+# --- Python consumer (ziv/haptics/tables.py) --------------------------------
 
 def py_module(spec):
     """The generated Python timing module: one derivation for tests, the
@@ -765,7 +763,7 @@ def py_module(spec):
     marks = spec["marks"]
     L = []
     A = L.append
-    A("\"\"\"haptic_timing_gen.py — GENERATED Python consumer of the timing spec.")
+    A("\"\"\"ziv.haptics.tables — GENERATED Python consumer of the timing spec.")
     A("")
     A("Do not edit by hand; regenerate with:  python tools/haptic_timing.py --write")
     A("Source of truth: docs/haptic-timing.json (spec v%s)." % spec["version"])
@@ -1014,8 +1012,6 @@ def write_consumers(spec, problems):
     write_lf(HTML_PATH, rewrite_slider(patched, spec))
     HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_lf(HEADER_PATH, hdr)
-    PY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_lf(PY_PATH, py)
     PY_PKG_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_lf(PY_PKG_PATH, py)
     try:
@@ -1117,10 +1113,9 @@ def main():
     header_now = HEADER_PATH.read_text(encoding="utf-8") if HEADER_PATH.exists() else None
     if header_now != hdr:
         problems.append(f"{rel(HEADER_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
-    for py_path in (PY_PATH, PY_PKG_PATH):
-        py_now = py_path.read_text(encoding="utf-8") if py_path.exists() else None
-        if py_now != py:
-            problems.append(f"{rel(py_path)}: drifts from the spec (run tools/haptic_timing.py --write)")
+    py_now = PY_PKG_PATH.read_text(encoding="utf-8") if PY_PKG_PATH.exists() else None
+    if py_now != py:
+        problems.append(f"{rel(PY_PKG_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
     doc_now = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.exists() else None
     if doc_now is None or not block_matches(doc_now, DOC_BEGIN, DOC_END, doc):
         problems.append(f"{rel(DOC_PATH)}: generated tables missing or drifting")
@@ -1156,7 +1151,6 @@ def main():
           f"{sum(len(p['beats']) for p in spec['attention_patterns'])} beats")
     print("  docs/haptic-name-marks.html        timing block + slider in sync")
     print("  firmware/haptic_out/haptic_timing.h  in sync")
-    print("  tools/haptic_timing_gen.py           in sync")
     print("  ziv/haptics/tables.py                in sync")
     print("  docs/HAPTIC_TIMING_SPEC.md           tables in sync")
     print("  firmware/app/ziv_qemu/main/ziv_demo_sequence.h  demo table in sync")

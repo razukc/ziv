@@ -20,7 +20,8 @@ Four steps, in order, each a gate (the first failure stops the run):
 Same compiler discipline as the other runners (cc/gcc/clang/tcc, `zig cc`,
 the ziglang pip package, then WSL; -std=c11 -Wall -Wextra -Werror).  The
 conformance and fake-relay steps import `ziv`, so they run with the agent
-venv's interpreter (agent/venv/bin/python); plain python3 runs this script.
+venv's interpreter (.venv/bin/python, or whichever python has `ziv`
+installed); plain python3 runs this script.
 
 Exit codes: 0 all green; 1 a build or a check failed; 2 the environment is
 missing (no C compiler, or no venv interpreter for the ziv-importing steps).
@@ -30,6 +31,7 @@ import os
 import shutil
 import subprocess
 import sys
+import pathlib
 import time
 from pathlib import Path
 
@@ -48,7 +50,17 @@ CORE = [HAPTIC_OUT / "haptic_out.c", HAPTIC_OUT / "drv2605.c", HAPTIC_OUT / "moc
         CJSON / "cJSON.c", HERE / "utterance.c", HERE / "turn.c"]
 BAND = [HERE / "queue.c", HERE / "transport.c"]
 
-VENV_PY = REPO / "agent" / "venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+def _find_ziv_python():
+    """An interpreter that can import ziv: this one, else the repo venv."""
+    import importlib.util
+    if importlib.util.find_spec("ziv") is not None:
+        return pathlib.Path(sys.executable)
+    for cand in (REPO / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python"),):
+        if cand.exists():
+            return cand
+    return REPO / ".venv" / "bin" / "python"
+
+VENV_PY = _find_ziv_python()
 PROFILES = ("six_actuator", "single_actuator")
 
 

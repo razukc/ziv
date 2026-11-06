@@ -49,7 +49,7 @@ PROFILES = tuple(T.PROFILES)
 DEFAULT_PACE_MS = T.CELL_GAP_DEFAULT_MS
 TOLERANCE_MS = T.CONFORMANCE_TOLERANCE_MS
 GOLDEN_NAME = re.compile(r"^[a-z0-9_]+$")
-WRITE_HINT = "run: agent/venv/bin/python conformance/run.py --write"
+WRITE_HINT = "run: .venv/bin/python conformance/run.py --write"
 # Player runs are independent (a conformant player keeps time on a virtual
 # clock, never the wall clock), so the harness runs several at once.
 DEFAULT_JOBS = max(1, min(8, os.cpu_count() or 1))

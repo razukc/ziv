@@ -155,7 +155,7 @@ On `six_actuator` a cell is one beat (`dot_mask` = the letter's mask, `buzz_ms` 
 
 1. Edit `docs/haptic-timing.json` (bump `version`).
 2. `python tools/haptic_timing.py --write`.
-3. `agent/venv/bin/python conformance/run.py --write` when any timeline changes, and read the diff of `conformance/expected/` — it is the felt change, beat by beat.
+3. `.venv/bin/python conformance/run.py --write` when any timeline changes, and read the diff of `conformance/expected/` — it is the felt change, beat by beat.
 4. Re-feel every pattern on the phone; re-run an M1 session.
 5. Commit the JSON and every consumer together — they are one artifact.
 
