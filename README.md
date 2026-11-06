@@ -96,7 +96,7 @@ holds, plays, and acknowledges on its own. The relay never paces a motor.
 | **The console** (`console/`) — the accessible sender and caregiver surface: send, follow, schedule, prefs, devices, senders, health; axe-clean in jsdom and in headless Chromium | **A session with a screen reader and a braille display** — no TalkBack, screen-reader or braille-display session has happened |
 | **The band firmware** (`firmware/`) — the sequencer, an utterance decoder, a turn player, a bounded queue, the relay protocol with reconnect and resume; host-proven and conformant on both profiles; **builds on ESP-IDF v5.5** for the ESP32-S3 at `-Wall -Wextra -Werror` and **boots under QEMU**: the demo's 27 HAP events match the bench with zero drift (rung 2), and the band initialises NVS and six mock drivers, plays the boot ramp-up and backs off its transport without a panic | **The band on hardware** (rung H) — no I²C transaction has executed, no motor has moved, no real Wi-Fi or TLS frame has been carried by the band |
 | **Spec v4, the reference renderer and the conformance harness** — one JSON source, seven generated consumers, one oracle every renderer is diffed against | **Validation with wearers** — the single-actuator slot timings and the word gap are provisional until braille readers have felt them |
-| **The suites** — core, store, relay, integration with the headless device, the browser tier, the device tier on the emulator, client, console, Android core, bench, band, QEMU rung 2, a TLS and a live-model smoke (counts below); CI is five jobs | **The CI jobs on GitHub** — the branch has never been pushed, so none of the five has run there. **The budget question** — the 15 s default leaves about nine letters on a single-actuator device, and the model dropped the time from a reminder to fit it |
+| **The suites** — core, store, relay, integration with the headless device, the browser tier, the device tier on the emulator, client, console, Android core, bench, band, QEMU rung 2, a TLS and a live-model smoke (counts below); CI is five jobs **The budget question** — the 15 s default leaves about nine letters on a single-actuator device, and the model dropped the time from a reminder to fit it |
 
 Nothing here is validated with deaf-blind readers yet, and nothing in this
 repository makes a clinical or efficacy claim. The claim is a working
@@ -267,9 +267,9 @@ suite), `renderers` (client and console typecheck, test, build, and the web
 renderer against the reference), `browser` (`playwright install --with-deps
 chromium`, both front ends built, the browser tier) and `firmware` (bench,
 rung-1, band). The fifth, `qemu-boot`, is a real build-boot-diff of both
-images on the `espressif/idf:v5.5` container that stays `continue-on-error`
-until it has run once on GitHub. None of the five has run there yet: the
-branch has never been pushed.
+images on the `espressif/idf:v5.5` container; it blocks since its first
+green run on GitHub. All five jobs ran green on GitHub on 2026-11-06 (run
+42213019259, after a one-line test fix the first run exposed).
 
 ---
 
@@ -377,8 +377,6 @@ Everything in the table above was observed on one machine (Ubuntu on WSL2,
 - **The slot timings and the word gap with wearers.** The single-actuator
   slots (50 / 30 / 80 ms) and the 520 ms word gap are provisional until
   braille readers have felt them.
-- **The CI jobs on GitHub.** The branch has never been pushed, so none of the
-  five jobs has run there; `qemu-boot` stays non-blocking until it has.
 - **A phone on the LAN against a WSL relay.** A relay inside WSL2 is not on
   the LAN; it needs Windows port forwarding or mirrored networking
   ([android/README.md](android/README.md) explains both).

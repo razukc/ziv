@@ -466,9 +466,9 @@ remains unverified: a real ESP32-S3 board (no I²C transaction has executed,
 no motor has moved, no real Wi-Fi or TLS frame has been carried by the band);
 a real phone and its motor (the emulator's Vibrator API exists, but there is
 nothing to feel); any TalkBack, screen-reader or braille-display session; the
-single-actuator slot timings and the word gap with wearers; the five CI jobs
-on GitHub (the branch has never been pushed); and a phone on the LAN against
-a relay inside WSL2. A `ziv-relay check` is still future work, and
+single-actuator slot timings and the word gap with wearers; and a phone on
+the LAN against a relay inside WSL2. The five CI jobs ran green on GitHub on
+2026-11-06 (run 42213019259), and `qemu-boot` is blocking. A `ziv-relay check` is still future work, and
 `NotifySender` is a no-op: senders poll.
 
 What exists today maps onto the target like this.

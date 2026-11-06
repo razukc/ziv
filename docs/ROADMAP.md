@@ -30,7 +30,7 @@ renderer (`android/`, a foreground service that works with the screen off,
 ESP32-S3 on ESP-IDF v5.5 and booted under QEMU with the demo's 27 HAP events
 matching the bench at zero drift), spec v4 with the word gap, the kinds table
 and the two profiles, and the suites that gate every push — five CI jobs,
-written but never run on GitHub. What does not exist yet: a phone that has
+all green on GitHub (run 42213019259, 2026-11-06). What does not exist yet: a phone that has
 vibrated, a band on a wrist, and any wearer who has felt the result.
 
 ## Next
@@ -72,12 +72,11 @@ vibrated, a band on a wrist, and any wearer who has felt the result.
 
 ### The wrist
 
-- [ ] **Push the branch so the five CI jobs run** — `relay`, `renderers`,
-      `browser`, `firmware` and `qemu-boot` are written and green locally but
-      have never run on GitHub; after `qemu-boot`'s first green run there,
-      delete its `continue-on-error`
-      ([QEMU_SIMULATION_LADDER.md](QEMU_SIMULATION_LADDER.md) promote-a-check
-      discipline)
+- [x] **The five CI jobs run on GitHub** — pushed 2026-11-06; the first run
+      exposed one test that used a one-letter secret, the second run was
+      green across `relay`, `renderers`, `browser`, `firmware` and
+      `qemu-boot` (run 42213019259); `qemu-boot` lost its `continue-on-error`
+      per the promote-a-check discipline
 - [ ] **A real board (rung H)** — the band builds for the ESP32-S3 and boots
       under QEMU with the mock bus, but no I²C transaction has executed, no
       motor has moved and no real Wi-Fi or TLS frame has been carried; the

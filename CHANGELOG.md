@@ -14,6 +14,13 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only, then the rebuild
 
+- **The branch is on GitHub and CI is green** — `product` was pushed on
+  2026-11-06. The first run failed one settings test whose stand-in API key
+  was the letter `k`, which the runner's own checkout path contains; the
+  stand-in is now a string nothing else could hold. The second run was green
+  across all five jobs (run 42213019259), and `qemu-boot` lost its
+  `continue-on-error` on the strength of its first pass (`028c66e`).
+
 - **The verification round** — every gap the previous documentation listed
   as unverified on this machine was closed or named (Ubuntu on WSL2,
   2026-11-06). The browser tier runs: after Chromium's shared libraries were
@@ -62,8 +69,8 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
   one-shots), cross-core wakes on an unpinned task, and a band main loop that
   blocked forever without Wi-Fi. `firmware/qemu_capture.sh` is the bounded
   capture for CI, docs and local runs alike, and the `qemu-boot` CI job is a
-  real build-boot-diff on the `espressif/idf:v5.5` container, still
-  `continue-on-error` until it has run once on GitHub. A real board remains
+  real build-boot-diff on the `espressif/idf:v5.5` container, blocking
+  since its first green run on GitHub (run 42212509684). A real board remains
   unverified: no I²C transaction has executed, no motor has moved, no real
   Wi-Fi or TLS frame has been carried (`acb67fb`).
 
