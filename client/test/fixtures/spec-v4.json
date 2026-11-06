@@ -1,0 +1,40 @@
+{
+  "version": 4,
+  "constants": {
+    "cell_base_ms": 50,
+    "cell_per_dot_ms": 60,
+    "cell_gap_default_ms": 420,
+    "cell_gap_min_ms": 250,
+    "cell_gap_max_ms": 700,
+    "tick_ms": 70,
+    "tick_gap_ms": 160,
+    "long_buzz_ms": 600,
+    "tail_gap_ms": 420,
+    "prefix_breath_ms": 550,
+    "word_gap_ms": 600,
+    "working_every_ms": 1500,
+    "conformance_tolerance_ms": 10
+  },
+  "ui": { "cell_gap_step_ms": 10 },
+  "letters": { "a": 1, "b": 2, "h": 3, "i": 2, "v": 4, "z": 4 },
+  "letter_patterns": { "a": [1], "b": [1, 2], "h": [1, 2, 5], "i": [2, 4], "v": [1, 2, 3, 6], "z": [1, 3, 5, 6] },
+  "attention_patterns": [
+    { "id": "double-tap", "beats": [ { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 420 } ] },
+    { "id": "triple-pulse", "beats": [ { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 160 }, { "buzz_ms": 70, "gap_after_ms": 420 } ] },
+    { "id": "long-buzz", "beats": [ { "buzz_ms": 600, "gap_after_ms": 420 } ] },
+    { "id": "heartbeat", "beats": [ { "buzz_ms": 70, "gap_after_ms": 120 }, { "buzz_ms": 70, "gap_after_ms": 420 } ] },
+    { "id": "processing", "beats": [ { "buzz_ms": 70, "gap_after_ms": 350 }, { "buzz_ms": 70, "gap_after_ms": 420 } ] },
+    { "id": "end-of-message", "beats": [ { "buzz_ms": 200, "gap_after_ms": 120 }, { "buzz_ms": 140, "gap_after_ms": 120 }, { "buzz_ms": 90, "gap_after_ms": 120 }, { "buzz_ms": 50, "gap_after_ms": 420 } ] }
+  ],
+  "prefix": { "mark": "ziv", "tails": { "message": "double-tap", "reminder": "triple-pulse", "error": "long-buzz" } },
+  "kinds": {
+    "message": { "cue": "double-tap", "tail": "double-tap" },
+    "reminder": { "cue": "triple-pulse", "tail": "triple-pulse" },
+    "error": { "cue": "long-buzz", "tail": "long-buzz" },
+    "system": { "cue": "heartbeat", "tail": "heartbeat" }
+  },
+  "profiles": {
+    "six_actuator": { "encoding": "chord" },
+    "single_actuator": { "encoding": "slots", "slot_ms": 60, "slot_gap_ms": 40, "column_gap_ms": 100, "order": [1, 2, 3, 4, 5, 6] }
+  }
+}

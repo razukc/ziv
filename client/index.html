@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Ziv web renderer</title>
+<link rel="stylesheet" href="{{APP_CSS}}">
+</head>
+<body>
+<header>
+  <h1>Ziv web renderer</h1>
+  <p class="role">A foreground device renderer and operator view (profile <code>single_actuator</code>). The native phone app is the wearer's renderer; this page is the reference web implementation of the same contract.</p>
+  <p class="notice" role="note" id="vibrate-note"><strong>This page vibrates only while it is visible.</strong> Browsers do not vibrate a hidden page: when you switch tabs or lock the screen, playback stops and the relay is told so it can resend.</p>
+</header>
+
+<main>
+  <section aria-labelledby="h-start">
+    <h2 id="h-start">Start</h2>
+    <p>
+      <label for="relay-url">Relay URL</label>
+      <input id="relay-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://relay.example">
+    </p>
+    <p>
+      <label for="device-key">Device key</label>
+      <input id="device-key" type="text" autocomplete="off" spellcheck="false" placeholder="paste a device key, or enroll below">
+    </p>
+    <p><button id="start" type="button" class="primary">Start</button></p>
+    <details>
+      <summary>Enroll this browser as a device</summary>
+      <p>
+        <label for="enroll-code">Enroll code (from the console)</label>
+        <input id="enroll-code" type="text" autocomplete="one-time-code" inputmode="text" spellcheck="false" maxlength="12">
+      </p>
+      <p>
+        <label for="device-name">Device name</label>
+        <input id="device-name" type="text" autocomplete="off" maxlength="40" placeholder="web renderer">
+      </p>
+      <p><button id="enroll" type="button">Enroll</button></p>
+      <p id="enroll-msg" aria-live="polite"></p>
+    </details>
+  </section>
+
+  <section aria-labelledby="h-status">
+    <h2 id="h-status">Status</h2>
+    <p id="status" aria-live="polite">not connected · not started</p>
+    <p id="phase-live" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+  </section>
+
+  <section aria-labelledby="h-now">
+    <h2 id="h-now">Playing now</h2>
+    <p id="from" class="from"></p>
+    <p id="words" class="words" aria-label="Current words"></p>
+    <div class="controls" role="group" aria-label="Wearer controls">
+      <button id="ctl-stop" type="button">Stop</button>
+      <button id="ctl-replay" type="button">Replay</button>
+      <button id="ctl-replay-word" type="button">Replay word</button>
+      <button id="ctl-skip" type="button">Skip word</button>
+      <button id="ctl-advance" type="button" class="primary">Advance</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-prefs">
+    <h2 id="h-prefs">Preferences</h2>
+    <p>
+      <label for="pace">Pace: silence between cells <output id="pace-out" for="pace">—</output></label>
+      <input id="pace" type="range" min="250" max="700" step="10" value="420">
+    </p>
+    <p>
+      <input id="advance-tap" type="checkbox">
+      <label for="advance-tap">Wait for my tap before the next message (otherwise the next one starts by itself)</label>
+    </p>
+    <p>
+      <input id="history-on" type="checkbox">
+      <label for="history-on">Keep a list of played messages for this session (in memory only, cleared on reload)</label>
+    </p>
+  </section>
+
+  <section aria-labelledby="h-compose">
+    <h2 id="h-compose">Compose</h2>
+    <p>
+      <label for="compose">Reply with words (letters a to z; digits are spelled out)</label>
+      <input id="compose" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="500">
+    </p>
+    <p>
+      <input id="compose-reply" type="checkbox" checked>
+      <label for="compose-reply">In reply to the last played message</label>
+    </p>
+    <p><button id="compose-send" type="button" class="primary">Send</button></p>
+    <p id="compose-msg" aria-live="assertive"></p>
+  </section>
+
+  <section id="history-section" aria-labelledby="h-history" hidden>
+    <h2 id="h-history">Played this session</h2>
+    <ol id="history" reversed></ol>
+  </section>
+
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">Wire log</h2>
+    <p class="hint">Frame types and ids only, never message text. The last 100 lines.</p>
+    <pre id="log" tabindex="0" aria-label="Wire log"></pre>
+  </section>
+</main>
+<script type="module" src="{{APP_JS}}"></script>
+</body>
+</html>
