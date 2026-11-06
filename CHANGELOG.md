@@ -14,6 +14,27 @@ pre-release phase, so milestones are tagged `pre-v0.1.x` until the public
 
 ## [Unreleased] — the repo becomes Ziv-only
 
+- **The repository is the product, not the submission** — every hackathon-era
+  artifact left the tree: the Devpost drafts and upload checklist, the judge
+  repro guide and its PDF, the honesty changelog, the demo script, the
+  hosted-relay and Render recipes, the demo-VM deploy scripts, Caddyfile and
+  systemd unit, the VM runbooks, the recording and gallery scripts, the
+  thumbnail and social-preview generators, the recovery-session reports, and
+  the stale relay-v0 static band under `agent/public/`. What stayed was
+  reframed: the README now leads with the channel and a built/next table,
+  the plan's TL;DR, flows and milestones no longer speak to a track (§6 and §8
+  are retired stubs so §7–§12 citations elsewhere stay valid), the roadmap is
+  organised by channel / phone / wrist / relay, the outreach letters describe
+  an early prototype rather than a submission, and the issue templates no
+  longer point at a demo video. `scripts/demo_preflight.sh` became
+  `scripts/relay_preflight.sh` (a hand-over gate, not a take gate; its
+  messages say `PREFLIGHT BLOCKED`), the liveness probe defaults to the local
+  relay instead of the demo VM, and the "judge key" is the bring-your-own-key
+  panel in code comments and test names — the behaviour is unchanged. The
+  manifest contract test pins the product name and one-liner directly instead
+  of reading them out of the deleted gallery script. The client's inline
+  comments changed, so the shell cache moved to `ziv-phone-band-v21`.
+
 - **A composed line now fits the band, and health reads as evidence** — the
   model's answer was sliced by the cell player, so a 13-letter line ("drink
   water now") played 12 cells and lost its final `w` without a word. The relay
