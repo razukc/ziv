@@ -120,7 +120,7 @@ def test_every_button_is_wired_and_the_dead_screens_are_gone():
         )
 
 
-def test_the_judge_key_panel_is_one_shot_and_not_stored():
+def test_the_byok_key_panel_is_one_shot_and_not_stored():
     """BYOK is a single request, not a saved credential: a collapsed panel,
     a password field, one route call, and no browser storage of the key."""
     html = _source()
@@ -137,5 +137,5 @@ def test_the_judge_key_panel_is_one_shot_and_not_stored():
     for line in js.splitlines():
         if "byokKey" in line:
             assert "localStorage" not in line and "sessionStorage" not in line, (
-                "the judge's key must never be written to browser storage"
+                "the caller's key must never be written to browser storage"
             )

@@ -10,10 +10,10 @@ What this is for (from the plan §2.1 deliverable, not restatement):
 
 It never restarts anything, but it is not read-only: it schedules one
 "probe reminder" about 30 s out on the origin it is pointed at and watches
-whether the loop fires it. Run it against the demo origin only when that
+whether the loop fires it. Run it against a live origin only when that
 reminder playing is fine.
 
-Exit codes, so this can gate a demo run:
+Exit codes, so this can gate a hand-over or a deploy:
   0  all three surfaces (/health, /ready, /control) report the loop running
   1  at least one surface reports the loop NOT running
   2  a surface could not be read, so liveness cannot be proven (fails closed)
@@ -25,7 +25,7 @@ The default run is a cheap smoke: it schedules the reminder and checks the
 loop state. ``--wait-for-fire`` instead waits for the loop to take that
 reminder and record a new ``last_fire_at``, and refuses to schedule at all
 unless a band is attached and idle (nothing queued, empty inbox) — otherwise
-the reminder would queue behind the take and replay over it.
+the reminder would queue behind a real turn and replay over it.
 """
 from __future__ import annotations
 
@@ -38,8 +38,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-# Public origin, not the raw port: :8787 is no longer exposed (only Caddy's 80/443).
-RELAY: str = os.environ.get("ZIV_RELAY", "https://35-224-56-20.sslip.io")
+# Defaults to the local dev relay; point ZIV_RELAY at a hosted origin to probe it.
+RELAY: str = os.environ.get("ZIV_RELAY", "http://127.0.0.1:8787")
 TOKEN: str = os.environ.get("ZIV_RELAY_TOKEN", "")
 
 
@@ -93,14 +93,14 @@ def probe(*, wait_for_fire: bool = False, fire_in: int = 30,
     out["gate_queue"] = health.get("gate_queue")
 
     # Refuse before scheduling when the gate would fail anyway: a scheduled
-    # reminder with no loop to take it would fire later, possibly mid-demo.
+    # reminder with no loop to take it would fire later, possibly mid-turn.
     if wait_for_fire:
         if not (out["loop_running"] and out["ready_loop_running"]
                 and out["control_loop_running"]):
             out["skipped"] = "loop_not_running"
             return out
         # Waiting without a band would store the reminder in the inbox, and
-        # a backlog would queue it behind the take.
+        # a backlog would queue it behind a real turn.
         if not out["devices"]:
             out["skipped"] = "no_device_attached"
             return out
@@ -145,7 +145,7 @@ def _cancel_if_alone(reminder_id: Any) -> bool:
     """Cancel the probe reminder if it is the only one pending.
 
     There is no per-id cancel route, so this refuses to touch a schedule that
-    holds anyone else's reminders. With a clean demo origin the probe's row is
+    holds anyone else's reminders. With a clean origin the probe's row is
     alone and a failed gate leaves nothing behind to fire later.
     """
     listed = _req("GET", "/api/ziv/schedule")
@@ -239,7 +239,7 @@ def gate(out: dict[str, Any]) -> tuple[int, str]:
         if not out.get("reminder_cleared"):
             tail = (" (the probe reminder was canceled)"
                     if out.get("cleaned_up") else
-                    " (it is still pending; clear it before the demo)")
+                    " (it is still pending; clear it before handing the relay over)")
             return 3, ("probe reminder stayed scheduled past its fire time; "
                        "the loop is not taking due work" + tail)
         if not out.get("fired"):
@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--wait-for-fire", action="store_true",
         help="wait for the probe reminder to fire and require a new fire "
-             "stamp; use this as a pre-demo gate")
+             "stamp; use this as a pre-flight gate")
     parser.add_argument(
         "--fire-in", type=int, default=30, metavar="SECONDS",
         help="schedule the probe reminder this far ahead (default: 30)")

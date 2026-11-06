@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Pre-flight gate for a Ziv demo take: stop before the run if the relay's
-# always-on schedule loop cannot fire a reminder.
+# Pre-flight gate for a Ziv relay: refuse to hand the relay to a wearer if
+# its always-on schedule loop cannot fire a reminder.
 #
 # Start the relay and wake the band page first, then from the repo root:
-#   bash scripts/demo_preflight.sh
+#   bash scripts/relay_preflight.sh
 #
-# Against the deployed origin instead of the local relay:
-#   ZIV_RELAY=https://35-224-56-20.sslip.io bash scripts/demo_preflight.sh
+# Against a hosted origin instead of the local relay:
+#   ZIV_RELAY=https://relay.example.org bash scripts/relay_preflight.sh
 #
 # The probe is not read-only: it schedules one "probe reminder" ~10 s out and
 # this script waits for the loop to take it and stamp a new ``last_fire_at``
 # (with an idle band, after the reminder's full turn). It refuses before
 # scheduling when the loop is not running, no band is attached, or the band is
-# not idle, so a failed gate does not leave a reminder to replay over the take.
+# not idle, so a failed gate does not leave a reminder to replay over a real turn.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,19 +53,19 @@ case "$rc" in
 		echo "preflight passed - the loop is running and fired the probe reminder" >&2
 		;;
 	1)
-		echo "DEMO BLOCKED: a surface reports the schedule loop stopped." >&2
+		echo "PREFLIGHT BLOCKED: a surface reports the schedule loop stopped." >&2
 		echo "Restart the relay (systemctl restart ziv-relay on the VM, or restart ziv_server.py), then re-run." >&2
 		;;
 	2)
-		echo "DEMO BLOCKED: the relay could not be read at $ORIGIN." >&2
-		echo "Start it, or point ZIV_RELAY at the origin you are demoing on." >&2
+		echo "PREFLIGHT BLOCKED: the relay could not be read at $ORIGIN." >&2
+		echo "Start it, or point ZIV_RELAY at the origin you are checking." >&2
 		;;
 	3)
-		echo "DEMO BLOCKED: the loop says it is running but no fire was proven." >&2
+		echo "PREFLIGHT BLOCKED: the loop says it is running but no fire was proven." >&2
 		echo "Attach and wake the band, clear its queue/inbox, resume a paused loop, then re-run." >&2
 		;;
 	*)
-		echo "DEMO BLOCKED: the probe exited $rc." >&2
+		echo "PREFLIGHT BLOCKED: the probe exited $rc." >&2
 		;;
 esac
 exit "$rc"

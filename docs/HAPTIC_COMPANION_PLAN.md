@@ -1,14 +1,14 @@
 # Concept + MVP Plan — Ziv (working title), a Haptic AI Companion for Deaf-Blind Users
 
-Concept and build plan for the **Personal AI track** submission. This doc
-records the pivot decision, the problem, the device concept, the interaction
-design, the architecture, and the MVP scope — it defines the build, it does
-not contain it.
+Concept and build plan for the product. This doc records the direction
+decision, the problem, the device concept, the interaction design, the
+architecture, and the MVP scope — it defines the build, it does not contain
+it.
 
-**Decision (Sep 7, 2026):** the second submission is the deaf-blind haptic
+**Decision (Sep 7, 2026):** the product is the deaf-blind haptic
 companion — **Ziv** (working title) — not the general push-to-talk pin. The direction was chosen from
-[CAPABILITIES.md](./CAPABILITIES.md) problem candidates + the MimiClaw/Pi Pin
-hardware research in [MIMICLAW_PIPIN_RESEARCH.md](./MIMICLAW_PIPIN_RESEARCH.md),
+the `CAPABILITIES.md` problem candidates + the MimiClaw/Pi Pin hardware
+research note (`MIMICLAW_PIPIN_RESEARCH.md`; both local, not in the repo),
 then pivoted to this accessibility angle. Facts below were captured Sep 5–7,
 2026 from vendor docs, source trees, and reviews, with sources linked. Claims
 we could not verify are listed under
@@ -24,32 +24,30 @@ rather than asserted.
   world (speech → braille on the skin) and *converse* through it, powered by
   **Nemotron-3-Nano-Omni on Nebius Token Factory**. One model hears; the user's
   skin is the display.
-- **This repository is the submission artifact:** the built core of Ziv, demoed
-  as a **phone-based prototype for the hackathon**. The built things are proven;
-  the wrist hardware is designed, de-risked, and deliberately deferred — not
-  claimed for this submission. See [What is built / what is scoped](#what-is-built--what-is-scoped)
-  in the README for the exact line — that table is the honest claim for this
-  submission.
-- **Why the phone is the right submission shape:** it renders the relay's turns
+- **Where the build stands:** the built core of Ziv runs today as a
+  **phone-based prototype**. The built things are proven; the wrist hardware
+  is designed, de-risked, and deliberately deferred. See
+  [What is built / what is next](../README.md#what-is-built--what-is-next)
+  in the README for the exact line.
+- **Why the phone is the right first shape:** it renders the relay's turns
   through the Android Vibration API with the *same* timing derivation as the
   firmware (zero hand-copied numbers), so the demo feels the real channel. The
   wrist device (ESP32-S3 + DRV2605L + 6 LRA motors + 6 chord keys + hardware-
   gated mic + LiPo, ~$40 BOM) is the next revision.
-- **Why this wins the track:** it satisfies the full two-part sentence —
-  always-on (relay + heartbeat + scheduled jobs), private (haptic output is
-  private by physics; memory on flash; wearer-hosted relay next revision),
-  persistent memory, reusable skills, daily tasks — with **≥1 NVIDIA open model**
-  (Omni + Nano) doing real work. Impact and Idea criteria are the strongest we
-  can reach: no existing product pairs haptic braille with an always-on agent.
-- **Why it's buildable for the hackathon:** the phone carries the output channel
+- **What the product promises:** always-on (relay + heartbeat + scheduled
+  jobs), private (haptic output is private by physics; memory on flash;
+  wearer-hosted relay next revision), persistent memory, daily tasks — with
+  open models (Omni + Nano) doing real work. No existing product pairs haptic
+  braille with an always-on agent.
+- **Why it's buildable:** the phone carries the output channel
   and the Omni audio-in path already works end to end from the phone mic
   (`/inject/audio`, the Omni spike); the wrist hardware removes the hardest
   problems of the general voice pin. No speaker → no echo cancellation, no
   wake word, no TTS path.
 - **Week-1 spike gate:** one voice clip from the phone → Token Factory Omni →
   reply text → vibro-braille pattern on the phone's vibration motor, end to
-  end. If that works, the submission is solid; if not, the keyless stub is the
-  demo path and the relay code is still the real thing.
+  end. If that works, the voice path is real; if not, the keyless text path is
+  the floor and the relay code is still the real thing.
 
 ---
 
@@ -66,9 +64,9 @@ rather than asserted.
 
 What carries over unchanged from the research note: the board-selection table
 (N16R8-class boards, §5 there), the `mimi_config.h` compile-time base-URL
-caveat and the Nebius hosted-API surface facts (§4 there), the track criteria
-and Stage One gate (§7 there), and SkillForge's reusable patterns (streaming,
-auto-retry, telemetry, hermetic tests, mock mode). What is superseded: §7's
+caveat and the Nebius hosted-API surface facts (§4 there), and SkillForge's
+reusable patterns (streaming, auto-retry, telemetry, hermetic tests, mock
+mode). What is superseded: §7's
 "submit B" recommendation and the Route C duplex plan — see §3 for why C's
 hard problems disappear here.
 
@@ -81,7 +79,7 @@ hard problems disappear here.
 3. **Ten names screened** — Ziv (cleanest), Boaz (clean), Razu (clean), Tov (TOV Furniture holds marks); later probes rejected: Viz (Viz.ai, a $1.2B AI-healthcare company with FDA-cleared "Viz" products; EZVIZ in class 9), Buz (Neosensory Buzz — a shipped haptic wrist wearable for deaf users; same category, same audience, phonetic twin), A2Z (on Amazon's own trademark list, next to the A-to-Z Guarantee; the most generic surface of the ten, and its digit forces a number-sign cell into the mark). The pattern after ten names: every sensory-feeling word is already claimed inside this industry; the arbitrary personal names are the ones that stay clean. (The alphabet-span idea survives as a name for the device's braille-teaching mode, not the product.)
 4. **The rule the trail produced: the mark is the name; the word is a handle.** The word is chosen by cost, not meaning — legal cleanliness, sayability for the sighted-hearing people who buy and install the device, and braille agreement (the word's spelling is exactly what the mark plays). Meaning is the mark's job. Arbitrary personal signs, not descriptive labels, remain the cultural anchor — people in Deaf/DeafBlind communities are identified by name signs and tactile name cues, felt patterns rather than descriptions (sources under Sources).
 5. **The word: *Ziv* (working title)** — Hebrew "radiance"; one syllable; Z-I-V = heavy-light-heavy, the identical felt identity Raz had, with none of its collisions (spec in §4).
-6. **The community holds final naming authority.** In DeafBlind practice, name marks are given by the community, not self-declared. The submission ships under "Ziv (working title)"; the week-6 braille-reader sessions (§7, §9) formally validate the mark and the word — or rename the device.
+6. **The community holds final naming authority.** In DeafBlind practice, name marks are given by the community, not self-declared. The product ships under "Ziv (working title)"; the week-6 braille-reader sessions (§7, §9) formally validate the mark and the word — or rename the device.
 
 ---
 
@@ -95,7 +93,7 @@ DeafBlind Awareness Week statement (ACS 2022 analysis). The population is
 small enough that no mass-market product is built for it, and large enough
 that the gap is real.
 
-**What they need daily** (from the daily-workflow list the track asks for):
+**What they need daily:**
 
 1. **Announcements** — what just happened: a knock, a doorbell, a timer, an
    incoming message, a smoke alarm, a name called across the room.
@@ -118,9 +116,8 @@ that the gap is real.
 channel with an always-on agent.* Consumer "pins" serve eyes and ears; braille
 displays serve eyes but not ears; nothing serves both at once with a brain
 behind it. This combination falls directly out of the stack we already have —
-an omni-modal NVIDIA model that hears, and a $5 haptic driver that speaks
-braille — which is exactly the "combinations only this stack enables" method
-CAPABILITIES.md prescribes.
+an omni-modal open model that hears, and a $5 haptic driver that speaks
+braille.
 
 **Privacy note (this is a feature, not a footnote):** a haptic output channel
 is **private by physics**. Nobody sees a screen, nobody overhears a speaker;
@@ -266,12 +263,12 @@ gate release, wired to the queue gate, and the e2e suite proves the order —
 a relay bug that skips the wait or closes what never played crashes in the
 seam instead of reaching the wrist (invariant 5, enforced structurally).
 
-### The four flows (demo-shaped)
+### The four flows
 
 1. **The morning brief.** Overnight, a scheduled relay job checked the calendar and email. At 8:00 the wearer feels the name mark, then a double-tap: new message. They press read: the phone plays *"9 AM — nurse visit. 2 PM — pharmacy refill."* They reply by text. Thirty seconds, nothing seen or heard by anyone else.
-2. **The conversation.** A sighted friend leans in: *"The taxi's here — should we go?"* The friend speaks into the phone's mic; the speech goes to Omni; the reply vibrates onto the phone: *"Taxi arrived. Leave now?"* The wearer replies by text. **Honest scope note:** in this submission the friend reads the reply as text on their own phone — the relay pushes it to them — because there is no speaker in the room. Spoken replies are v2 (TTS), not this submission. One party hears, the other feels, and the room perceives nothing. The demo must *show* the friend's side rather than leave it to the room to guess.
+2. **The conversation.** A sighted friend leans in: *"The taxi's here — should we go?"* The friend speaks into the phone's mic; the speech goes to Omni; the reply vibrates onto the phone: *"Taxi arrived. Leave now?"* The wearer replies by text. **Honest scope note:** today the friend reads the reply as text on their own phone — the relay pushes it to them — because there is no speaker in the room. Spoken replies are v2 (TTS), not built. One party hears, the other feels, and the room perceives nothing.
 3. **Ambient check on demand.** Long-press → the phone mic opens for 5 seconds *only because the wearer chose it* → *"Someone knocked twice. Your timer is ringing."* Privacy-consistent: no always-on listening, ever — this prototype is push-to-talk through the phone mic; hardware gating is a wrist-device property (next revision).
-4. **The agent task.** The wearer asks by text *"remind pills 9pm"*. At 9pm a triple pulse arrives unprompted, then *"Pills."* The track's "acts while you're away" beat, proven by the overnight cron log.
+4. **The agent task.** The wearer asks by text *"remind pills 9pm"*. At 9pm a triple pulse arrives unprompted, then *"Pills."* The relay acts while the wearer is away, proven by the schedule log.
 
 ---
 
@@ -326,7 +323,7 @@ model calls, memory, cron.
 backend already owns the hard parts a Ziv relay would want — SSE event
 machinery, bounded retry with backoff, a thread-safe capped telemetry ring,
 and a fake-model harness used by the hermetic tests. Those reusable pieces were
-extracted into a small shared core at `agent/ports.py` (no robot-track imports),
+extracted into a small shared core at `agent/ports.py` (no SkillForge imports),
 and a placeholder relay module was created at `agent/ziv_relay.py` as the
 *seam* a future Ziv relay would implement — it documents the adapter contract
 (``is_ready`` + ``run_turn``) and imports the shared layer, but is **not**
@@ -339,55 +336,36 @@ FreeRTOS tasks, and haptic cells.
 **Model routing (cost-aware autonomy, carried from SkillForge):** voice turns
 → Omni (only when audio arrived); plain text turns → Nano-30B-A3B; a
 per-device daily token budget with automatic degradation to the cheaper model
-— the always-on economics the track's Run layer asks for. Omni pricing on TF
+— the always-on economics a 24/7 relay needs. Omni pricing on TF
 ⚠ ~$0.06 in / $0.24 out per 1M tokens per third-party trackers — verify on
 the TF model page.
 
 **Always-on (Run):** the relay is the 24/7 presence (heartbeat + scheduled
 jobs via Nebius Serverless Jobs or a long-running container); the device
-sleeps between events and wakes on button/capture/WiFi activity. The demo
-must show a scheduled job firing while nobody touches anything.
+sleeps between events and wakes on button/capture/WiFi activity. A scheduled
+job must fire while nobody touches anything.
 
-**Assemble / Secure / Run mapping for this build:**
+**Assemble / Secure / Run — how the build divides:**
 
 | Verb | This build |
 |---|---|
 | **Assemble** | memory on flash (SOUL/MEMORY), skills as markdown files the agent can load, the WS gateway as the chosen channel, Omni+Nano as the routed model pair |
-| **Secure** | per-device key + device allow-list on the relay (the "agent only answers me" beat, from MimiClaw's own P1 TODO); relay egress allow-list (only Token Factory hosts); mic is hardware-gated (no always-on capture); haptic channel leaks nothing |
+| **Secure** | per-device key + device allow-list on the relay ("the agent only answers me", from MimiClaw's own P1 TODO); relay egress allow-list (only Token Factory hosts); mic is hardware-gated (no always-on capture); haptic channel leaks nothing |
 | **Run** | relay heartbeat + scheduled jobs on Nebius; device deep-sleep between events; cost-aware model routing |
 
 ---
 
-## 6. Track mapping — why this satisfies the full sentence
+## 6. (retired)
 
-- **Always-on:** relay-side heartbeat + scheduled jobs (provable in the demo:
-  a reminder the wearer receives as a buzz they didn't ask for at that
-  moment).
-- **Private / data under control:** memory on device flash; self-hosted
-  relay on our Nebius account; no third-party messaging channel in the
-  critical path; the haptic output is the strongest privacy claim available —
-  **private by physics**.
-- **Persistent memory + reusable skills:** MimiClaw-style flash memory;
-  skills as markdown the agent loads (the Hermes SKILL.md pattern, adapted).
-- **Tools and channels of the wearer's choosing:** braille chords + mic +
-  WS gateway; integrations (calendar, reminders) added as relay tools.
-- **≥1 NVIDIA open model:** two, doing real work — Omni hears, Nano reasons.
-- **Nebius tooling for assemble/secure/run:** Token Factory (Run), Serverless
-  Jobs/Endpoints (Run), the relay's egress allow-list + device allow-list
-  (Secure, mirroring OpenShell's policy-as-code posture), skills + memory
-  (Assemble).
-- **Impact/Idea:** a $37 device against a $1,500–$12,000 device class, for a
-  population nothing else is built for, with a channel nobody else uses.
-
-Stage One fit: this is a genuine attempt at the track's stated goal from a
-capability-first analysis, not a rebrand — and the two existing docs
-demonstrate the decision trail.
+This section mapped the plan onto a hackathon track's judging criteria. It is
+retired; the product promises it listed live in the TL;DR. The number is kept
+so that §7–§12 citations elsewhere in the repo stay valid.
 
 ---
 
 ## 7. MVP scope + 8-week milestones
 
-**MVP definition (the demoable bar):** a wearer receives a message as
+**MVP definition (the bar):** a wearer receives a message as
 vibro-braille, replies by braille chords, a sighted helper speaks to the pin
 and the wearer reads the answer, and a scheduled job buzzes unprompted. No
 screen, no sound, no phone in the loop.
@@ -401,44 +379,23 @@ screen, no sound, no phone in the loop.
 | 5 | scheduled jobs + heartbeat + attention vocabulary; battery + deep-sleep polish | unprompted buzz demo; overnight runtime measured |
 | 6 | usability pass with braille readers (sighted-proxy protocol, see §9); speed + pattern tuning; naming-validation session ([NAMING_VALIDATION_PROTOCOL.md](./NAMING_VALIDATION_PROTOCOL.md)) | reading-speed target met or scoped; mark + word validated, or rename queued |
 | 7 | hardening: reconnect logic, error patterns, mock mode, hermetic relay tests, telemetry | test suite green; failure modes behave |
-| 8 | demo video (≤3 min), Devpost write-up, repo polish, license/README | submission |
+| 8 | release polish: recorded walkthrough, README, license, first tagged release | `0.1.0` |
 
 **Fallback ladder (decided in advance, not improvised):** if the week-1 spike
 fails → ship the text-agent floor (Route A: WS gateway + Nano-30B-A3B +
 vibro-braille of *text the agent already has*, no voice) — it still clears
-always-on + memory + NVIDIA model. If Omni audio input proves unusable on TF
+always-on + memory + a live model. If Omni audio input proves unusable on TF
 → relay-side STT (Whisper-class on a Serverless Endpoint) behind the same
 interface; only the relay changes.
 
 ---
 
-## 8. Demo script (≤3 min video)
+## 8. (retired)
 
-1. **0:00–0:20 — the gap.** Price cards: braille display $4,000, Hable One
-   $349, this device ~$40. One sentence of who it's for.
-2. **0:20–1:10 — the conversation.** A sighted helper speaks to the phone mic
-   ("what's on my calendar today?"); cut to the wearer's phone: vibro-braille
-   playing; the wearer replies by text. **The friend's side is shown honestly:**
-   the reply arrives as text pushed by the relay onto the helper's phone — the
-   friend reads it, there is no speaker in the room. Nobody touched a phone.
-   Show the relay log + Omni call telemetry on screen (Token Factory + NVIDIA
-   open model visible), with the relay log's friend-side text visible so the
-   room can follow the reply.
-3. **1:10–1:50 — always-on.** Show the heartbeat/cron log from overnight; a
-   scheduled reminder buzzes the wearer live on camera; memory file on the relay
-   shown.
-4. **1:50–2:20 — secure.** The device allow-list rejecting an unknown device
-   (the "agent only answers me" beat); relay egress allow-list shown; mic
-   push-to-talk shown — the mic is software-gated on the phone; hardware gating
-   is a wrist-device property (next revision).
-5. **2:20–2:50 — the stack.** Diagram: Omni hears, Nano reasons, Nebius runs;
-   cost-per-turn readout from telemetry.
-6. **2:50–3:00 — the ask.** "Private by physics" closing line.
-
-The one thing this demo must not imply: the helper does **not** hear the wearer's
-reply. The reply reaches the helper as text on their phone (relay push) — the
-spoken-reply path is v2 (TTS), not this submission. The demo shows the friend's side
-rather than leaving it to the room to guess.
+This section was the storyboard for a three-minute hackathon video. It is
+retired. One rule from it survives as a product invariant and is restated in
+§4's conversation flow: the helper never hears the wearer's reply — it reaches
+them as text on their own phone until a spoken-reply path (TTS) is built.
 
 ---
 
@@ -446,7 +403,7 @@ rather than leaving it to the room to guess.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **Vibro-braille learnability** — reading temporal braille on 6 motors is unproven at product level (research prototypes exist: V-Braille, HoliBraille, BrailleBand; none shipped) | **highest** | treat as a research question, not a certainty: week-2 bench tests with sighted blindfolded proxies first, then braille-reader sessions via community orgs (HKNC regional reps, NFB chapters); publish the protocol; Grade 1 only; make pacing/speed a first-class control. **No clinical or efficacy claims anywhere in the submission** — the claim is "a working prototype of a new channel," not therapy. |
+| **Vibro-braille learnability** — reading temporal braille on 6 motors is unproven at product level (research prototypes exist: V-Braille, HoliBraille, BrailleBand; none shipped) | **highest** | treat as a research question, not a certainty: week-2 bench tests with sighted blindfolded proxies first, then braille-reader sessions via community orgs (HKNC regional reps, NFB chapters); publish the protocol; Grade 1 only; make pacing/speed a first-class control. **No clinical or efficacy claims anywhere in the project** — the claim is "a working prototype of a new channel," not therapy. |
 | Motor choice — LRAs give crisp dots but need per-unit tuning; ERMs are mushy | medium | DRV2605L's effect library + auto-calibration handles LRA tuning; ERM fallback acceptable for MVP ⚠ |
 | Omni audio-input payload format on TF unverified | medium | week-1 spike answers it; fallback = relay-side Whisper-class STT (§7 ladder) |
 | Latency: capture + upload + Omni + playback must feel conversational | medium | budget ≈ clip length + 2–5 s (Route B anchor); keep clips short; stream text cells as they arrive if Omni streams |
@@ -462,8 +419,8 @@ rather than leaving it to the room to guess.
 2. **Chord-input learnability** — chords assume braille literacy; not every deaf-blind person reads braille ⚠. *Exercise:* the same week-2 bench covers input. *Fallback:* a 3-button mode (read / stop / repeat) plus the mic for everything else — the device stays useful input-light.
 3. **Battery** — *exercise:* week-5 overnight runtime measurement. *Fallback:* deep-sleep tuning first, then a charge-cradle routine (the pin lives on a bedside dock at night — which doubles as the morning-brief beat).
 4. **Omni payload format** — *exercise:* the week-1 spike. *Fallback:* relay-side Whisper-class STT behind the same interface (§7 ladder); only the relay changes.
-5. **Cost creep** — *exercise:* BOM re-checked at order time (week 1). *Fallback:* demo on a devkit + hand-wired motors; the enclosure is cosmetic, not functional.
-6. **Caregiver-bridge scope creep** — *exercise:* none (it is a scope risk). *Fallback:* parked to v2 by default (§11); the push-to-friend's-phone flow demos the caregiver value without BLE.
+5. **Cost creep** — *exercise:* BOM re-checked at order time (week 1). *Fallback:* run on a devkit + hand-wired motors; the enclosure is cosmetic, not functional.
+6. **Caregiver-bridge scope creep** — *exercise:* none (it is a scope risk). *Fallback:* parked to v2 by default (§11); the push-to-friend's-phone flow delivers the caregiver value without BLE.
 
 **v2 ideas parked from early-years practice (Sense UK, via Insight — Sources):**
 
@@ -485,9 +442,8 @@ Token Factory's fine-tuning catalog (captured Sep 7, 2026:
 supports **DeepSeek V3/V4, Gemma 4 (E2B/E4B/31B), GPT-OSS 20b/120b, the full
 Qwen3 / 3.5 / 3.6 / Qwen2.5 range, and Llama 3.1/3.2/3.3** — LoRA or full
 fine-tuning, context up to 131,072. **No Nemotron models are in the fine-tuning
-catalog**, so the track's "≥1 NVIDIA open model" requirement is satisfied by
-the *served* Nemotron pair (Omni + Nano), not a fine-tuned one — that's fine;
-the requirement says "use", and two Nemotron models do the core work.
+catalog**, so the served Nemotron pair (Omni + Nano) stays as-is; fine-tuning
+applies only to a small post-processing model.
 
 What the catalog does buy this project:
 
@@ -503,9 +459,8 @@ bottleneck is the haptic channel, not model quality — prompt-level "answer in
 ≤6 short sentences" costs nothing and ships in week 3. But the catalog makes
 a credible stretch story: a LoRA-tuned small model that compresses replies
 into braille-friendly phrasing (and optionally learns the wearer's style)
-is a genuine Technological-Implementation beat, it runs as an occasional
-Serverless Job (fits the credit envelope), and the fine-tuned weights are
-*ours* — which doubles as a data-control argument for the Secure story.
+runs as an occasional Serverless Job, and the fine-tuned weights are *ours*
+— which doubles as a data-control argument.
 
 ## 11. Open questions (verify before scoping)
 
@@ -530,16 +485,16 @@ Serverless Job (fits the credit envelope), and the fine-tuned weights are
       run as batch Jobs — the Llama 3.3 70B row notes "deployment only via
       Dedicated endpoints", which hints adapter serving is possible but is
       not confirmed for LoRA adapters.
-- [ ] **Naming validation (week 6):** does the Z-I-V mark read as *identity*, distinct from message content, or does it need a non-letter signature rhythm? And does the word "Ziv" survive community contact, or do the braille readers rename the device? Name marks are given by communities, not founders — the submission ships under a working title by design; fallback is a pure-rhythm mark that encodes no letters. Session script: [NAMING_VALIDATION_PROTOCOL.md](./NAMING_VALIDATION_PROTOCOL.md) — 45 minutes: teach, measure M1–M4, rename.
+- [ ] **Naming validation (week 6):** does the Z-I-V mark read as *identity*, distinct from message content, or does it need a non-letter signature rhythm? And does the word "Ziv" survive community contact, or do the braille readers rename the device? Name marks are given by communities, not founders — the product ships under a working title by design; fallback is a pure-rhythm mark that encodes no letters. Session script: [NAMING_VALIDATION_PROTOCOL.md](./NAMING_VALIDATION_PROTOCOL.md) — 45 minutes: teach, measure M1–M4, rename.
 - [ ] **Braille literacy of the target wearers:** what share of the target population reads braille ⚠, and does that reshape the input mix (chords vs 3-button vs caregiver relay)? Shapes the week-6 usability pass.
 
 ---
 
 ## 12. Founder pitch (the short version)
 
-Two million Americans live with combined hearing and vision loss; for the ~45–70k at the deaf-blind core, there is no product that tells them what is happening and lets them answer. Braille displays cost $1,500–$12,000 and have no microphone and no agent; braille keyboards are input-only; the research world has played braille through phone vibration for 15 years and shipped nothing — the missing piece was a brain that could hear. That piece now costs fractions of a cent per turn: **Nemotron-3-Nano-Omni on Nebius Token Factory** takes audio in natively, and a **$5 haptic driver** speaks braille. **Ziv** (working title) is a ~$40 wrist pin — six motors in a braille layout, six chord keys, one mic — whose output channel is *private by physics*: nothing to overhear, nothing to glance at. It hears for people who can't hear and speaks braille on their skin, and it stays on when they're away — reminders arrive as rhythm, not as notifications they would never see. Its interaction rules are borrowed from the best practice that serves this population from birth (Sense UK's early-years guidance): every event is announced before it happens, ends with a felt close, and never makes the wearer wait in silence. We have already shipped one agent on this exact NVIDIA/Nebius stack (SkillForge: natural language → costed robot skill pipelines, 86 hermetic tests, live end-to-end); Ziv is the second, pointed at the population nobody else is building for.
+Two million Americans live with combined hearing and vision loss; for the ~45–70k at the deaf-blind core, there is no product that tells them what is happening and lets them answer. Braille displays cost $1,500–$12,000 and have no microphone and no agent; braille keyboards are input-only; the research world has played braille through phone vibration for 15 years and shipped nothing — the missing piece was a brain that could hear. That piece now costs fractions of a cent per turn: **Nemotron-3-Nano-Omni on Nebius Token Factory** takes audio in natively, and a **$5 haptic driver** speaks braille. **Ziv** (working title) is a ~$40 wrist pin — six motors in a braille layout, six chord keys, one mic — whose output channel is *private by physics*: nothing to overhear, nothing to glance at. It hears for people who can't hear and speaks braille on their skin, and it stays on when they're away — reminders arrive as rhythm, not as notifications they would never see. Its interaction rules are borrowed from the best practice that serves this population from birth (Sense UK's early-years guidance): every event is announced before it happens, ends with a felt close, and never makes the wearer wait in silence. Ziv is pointed at the population nobody else is building for.
 
-*This section feeds the Devpost draft ([DEVPOST_HAPTIC.md](../DEVPOST_HAPTIC.md)) and the video's opening and closing lines. It is a pitch, not a claim set: every number traces to §2 or the research note, and §9's no-clinical-claims rule applies.*
+*This is a pitch, not a claim set: every number traces to §2 or the research note, and §9's no-clinical-claims rule applies.*
 
 ---
 
@@ -555,7 +510,7 @@ Two million Americans live with combined hearing and vision loss; for the ~45–
 - Naming / DeafBlind name signs: [Protactile Language, Modality, and Community — Annual Review of Linguistics](https://www.annualreviews.org/content/journals/10.1146/annurev-linguistics-011724-121536) · [MN DOE — tactile name cues vs name signs](https://education.mn.gov/mdeprod/idcplg?IdcService=GET_FILE&dDocName=PROD034266&RevisionSelectionMethod=latestReleased&Rendition=primary) · [interpretereducation.org — ProTactile module](http://www.interpretereducation.org/teaching/classroom-modules/deafblind/instructor-guide/)
 - Early-years practice (invariants + v2 ideas, plan §4/§9): [How to support a child with deafblindness in their early years — Sense UK via Insight](https://insightdeafblind.org/resource/how-to-support-a-child-with-deafblindness-in-their-early-years) (Jan 2025) — consistency and anticipation, cues marking start and end, taking time, wearer control; consulted Sep 12, 2026
 - Naming collisions: [RAZ Mobility](https://www.razmobility.com/) — assistive tech for blind/low-vision users ([Verizon distribution of the RAZ Memory Cell Phone, Jul 2025](https://www.razmobility.com/news/verizon-starts-selling-the-raz-memory-cell-phone-to-help-seniors-and-caregivers/)) · [National Press Club — Robert Felgar speaker bio (RAZ founder; ex-Odin Mobile founder)](https://nationalpress.org/speaker/robert-felgar/) · [Trademarkia — TOV Furniture marks](https://www.trademarkia.com/owners/tov-furniture) · [Neosensory — Buzz/Duo haptic wristband for deaf users](https://neosensory.com/) · [Viz.ai — AI care coordination](https://www.viz.ai/) — ten names screened Sep 7, 2026; screening only, not legal clearance
-- Carried over: [MIMICLAW_PIPIN_RESEARCH.md](./MIMICLAW_PIPIN_RESEARCH.md) (boards, Nebius API surface, route anchors) · [CAPABILITIES.md](./CAPABILITIES.md) (track text, criteria, stack)
+- Carried over (local research notes, not in the repo): `MIMICLAW_PIPIN_RESEARCH.md` (boards, Nebius API surface, route anchors) · `CAPABILITIES.md` (problem candidates, stack)
 
 ## How this doc is used
 
@@ -563,8 +518,7 @@ Two million Americans live with combined hearing and vision loss; for the ~45–
    payload question (§11).
 2. Each milestone updates this doc's status only if scope changes — progress
    logs live in CHANGELOG.md per repo convention.
-3. The §6 mapping and the §12 pitch feed the Devpost draft
-   ([DEVPOST_HAPTIC.md](../DEVPOST_HAPTIC.md)); the §8 script is the video
-   storyboard.
+3. The §12 pitch is the short public description; the README carries the
+   built/next line.
 4. Any claim that can't be sourced stays in §11 or keeps its ⚠ — nothing
-   graduates into the Devpost text unverified.
+   graduates into public text unverified.

@@ -1,8 +1,8 @@
-"""Hermetic coverage for the demo pre-flight gate.
+"""Hermetic coverage for the relay pre-flight gate.
 
-``scripts/demo_preflight.sh`` decides whether a take may start, and the only
+``scripts/relay_preflight.sh`` decides whether a relay is fit to hand over, and the only
 things that make it safe are its exit codes and the promise that a failed gate
-does not leave a probe reminder to play over the demo. Both were proven by
+does not leave a probe reminder to play over a real turn. Both were proven by
 hand against a live origin before this module existed: the pass and each
 refusal path were re-derived in a scratch harness, which is exactly the kind
 of evidence that disappears with the shell that produced it.
@@ -231,7 +231,7 @@ def test_a_proven_fire_passes_and_leaves_no_reminder(gate):
 )
 def test_a_stopped_surface_blocks_before_scheduling(gate, surface, reported):
     """A stopped loop must fail before the POST — a reminder left behind
-    would fire later, possibly mid-take."""
+    would fire later, possibly mid-turn."""
     gate.loop[surface] = False
 
     code, reason, result = _run_gate()
@@ -276,7 +276,7 @@ def test_no_band_attached_fails_before_scheduling(gate):
 
 @pytest.mark.parametrize("field", ["inbox_pending", "gate_queue"])
 def test_a_busy_band_fails_before_scheduling(gate, field):
-    """A backlog would queue the probe behind the take; refuse instead."""
+    """A backlog would queue the probe behind a real turn; refuse instead."""
     setattr(gate, field, 1)
 
     code, reason, result = _run_gate()
@@ -315,7 +315,7 @@ def test_a_stuck_loop_leaves_other_reminders_alone(gate):
     that holds someone else's reminder — even though it then leaves its own
     behind, which the operator has to clear by hand."""
     gate.mode = "never"
-    gate.rows.append({"id": "someone-else", "fire_at": 0, "text": "judge repro"})
+    gate.rows.append({"id": "someone-else", "fire_at": 0, "text": "someone else's reminder"})
 
     code, reason, result = _run_gate()
 
@@ -323,12 +323,12 @@ def test_a_stuck_loop_leaves_other_reminders_alone(gate):
     assert result["cleaned_up"] is False
     assert gate.deletes == 0
     assert {r["id"] for r in gate.rows} == {OURS, "someone-else"}
-    assert "it is still pending; clear it before the demo" in reason
+    assert "it is still pending; clear it before handing the relay over" in reason
 
 
 def test_a_misfire_fails_without_a_new_stamp(gate):
     """Clearing alone is not proof: no band means the reminder goes to the
-    inbox and no fire happens, which is exactly the state a demo must not
+    inbox and no fire happens, which is exactly the state a hand-over must not
     start in."""
     gate.mode = "misfire"
 
@@ -346,7 +346,7 @@ def _run_wrapper(relay_base: str) -> subprocess.CompletedProcess[str]:
     env["ZIV_RELAY"] = relay_base
     env["PYTHON"] = Path(sys.executable).as_posix()
     return subprocess.run(
-        [BASH or "bash", "scripts/demo_preflight.sh"],
+        [BASH or "bash", "scripts/relay_preflight.sh"],
         cwd=_ROOT,
         env=env,
         capture_output=True,
@@ -375,7 +375,7 @@ def test_the_wrapper_maps_a_stopped_loop_to_exit_1(relay):
     done = _run_wrapper(relay.base)
 
     assert done.returncode == 1
-    assert "DEMO BLOCKED: a surface reports the schedule loop stopped." in done.stderr
+    assert "PREFLIGHT BLOCKED: a surface reports the schedule loop stopped." in done.stderr
     assert relay.posts == 0
 
 
@@ -384,7 +384,7 @@ def test_the_wrapper_maps_an_unreadable_relay_to_exit_2():
     done = _run_wrapper(f"http://127.0.0.1:{_closed_port()}")
 
     assert done.returncode == 2
-    assert "DEMO BLOCKED: the relay could not be read at" in done.stderr
+    assert "PREFLIGHT BLOCKED: the relay could not be read at" in done.stderr
 
 
 @pytest.mark.skipif(BASH is None, reason="the wrapper is a bash script")
@@ -394,5 +394,5 @@ def test_the_wrapper_maps_an_unproven_fire_to_exit_3(relay):
     done = _run_wrapper(relay.base)
 
     assert done.returncode == 3
-    assert "DEMO BLOCKED: the loop says it is running but no fire was proven." in done.stderr
+    assert "PREFLIGHT BLOCKED: the loop says it is running but no fire was proven." in done.stderr
     assert relay.posts == 0

@@ -1062,7 +1062,7 @@ async def compose_with_nebius(prompt: str, *, system: str='',
     string.
 
     ``api_key`` overrides the relay's own key for exactly this call. It is the
-    one-shot judge path: passed in, used once, never assigned to a module
+    one-shot bring-your-own-key path: passed in, used once, never assigned to a module
     global and never stored. Unset means the configured ``NEBIUS_API_KEY``.
     """
     key = api_key or NEBIUS_API_KEY
@@ -1172,7 +1172,7 @@ async def compose_band_line(intent: str, *, api_key: str | None=None) -> str:
       The scheduled path turns that into ``text_echo`` of the intent, so the
       promise still fires and the log names the path it took.
 
-    ``api_key`` is the one-shot judge credential, used for every attempt and
+    ``api_key`` is the one-shot caller-supplied credential, used for every attempt and
     never stored.
     """
     cap = _COMPOSE_LETTERS
@@ -1667,13 +1667,13 @@ async def compose_once(body: dict[str, Any], authorization: str | None = Header(
                        x_ziv_session: str | None = Header(default=None)) -> JSONResponse:
     """One live model compose paid for by the caller's own key.
 
-    The judge pastes a Nebius Token Factory key in the console; the browser
+    The operator pastes a Nebius Token Factory key in the console; the browser
     sends it in ``X-Nebius-Key`` for this request only. The key is used for
     exactly one provider call, never written to the environment, the stores,
     the logs or health, and scrubbed from any provider text before it is
     returned. The model's line then takes the ordinary turn path on the
-    caller's own band, labelled ``text_live`` — the proof a scheduled intent
-    gives, without needing the relay owner's credit.
+    caller's own band, labelled ``text_live`` — the same proof a scheduled
+    intent gives, without spending the relay owner's credit.
 
     This is deliberately one-shot: a key supplied now is not attached to a
     reminder that fires later, because that would mean holding a stranger's

@@ -1765,7 +1765,7 @@ def test_a_compose_that_never_fits_fires_the_intent_verbatim(client, monkeypatch
 
 
 def test_byok_compose_refuses_an_overlong_line(client, monkeypatch):
-    """The judge path holds the same cap: 502 too_long, nothing played.
+    """The BYOK path holds the same cap: 502 too_long, nothing played.
 
     A borrowed key does not buy a truncated line either, and both attempts
     spend exactly that key.
@@ -1805,15 +1805,15 @@ def test_byok_compose_refuses_an_overlong_line(client, monkeypatch):
     r = client.post(
         "/api/ziv/compose",
         json={"intent": "tell me to drink"},
-        headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-long"},
+        headers={"X-Nebius-Key": "byok-key", "X-Ziv-Session": "byok-long"},
     )
     assert r.status_code == 502
     body = r.json()
     assert body["ok"] is False
     assert body["error"] == "too_long"
     assert "drink water" not in r.text
-    assert "judge-key" not in r.text
-    assert used == ["Bearer judge-key"] * 3
+    assert "byok-key" not in r.text
+    assert used == ["Bearer byok-key"] * 3
     # Nothing was composed, so nothing was played on the band.
     assert client.get("/api/ziv/health").json()["gate_queue"] == 0
 
@@ -3018,9 +3018,9 @@ def test_byok_compose_requires_a_key_and_never_calls_out(client):
     assert "X-Nebius-Key" in r.json()["detail"]
 
 
-def test_byok_compose_uses_the_judges_key_and_plays_on_that_band(client, monkeypatch):
+def test_byok_compose_uses_the_callers_key_and_plays_on_that_band(client, monkeypatch):
     """The one-shot path is the agent path with a borrowed credential: the
-    request carries the judge's key, the relay's key is never touched, and
+    request carries the caller's key, the relay's key is never touched, and
     the composed line plays only on the caller's band."""
     captured = {}
 
@@ -3061,17 +3061,17 @@ def test_byok_compose_uses_the_judges_key_and_plays_on_that_band(client, monkeyp
             r = client.post(
                 "/api/ziv/compose",
                 json={"intent": "meds at nine"},
-                headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-a"},
+                headers={"X-Nebius-Key": "byok-key", "X-Ziv-Session": "byok-a"},
             )
             assert r.status_code == 200
             body = r.json()
             assert body["ok"] is True
             assert body["source"] == "text_live"
             assert body["text"] == "Take meds"
-            assert captured["headers"]["Authorization"] == "Bearer judge-key"
+            assert captured["headers"]["Authorization"] == "Bearer byok-key"
             assert captured["json"]["model"] == zs.ZIV_TEXT_MODEL
             assert zs.NEBIUS_API_KEY == "server-key"
-            assert "judge-key" not in r.text
+            assert "byok-key" not in r.text
             # One-shot, not scheduled: no reminder survives the call.
             assert client.get("/api/ziv/schedule").json()["reminders"] == []
 
@@ -3098,15 +3098,15 @@ def test_byok_compose_uses_the_judges_key_and_plays_on_that_band(client, monkeyp
                     other.append(frame)
             assert other == []
 
-    assert "judge-key" not in client.get("/api/ziv/health").text
+    assert "byok-key" not in client.get("/api/ziv/health").text
 
 
 def test_byok_compose_passes_the_provider_refusal_without_the_key(client, monkeypatch):
-    """A dead judge key must produce the provider's own reason, never a
+    """A dead caller key must produce the provider's own reason, never a
     generic fallback and never the key itself."""
     class _Resp:
         status_code = 402
-        text = '{"error":{"message":"no credit for judge-key"}}'
+        text = '{"error":{"message":"no credit for byok-key"}}'
 
         def json(self):
             return {}
@@ -3136,7 +3136,7 @@ def test_byok_compose_passes_the_provider_refusal_without_the_key(client, monkey
     r = client.post(
         "/api/ziv/compose",
         json={"intent": "meds at nine"},
-        headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-bad"},
+        headers={"X-Nebius-Key": "byok-key", "X-Ziv-Session": "byok-bad"},
     )
     assert r.status_code == 502
     body = r.json()
@@ -3145,11 +3145,11 @@ def test_byok_compose_passes_the_provider_refusal_without_the_key(client, monkey
     assert body["provider_status"] == 402
     assert "no credit" in body["detail"]
     assert "[redacted]" in body["detail"]
-    assert "judge-key" not in r.text
+    assert "byok-key" not in r.text
     # Nothing was composed, so nothing was queued for the band.
     health = client.get("/api/ziv/health").json()
     assert health["gate_queue"] == 0
-    # A judge's dead key says nothing about the relay's own path: health still
+    # A caller's dead key says nothing about the relay's own path: health still
     # has no evidence either way, rather than blaming the relay's key for it.
     assert health["text"]["available"] is None
     assert health["text"]["last_compose"] is None
@@ -3191,12 +3191,12 @@ def test_byok_compose_never_persists_the_key(client, tmp_path, monkeypatch):
         r = client.post(
             "/api/ziv/compose",
             json={"intent": "meds at nine"},
-            headers={"X-Nebius-Key": "judge-key", "X-Ziv-Session": "byok-p"},
+            headers={"X-Nebius-Key": "byok-key", "X-Ziv-Session": "byok-p"},
         )
         assert r.status_code == 200
 
     for path in tmp_path.rglob("*"):
         if path.is_file():
-            assert "judge-key" not in path.read_text(encoding="utf-8", errors="ignore"), path
-    assert "judge-key" not in client.get("/api/ziv/health").text
+            assert "byok-key" not in path.read_text(encoding="utf-8", errors="ignore"), path
+    assert "byok-key" not in client.get("/api/ziv/health").text
     assert zs.NEBIUS_API_KEY == "server-key"

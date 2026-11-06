@@ -8,24 +8,21 @@ The core principle of every letter here: **you ask for their permission and
 their time, not theirs for yours.** Where Ziv's manners come from their
 published practice, the letter is a credit-note, not a pitch.
 
-**Status (2026-11-03): every link a letter names is public.** The submission
-is live on Devpost with a posted update
-(<https://devpost.com/software/ziv#updates>), the repo is public on `main`,
-the demo is on YouTube at 76 seconds, the feel-tool is up, and the
-Discussions welcome post is pinned. So nothing in these letters depends on an
-attachment being trusted: the demo and the one-pager are offered as a
-courtesy, and the ask stays permission-first. Send in the order below —
+**Status (2026-11-03): every link a letter names is public.** The repo is
+public on `main`, the feel-tool is up, and the Discussions welcome post is
+pinned. So nothing in these letters depends on an attachment being trusted:
+the one-pager is offered as a courtesy, and the ask stays permission-first. Send in the order below —
 Sense UK → HKNC → NFB — one at a time, not a batch.
 
 ## Generic template
 
-**Subject:** A hackathon prototype built on your published practice — may we share what we made?
+**Subject:** An early prototype built on your published practice — may we share what we made?
 
 Dear [Name / team name],
 
 I'm [name], [one-line affiliation, e.g. "a solo developer," or skip
-entirely if you're not affiliated]. At the end of September we finished a
-hackathon prototype — not a product, and not a company — called **Ziv**: a
+entirely if you're not affiliated]. We are building an early prototype — not
+a product yet, and not a company — called **Ziv**: a
 small program that plays a message as braille-rhythm vibration on an Android
 phone, with no audio and no spoken reply. Every message is framed by cues: an
 arrival signal, working taps while the turn runs, and a closing pattern when
@@ -39,8 +36,8 @@ appears in our description, in the code's documentation, and in the README.
 We're writing not to promote anything — the prototype isn't validated with
 DeafBlind readers, we're not fundraising or selling, and we don't expect a
 partnership. We're asking **your advice, and your permission, before we do
-anything more**: if you're open to it, we could send the 76-second demo and
-a written description first, entirely at your discretion, and you'd tell us
+anything more**: if you're open to it, we could send a short demo recording
+and a written description first, entirely at your discretion, and you'd tell us
 whether we should stop here or keep going.
 
 If you'd prefer we not proceed, we'll take that as its answer and stop — no
@@ -66,14 +63,13 @@ message about a prototype, and the nearest one would file a credit-letter as
 a request for support services. Sense UK's media inbox
 (`mediaenquiries@sense.org.uk`, 0203 833 0611) is explicitly media-only.
 
-**Subject:** Thank you — and asking permission, before anything: a hackathon prototype built on your published practice
+**Subject:** Thank you — and asking permission, before anything: an early prototype built on your published practice
 
 Dear Insight team,
 
-I'm [name], a solo developer. At the end of September our hackathon
-prototype — **Ziv**,
+I'm [name], a solo developer. We are building an early prototype — **Ziv**,
 a small program that plays a message as braille-rhythm vibration on an
-Android phone, with no audio output and no spoken reply — was submitted. I'm
+Android phone, with no audio output and no spoken reply. I'm
 writing about one thing before anything else: **the channel's manners were
 adopted from your practice**, not invented by us. The published resource
 "How to support a child with deafblindness in their early years"
@@ -87,7 +83,7 @@ description, and the code comments.
 The prototype is not validated with DeafBlind readers, is not a product, and
 we are not fundraising or selling. We're asking only whether you'd be willing
 to receive — at your discretion, no obligation and with no follow-up pressure
-from us — the 76-second demo and a one-page description, so that if we ever
+from us — a short demo recording and a one-page description, so that if we ever
 say "this built on your work" publicly, it's after you've seen it and know
 exactly what is being described. If you'd rather we proceed no further, one
 short reply is enough and we'll stop here.
@@ -102,14 +98,13 @@ inbox listed on helenkeller.org (voice 516-944-8900 x 1299; 141 Middle Neck
 Road, Sands Point, NY 11050). That page asks for your name, organisation,
 contact details and a brief summary — this letter already carries all four.
 
-**Subject:** A hackathon prototype using your published data — asking permission to share the 76-second demo
+**Subject:** An early prototype using your published data — asking permission to share a short demo
 
 Dear HKNC team,
 
-I'm [name], a solo developer. Our hackathon prototype, submitted at the end
-of September — **Ziv** — plays messages as braille-rhythm vibration on an
-Android
-phone, with no audio output and no spoken reply — used your published
+I'm [name], a solo developer. Our early prototype — **Ziv** — plays
+messages as braille-rhythm vibration on an Android phone, with no audio
+output and no spoken reply — and it used your published
 research as its factual backbone: the ~2.4 million Americans with combined
 hearing and vision loss figure from your DeafBlind Awareness Week 2026
 materials, the finer population estimates from your HKNC data summaries, and
@@ -118,7 +113,7 @@ Keller Services site. Those numbers appear in our description with the
 sources named, each one, because they should be.
 
 Since two of your own publications are part of our argument, we'd like your
-permission before anything goes further: may we email the 76-second demo and
+permission before anything goes further: may we email a short demo recording and
 a one-page description to the same address? The prototype is unvalidated with
 DeafBlind readers, isn't a product, and we aren't fundraising or selling — we
 simply think the organization whose numbers carry our story deserves to see
@@ -146,14 +141,13 @@ address for the Center of Excellence in Nonvisual Access, and the IBTC sits
 under CENA on nfb.org, so the answer may arrive from that team; that is still
 the right desk, not a mis-route.
 
-**Subject:** A non-graded question from an unvalidated prototype — would the IBTC accept a 76-second demo?
+**Subject:** A non-graded question from an unvalidated prototype — would the IBTC accept a short demo?
 
 Dear IBTC team,
 
-I'm [name], a solo developer. Our hackathon prototype, submitted at the end
-of September — **Ziv** — spells text as Grade-1 braille cells played one at
-a time as
-vibration on an Android phone, framed with an arrival cue, working taps, and
+I'm [name], a solo developer. Our early prototype — **Ziv** — spells text
+as Grade-1 braille cells played one at a time as vibration on an Android
+phone, framed with an arrival cue, working taps, and
 a close. Your published Hable One review — "The Hable One: A Quality Braille
 Keyboard for Your Smartphone", by Karl Belanger — was one of the data points
 in our survey, and your technology evaluation expertise is exactly what we're
@@ -161,7 +155,7 @@ missing: our honest claim is "a working prototype of a new channel" — **we
 have no evidence yet that anyone can read it**, no validation session has
 been held, and nothing here is a product.
 
-The only ask: **may we send the 76-second demo and a one-page description to
+The only ask: **may we send a short demo recording and a one-page description to
 this address**, at your discretion and with zero obligation? If anything in
 the assessment seems wrong — the close, the 530–770 ms per-letter pacing, the
 plain cells without word-shape cues — your review would shape what we do
@@ -188,13 +182,11 @@ Yours,
    *receiving a video and granting permission*. If they offer a demo call,
    it's on their schedule. If they suggest a contact within the org, ask
    whether it's all right to reach out yourself rather than routing around.
-4. **Checked before sending (2026-11-03):** the README is public on `main`,
-   the demo is a 76-second YouTube clip, the feel-tool is up, and the Devpost
-   update is posted — so each letter's repo/link reference resolves without
-   an attachment. If you include one link, prefer the Devpost page
-   (<https://devpost.com/software/ziv>) over the bare repo: it reads as a
-   submission, not as source code. Keep it to one — the ask is a video and a
-   one-pager, not a link dump.
+4. **Checked before sending (2026-11-03):** the README is public on `main`
+   and the feel-tool is up — so each letter's repo/link reference resolves
+   without an attachment. If you include one link, prefer the feel-tool over
+   the bare repo: it reads as the thing itself, not as source code. Keep it
+   to one — the ask is a short recording and a one-pager, not a link dump.
 5. **Contact routes checked 2026-11-03, address by address.** Insight (the
    platform hosting the cited resource) — `SI.info@senseinternational.org.uk`,
    its published feedback route. Sense UK's <sense.org.uk/contact-us> is a

@@ -115,7 +115,7 @@ Capture every preference and reason verbatim. **No vote in the room.** Across se
 
 - First names/initials only; notes under docs/sessions/ keyed by participant ID; recordings only with separate consent; deleted on request.
 - n = 3–6 per group: this protocol catches obvious failure and hands over naming authority; it does not prove efficacy, and nothing it produces may be phrased as a clinical or efficacy claim (§9).
-- Participants are told up front that results shape a hackathon prototype.
+- Participants are told up front that results shape an early, unvalidated prototype.
 
 ## Materials checklist
 

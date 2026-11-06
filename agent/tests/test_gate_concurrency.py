@@ -1,8 +1,8 @@
 """Concurrency tests for MessageGate (agent/ziv_relay.py) — the seam's
 lock is the claim's teeth.
 
-The DEVPOST files claim "a threaded concurrency guard so concurrent
-arrivals never lose or duplicate a message." The gate is that guard: every
+The relay promises a threaded concurrency guard so concurrent arrivals
+never lose or duplicate a message. The gate is that guard: every
 decision is atomic under its reentrant lock. These tests hold the claim
 against real thread contention — many arrivals racing admits, closes, and
 state flips — and assert the three properties the sentence promises:

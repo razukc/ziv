@@ -2,7 +2,7 @@
 
 The relay owns one asyncio loop; the suite drives it through many short-lived
 ones. When a test waits on something that will never arrive, pytest has no
-built-in bound — the terminal simply stops, and a judge (or CI) sees a frozen
+built-in bound — the terminal simply stops, and a reviewer (or CI) sees a frozen
 job with no verdict. This arms ``faulthandler``'s stdlib watchdog around every
 test: on timeout it writes the hanging test's id plus every thread's stack to
 ``pytest-hang.txt`` beside this file, then exits non-zero, so the run ends with
@@ -26,7 +26,7 @@ import pytest
 # The suite has always imported the runtime modules by bare name (`ziv_relay`,
 # `ziv_server`) and the generated timing consumers from `tools/`. Joining both
 # roots here keeps that working whether pytest is launched from agent/ or the
-# repo root, and for tests restored from the submission tree that also import
+# repo root, and for tests that also import
 # `e2e_helpers` or `tools.rename_check`.
 _ROOT = Path(__file__).resolve().parents[2]
 for _p in (str(_ROOT / "agent"), str(_ROOT / "tools")):
