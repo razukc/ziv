@@ -261,7 +261,10 @@
         "cancelled_by_sender",
         "cancelled_by_wearer",
         "unauthorized",
-        "bad_request"
+        "bad_request",
+        "rate_limited",
+        "not_found",
+        "conflict"
       ],
       "title": "Reason",
       "type": "string"

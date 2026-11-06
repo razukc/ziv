@@ -29,7 +29,10 @@
         "cancelled_by_sender",
         "cancelled_by_wearer",
         "unauthorized",
-        "bad_request"
+        "bad_request",
+        "rate_limited",
+        "not_found",
+        "conflict"
       ],
       "title": "Reason",
       "type": "string"
@@ -96,6 +99,11 @@
     },
     "kind": {
       "$ref": "#/$defs/Kind"
+    },
+    "lossy": {
+      "default": false,
+      "title": "Lossy",
+      "type": "boolean"
     },
     "reason": {
       "anyOf": [

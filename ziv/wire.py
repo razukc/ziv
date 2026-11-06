@@ -108,6 +108,9 @@ class Reason(StrEnum):
     cancelled_by_wearer = "cancelled_by_wearer"
     unauthorized = "unauthorized"
     bad_request = "bad_request"
+    rate_limited = "rate_limited"
+    not_found = "not_found"
+    conflict = "conflict"
 
 
 # --- scalars ----------------------------------------------------------------
@@ -348,6 +351,7 @@ class UtteranceView(Strict):
     reason: Reason | None = None
     created: datetime
     updated: datetime
+    lossy: bool = False      # normalisation dropped characters the sender allowed to drop
 
 
 class ScheduleBody(Strict):
@@ -358,6 +362,7 @@ class ScheduleBody(Strict):
     text: Annotated[str, Field(min_length=1, max_length=MAX_TEXT)] | None = None
     intent: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     kind: Kind = Kind.reminder
+    label: Label | None = None
     expires_after_s: Annotated[int, Field(ge=60, le=86_400)] = 3600
 
     @model_validator(mode="after")
@@ -386,6 +391,41 @@ class EnrollBody(Strict):
 class EnrollResponse(Strict):
     device: DeviceId
     device_key: str      # shown exactly once; the relay stores a hash
+
+
+class EnrollCodeResponse(Strict):
+    """``POST /devices/enroll-code`` (admin): a short-lived code to exchange once."""
+
+    code: Annotated[str, Field(pattern=r"^[0-9A-Z]{6,12}$")]
+    expires: datetime
+
+
+class CreateSender(Strict):
+    """``POST /senders`` (admin): mint a scoped bearer token for one sender."""
+
+    label: Label
+    scopes: Annotated[list[Literal["send", "read", "admin"]], Field(min_length=1, max_length=3)] = Field(
+        default_factory=lambda: ["send", "read"]
+    )
+    rate_per_min: Annotated[int, Field(ge=1, le=6000)] = 60
+
+
+class SenderView(Strict):
+    id: SenderId
+    label: Label
+    scopes: list[Literal["send", "read", "admin"]]
+    rate_per_min: int
+    created: datetime
+    token: str | None = None   # shown exactly once, on creation; the relay stores a hash
+
+
+class ReplyView(Strict):
+    """Words the wearer typed on the chord keys, for the sender to read."""
+
+    id: Annotated[int, Field(ge=1)]
+    words: list[Word]
+    in_reply_to: UtteranceId | None = None
+    created: datetime
 
 
 class DeviceView(Strict):
@@ -424,6 +464,10 @@ SCHEMAS: dict[str, TypeAdapter] = {
     "http-prefs": TypeAdapter(Prefs),
     "http-enroll": TypeAdapter(EnrollBody),
     "http-enroll-response": TypeAdapter(EnrollResponse),
+    "http-enroll-code-response": TypeAdapter(EnrollCodeResponse),
+    "http-create-sender": TypeAdapter(CreateSender),
+    "http-sender-view": TypeAdapter(SenderView),
+    "http-reply-view": TypeAdapter(ReplyView),
     "http-device-view": TypeAdapter(DeviceView),
     "http-health": TypeAdapter(Health),
 }

@@ -1,0 +1,24 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``POST /devices/enroll-code`` (admin): a short-lived code to exchange once.",
+  "properties": {
+    "code": {
+      "pattern": "^[0-9A-Z]{6,12}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "expires": {
+      "format": "date-time",
+      "title": "Expires",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "expires"
+  ],
+  "title": "EnrollCodeResponse",
+  "type": "object"
+}

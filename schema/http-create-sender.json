@@ -1,0 +1,39 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``POST /senders`` (admin): mint a scoped bearer token for one sender.",
+  "properties": {
+    "label": {
+      "maxLength": 40,
+      "title": "Label",
+      "type": "string"
+    },
+    "rate_per_min": {
+      "default": 60,
+      "maximum": 6000,
+      "minimum": 1,
+      "title": "Rate Per Min",
+      "type": "integer"
+    },
+    "scopes": {
+      "items": {
+        "enum": [
+          "send",
+          "read",
+          "admin"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Scopes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "label"
+  ],
+  "title": "CreateSender",
+  "type": "object"
+}

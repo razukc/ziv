@@ -1,0 +1,46 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Words the wearer typed on the chord keys, for the sender to read.",
+  "properties": {
+    "created": {
+      "format": "date-time",
+      "title": "Created",
+      "type": "string"
+    },
+    "id": {
+      "minimum": 1,
+      "title": "Id",
+      "type": "integer"
+    },
+    "in_reply_to": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "In Reply To"
+    },
+    "words": {
+      "items": {
+        "pattern": "^[a-z]{1,32}$",
+        "type": "string"
+      },
+      "title": "Words",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "words",
+    "created"
+  ],
+  "title": "ReplyView",
+  "type": "object"
+}

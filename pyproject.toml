@@ -31,6 +31,9 @@ ziv-relay = "ziv.cli:main"
 [tool.setuptools.packages.find]
 include = ["ziv*"]
 
+[tool.setuptools.package-data]
+ziv = ["store/migrations/*.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
