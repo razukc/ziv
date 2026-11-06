@@ -36,6 +36,10 @@ HTML_PATH = ROOT / "docs" / "haptic-name-marks.html"
 HEADER_PATH = ROOT / "firmware" / "haptic_out" / "haptic_timing.h"
 DOC_PATH = ROOT / "docs" / "HAPTIC_TIMING_SPEC.md"
 PY_PATH = ROOT / "tools" / "haptic_timing_gen.py"
+# The same generated module, at its home inside the ziv package (the relay,
+# the reference renderer and the new suite import it as ziv.haptics.tables).
+# tools/haptic_timing_gen.py stays until the old agent/ tree is retired.
+PY_PKG_PATH = ROOT / "ziv" / "haptics" / "tables.py"
 DEMO_DIR = ROOT / "firmware" / "app" / "ziv_qemu" / "main"
 DEMO_H_PATH = DEMO_DIR / "ziv_demo_sequence.h"
 DEMO_C_PATH = DEMO_DIR / "ziv_demo_sequence.c"
@@ -550,6 +554,10 @@ def py_module(spec):
     A("")
     A("SPEC_VERSION = %d" % spec["version"])
     A("")
+    A("# The spec itself, verbatim, so the relay can serve it (GET /spec) and any")
+    A("# renderer can derive its durations from the single source at runtime.")
+    A("SPEC = " + repr(spec))
+    A("")
     A("# Cell rule: buzz_ms = CELL_BASE_MS + CELL_PER_DOT_MS * dots.")
     A("CELL_BASE_MS = %d" % c["cell_base_ms"])
     A("CELL_PER_DOT_MS = %d" % c["cell_per_dot_ms"])
@@ -749,6 +757,8 @@ def write_consumers(spec, problems):
     write_lf(HEADER_PATH, hdr)
     PY_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_lf(PY_PATH, py)
+    PY_PKG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    write_lf(PY_PKG_PATH, py)
     try:
         demo_h, demo_c = demo_texts(spec)
     except (KeyError, ValueError) as exc:
@@ -848,9 +858,10 @@ def main():
     header_now = HEADER_PATH.read_text(encoding="utf-8") if HEADER_PATH.exists() else None
     if header_now != hdr:
         problems.append(f"{rel(HEADER_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
-    py_now = PY_PATH.read_text(encoding="utf-8") if PY_PATH.exists() else None
-    if py_now != py:
-        problems.append(f"{rel(PY_PATH)}: drifts from the spec (run tools/haptic_timing.py --write)")
+    for py_path in (PY_PATH, PY_PKG_PATH):
+        py_now = py_path.read_text(encoding="utf-8") if py_path.exists() else None
+        if py_now != py:
+            problems.append(f"{rel(py_path)}: drifts from the spec (run tools/haptic_timing.py --write)")
     doc_now = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.exists() else None
     if doc_now is None or not block_matches(doc_now, DOC_BEGIN, DOC_END, doc):
         problems.append(f"{rel(DOC_PATH)}: generated tables missing or drifting")
@@ -887,6 +898,7 @@ def main():
     print("  docs/haptic-name-marks.html        timing block + slider in sync")
     print("  firmware/haptic_out/haptic_timing.h  in sync")
     print("  tools/haptic_timing_gen.py           in sync")
+    print("  ziv/haptics/tables.py                in sync")
     print("  docs/HAPTIC_TIMING_SPEC.md           tables in sync")
     print("  firmware/app/ziv_qemu/main/ziv_demo_sequence.h  demo table in sync")
     print("  firmware/app/ziv_qemu/main/ziv_demo_sequence.c  demo fixture in sync")

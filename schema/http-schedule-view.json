@@ -1,0 +1,58 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Kind": {
+      "description": "What sort of event an utterance is. Selects the arrival cue and the\ntail after the name mark; the mapping lives in the timing spec.",
+      "enum": [
+        "message",
+        "reminder",
+        "error",
+        "system"
+      ],
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "composed": {
+      "title": "Composed",
+      "type": "boolean"
+    },
+    "fire_at": {
+      "format": "date-time",
+      "title": "Fire At",
+      "type": "string"
+    },
+    "id": {
+      "minimum": 1,
+      "title": "Id",
+      "type": "integer"
+    },
+    "kind": {
+      "$ref": "#/$defs/Kind"
+    },
+    "label": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Label"
+    }
+  },
+  "required": [
+    "id",
+    "fire_at",
+    "kind",
+    "composed"
+  ],
+  "title": "ScheduleView",
+  "type": "object"
+}

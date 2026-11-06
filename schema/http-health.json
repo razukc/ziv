@@ -1,0 +1,72 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Counts only. Never a word of content.",
+  "properties": {
+    "caps": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Caps",
+      "type": "object"
+    },
+    "compose": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Compose"
+    },
+    "devices_connected": {
+      "title": "Devices Connected",
+      "type": "integer"
+    },
+    "outbox": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Outbox",
+      "type": "object"
+    },
+    "schedule_pending": {
+      "title": "Schedule Pending",
+      "type": "integer"
+    },
+    "spec_version": {
+      "title": "Spec Version",
+      "type": "integer"
+    },
+    "status": {
+      "const": "ok",
+      "title": "Status",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "wire_version": {
+      "title": "Wire Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "status",
+    "version",
+    "spec_version",
+    "wire_version",
+    "devices_connected",
+    "outbox",
+    "schedule_pending",
+    "caps"
+  ],
+  "title": "Health",
+  "type": "object"
+}

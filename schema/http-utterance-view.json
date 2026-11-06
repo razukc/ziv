@@ -1,0 +1,144 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Kind": {
+      "description": "What sort of event an utterance is. Selects the arrival cue and the\ntail after the name mark; the mapping lives in the timing spec.",
+      "enum": [
+        "message",
+        "reminder",
+        "error",
+        "system"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "Reason": {
+      "description": "Every refusal, nack and cancellation names one of these.",
+      "enum": [
+        "queue_full",
+        "over_budget",
+        "unencodable",
+        "expired",
+        "spec_mismatch",
+        "body_timeout",
+        "hidden",
+        "muted",
+        "device_gone",
+        "failover",
+        "compose_failed",
+        "cancelled_by_sender",
+        "cancelled_by_wearer",
+        "unauthorized",
+        "bad_request"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "Source": {
+      "description": "How the words were produced. ``live`` only when a model actually ran.",
+      "enum": [
+        "sender",
+        "echo",
+        "live"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "State": {
+      "description": "Outbox states (docs/ARCHITECTURE.md \u00a74.1).",
+      "enum": [
+        "pending",
+        "sent",
+        "playing",
+        "played",
+        "failed",
+        "expired",
+        "cancelled"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What a sender sees about an utterance: the id, its state, the exact words\nthat will be felt, and the budget it was measured against.",
+  "properties": {
+    "budget_ms": {
+      "title": "Budget Ms",
+      "type": "integer"
+    },
+    "created": {
+      "format": "date-time",
+      "title": "Created",
+      "type": "string"
+    },
+    "device": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9A-Za-z_-]{1,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Device"
+    },
+    "duration_ms": {
+      "title": "Duration Ms",
+      "type": "integer"
+    },
+    "id": {
+      "pattern": "^[0-9A-Za-z_-]{8,64}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/Kind"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Reason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "state": {
+      "$ref": "#/$defs/State"
+    },
+    "updated": {
+      "format": "date-time",
+      "title": "Updated",
+      "type": "string"
+    },
+    "words": {
+      "items": {
+        "pattern": "^[a-z]{1,32}$",
+        "type": "string"
+      },
+      "title": "Words",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "state",
+    "kind",
+    "words",
+    "source",
+    "duration_ms",
+    "budget_ms",
+    "created",
+    "updated"
+  ],
+  "title": "UtteranceView",
+  "type": "object"
+}

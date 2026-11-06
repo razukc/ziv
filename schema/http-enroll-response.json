@@ -1,0 +1,22 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "pattern": "^[0-9A-Za-z_-]{1,64}$",
+      "title": "Device",
+      "type": "string"
+    },
+    "device_key": {
+      "title": "Device Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "device",
+    "device_key"
+  ],
+  "title": "EnrollResponse",
+  "type": "object"
+}

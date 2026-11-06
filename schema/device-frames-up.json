@@ -1,0 +1,432 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Advance": {
+      "description": "Who starts the next utterance after a close: the device, or the wearer.",
+      "enum": [
+        "auto",
+        "tap"
+      ],
+      "title": "Advance",
+      "type": "string"
+    },
+    "Control": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "stop",
+            "replay",
+            "replay_word",
+            "skip",
+            "advance"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "type": {
+          "const": "control",
+          "default": "control",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "Control",
+      "type": "object"
+    },
+    "Hello": {
+      "additionalProperties": false,
+      "description": "The first frame on a device socket. Carries the credential, so no key\never appears in a URL or an access log.",
+      "properties": {
+        "device_key": {
+          "maxLength": 128,
+          "minLength": 16,
+          "title": "Device Key",
+          "type": "string"
+        },
+        "held": {
+          "items": {
+            "pattern": "^[0-9A-Za-z_-]{8,64}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Held",
+          "type": "array"
+        },
+        "last_acked": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9A-Za-z_-]{8,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Acked"
+        },
+        "pace_ms": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pace Ms"
+        },
+        "profile": {
+          "$ref": "#/$defs/Profile"
+        },
+        "spec_version": {
+          "minimum": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "hello",
+          "default": "hello",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 1,
+          "default": 1,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "device_key",
+        "profile",
+        "spec_version"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "InputText": {
+      "additionalProperties": false,
+      "description": "Words typed on the chord keys (or the phone), as a reply or unaddressed.",
+      "properties": {
+        "in_reply_to": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9A-Za-z_-]{8,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Reply To"
+        },
+        "type": {
+          "const": "input.text",
+          "default": "input.text",
+          "title": "Type",
+          "type": "string"
+        },
+        "words": {
+          "items": {
+            "pattern": "^[a-z]{1,32}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Words",
+          "type": "array"
+        }
+      },
+      "required": [
+        "words"
+      ],
+      "title": "InputText",
+      "type": "object"
+    },
+    "Late": {
+      "description": "What to do with an utterance that passed ``expires`` before playing.",
+      "enum": [
+        "drop",
+        "play"
+      ],
+      "title": "Late",
+      "type": "string"
+    },
+    "Nack": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/Reason"
+        },
+        "type": {
+          "const": "nack",
+          "default": "nack",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "title": "Nack",
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "cue",
+        "working",
+        "word",
+        "close"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "Ping": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ping",
+          "default": "ping",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "Ping",
+      "type": "object"
+    },
+    "Played": {
+      "additionalProperties": false,
+      "description": "The close finished on the actuator. Timestamps are the device's own\nmonotonic clock in milliseconds; the relay uses the difference only.",
+      "properties": {
+        "closed_ms": {
+          "minimum": 0,
+          "title": "Closed Ms",
+          "type": "integer"
+        },
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "started_ms": {
+          "minimum": 0,
+          "title": "Started Ms",
+          "type": "integer"
+        },
+        "type": {
+          "const": "played",
+          "default": "played",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "started_ms",
+        "closed_ms"
+      ],
+      "title": "Played",
+      "type": "object"
+    },
+    "PrefChanged": {
+      "additionalProperties": false,
+      "properties": {
+        "prefs": {
+          "$ref": "#/$defs/Prefs"
+        },
+        "type": {
+          "const": "pref.changed",
+          "default": "pref.changed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefs"
+      ],
+      "title": "PrefChanged",
+      "type": "object"
+    },
+    "Prefs": {
+      "additionalProperties": false,
+      "description": "The wearer's preferences, as they travel on the wire. The relay clamps\n``pace_ms`` into the spec's envelope; the device applies it.",
+      "properties": {
+        "advance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Advance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History"
+        },
+        "late": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Late"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pace_ms": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pace Ms"
+        }
+      },
+      "title": "Prefs",
+      "type": "object"
+    },
+    "Profile": {
+      "description": "How a device encodes a cell. The reference renderer knows every one.",
+      "enum": [
+        "six_actuator",
+        "single_actuator"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "type": {
+          "const": "progress",
+          "default": "progress",
+          "title": "Type",
+          "type": "string"
+        },
+        "word_index": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Word Index"
+        }
+      },
+      "required": [
+        "id",
+        "phase"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "Reason": {
+      "description": "Every refusal, nack and cancellation names one of these.",
+      "enum": [
+        "queue_full",
+        "over_budget",
+        "unencodable",
+        "expired",
+        "spec_mismatch",
+        "body_timeout",
+        "hidden",
+        "muted",
+        "device_gone",
+        "failover",
+        "compose_failed",
+        "cancelled_by_sender",
+        "cancelled_by_wearer",
+        "unauthorized",
+        "bad_request"
+      ],
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "control": "#/$defs/Control",
+      "hello": "#/$defs/Hello",
+      "input.text": "#/$defs/InputText",
+      "nack": "#/$defs/Nack",
+      "ping": "#/$defs/Ping",
+      "played": "#/$defs/Played",
+      "pref.changed": "#/$defs/PrefChanged",
+      "progress": "#/$defs/Progress"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Hello"
+    },
+    {
+      "$ref": "#/$defs/Progress"
+    },
+    {
+      "$ref": "#/$defs/Played"
+    },
+    {
+      "$ref": "#/$defs/Nack"
+    },
+    {
+      "$ref": "#/$defs/InputText"
+    },
+    {
+      "$ref": "#/$defs/Control"
+    },
+    {
+      "$ref": "#/$defs/PrefChanged"
+    },
+    {
+      "$ref": "#/$defs/Ping"
+    }
+  ]
+}

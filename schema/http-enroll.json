@@ -1,0 +1,39 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Profile": {
+      "description": "How a device encodes a cell. The reference renderer knows every one.",
+      "enum": [
+        "six_actuator",
+        "single_actuator"
+      ],
+      "title": "Profile",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``POST /devices/enroll``: a short-lived code from the console for a key.",
+  "properties": {
+    "code": {
+      "pattern": "^[0-9A-Z]{6,12}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 40,
+      "title": "Name",
+      "type": "string"
+    },
+    "profile": {
+      "$ref": "#/$defs/Profile"
+    }
+  },
+  "required": [
+    "code",
+    "profile",
+    "name"
+  ],
+  "title": "EnrollBody",
+  "type": "object"
+}

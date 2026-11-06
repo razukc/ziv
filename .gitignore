@@ -67,3 +67,7 @@ docs/mock-console-*.png
 docs/preview-arch.html
 docs/project.3a0c22d5.html
 docs/project.3a0c22d5.svg
+
+# Python packaging
+ziv.egg-info/
+*.egg-info/

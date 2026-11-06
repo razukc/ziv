@@ -1,0 +1,103 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Kind": {
+      "description": "What sort of event an utterance is. Selects the arrival cue and the\ntail after the name mark; the mapping lives in the timing spec.",
+      "enum": [
+        "message",
+        "reminder",
+        "error",
+        "system"
+      ],
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``POST /utterances``. ``text`` is normalised by the relay; ``words`` skips\nnormalisation for callers that already speak the alphabet.",
+  "properties": {
+    "allow_lossy": {
+      "default": false,
+      "title": "Allow Lossy",
+      "type": "boolean"
+    },
+    "expires": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires"
+    },
+    "kind": {
+      "$ref": "#/$defs/Kind",
+      "default": "message"
+    },
+    "label": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Label"
+    },
+    "not_before": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Not Before"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Text"
+    },
+    "words": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[a-z]{1,32}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Words"
+    }
+  },
+  "title": "SubmitUtterance",
+  "type": "object"
+}

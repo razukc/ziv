@@ -1,0 +1,503 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Advance": {
+      "description": "Who starts the next utterance after a close: the device, or the wearer.",
+      "enum": [
+        "auto",
+        "tap"
+      ],
+      "title": "Advance",
+      "type": "string"
+    },
+    "From": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "sender": {
+          "pattern": "^[0-9A-Za-z_.-]{1,64}$",
+          "title": "Sender",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sender"
+      ],
+      "title": "From",
+      "type": "object"
+    },
+    "HelloAck": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "pattern": "^[0-9A-Za-z_-]{1,64}$",
+          "title": "Device",
+          "type": "string"
+        },
+        "prefs": {
+          "$ref": "#/$defs/Prefs"
+        },
+        "resend": {
+          "items": {
+            "$ref": "#/$defs/Utterance"
+          },
+          "maxItems": 64,
+          "title": "Resend",
+          "type": "array"
+        },
+        "spec_version": {
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "hello.ack",
+          "default": "hello.ack",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 1,
+          "default": 1,
+          "title": "V",
+          "type": "integer"
+        },
+        "wearer": {
+          "pattern": "^[0-9A-Za-z_-]{1,64}$",
+          "title": "Wearer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "wearer",
+        "device",
+        "spec_version",
+        "prefs"
+      ],
+      "title": "HelloAck",
+      "type": "object"
+    },
+    "Kind": {
+      "description": "What sort of event an utterance is. Selects the arrival cue and the\ntail after the name mark; the mapping lives in the timing spec.",
+      "enum": [
+        "message",
+        "reminder",
+        "error",
+        "system"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "Late": {
+      "description": "What to do with an utterance that passed ``expires`` before playing.",
+      "enum": [
+        "drop",
+        "play"
+      ],
+      "title": "Late",
+      "type": "string"
+    },
+    "Pong": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "pong",
+          "default": "pong",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "Pong",
+      "type": "object"
+    },
+    "PrefSet": {
+      "additionalProperties": false,
+      "properties": {
+        "prefs": {
+          "$ref": "#/$defs/Prefs"
+        },
+        "type": {
+          "const": "pref.set",
+          "default": "pref.set",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefs"
+      ],
+      "title": "PrefSet",
+      "type": "object"
+    },
+    "Prefix": {
+      "additionalProperties": false,
+      "description": "The name mark and the kind's tail, played before unsolicited content.",
+      "properties": {
+        "mark": {
+          "pattern": "^[a-z]{1,8}$",
+          "title": "Mark",
+          "type": "string"
+        },
+        "tail": {
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "title": "Tail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mark",
+        "tail"
+      ],
+      "title": "Prefix",
+      "type": "object"
+    },
+    "Prefs": {
+      "additionalProperties": false,
+      "description": "The wearer's preferences, as they travel on the wire. The relay clamps\n``pace_ms`` into the spec's envelope; the device applies it.",
+      "properties": {
+        "advance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Advance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History"
+        },
+        "late": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Late"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pace_ms": {
+          "anyOf": [
+            {
+              "maximum": 2000,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pace Ms"
+        }
+      },
+      "title": "Prefs",
+      "type": "object"
+    },
+    "ProtocolError": {
+      "additionalProperties": false,
+      "description": "A frame the relay could not accept. Never carries message text.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Detail",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/Reason"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "ProtocolError",
+      "type": "object"
+    },
+    "Reason": {
+      "description": "Every refusal, nack and cancellation names one of these.",
+      "enum": [
+        "queue_full",
+        "over_budget",
+        "unencodable",
+        "expired",
+        "spec_mismatch",
+        "body_timeout",
+        "hidden",
+        "muted",
+        "device_gone",
+        "failover",
+        "compose_failed",
+        "cancelled_by_sender",
+        "cancelled_by_wearer",
+        "unauthorized",
+        "bad_request"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "Source": {
+      "description": "How the words were produced. ``live`` only when a model actually ran.",
+      "enum": [
+        "sender",
+        "echo",
+        "live"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "Utterance": {
+      "additionalProperties": false,
+      "description": "The unit the wearer feels (docs/ARCHITECTURE.md \u00a72).",
+      "properties": {
+        "body_pending": {
+          "default": false,
+          "title": "Body Pending",
+          "type": "boolean"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "from": {
+          "$ref": "#/$defs/From"
+        },
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "not_before": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Not Before"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Prefix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "sender"
+        },
+        "spec_version": {
+          "minimum": 1,
+          "title": "Spec Version",
+          "type": "integer"
+        },
+        "v": {
+          "const": 1,
+          "default": 1,
+          "title": "V",
+          "type": "integer"
+        },
+        "wearer": {
+          "pattern": "^[0-9A-Za-z_-]{1,64}$",
+          "title": "Wearer",
+          "type": "string"
+        },
+        "words": {
+          "items": {
+            "pattern": "^[a-z]{1,32}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Words",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "wearer",
+        "kind",
+        "from",
+        "spec_version"
+      ],
+      "title": "Utterance",
+      "type": "object"
+    },
+    "UtteranceBody": {
+      "additionalProperties": false,
+      "description": "The words for a ``body_pending`` utterance \u2014 or the reason there are none.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "live"
+        },
+        "type": {
+          "const": "utterance.body",
+          "default": "utterance.body",
+          "title": "Type",
+          "type": "string"
+        },
+        "words": {
+          "items": {
+            "pattern": "^[a-z]{1,32}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Words",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "UtteranceBody",
+      "type": "object"
+    },
+    "UtteranceCancel": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9A-Za-z_-]{8,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/Reason"
+        },
+        "type": {
+          "const": "utterance.cancel",
+          "default": "utterance.cancel",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "title": "UtteranceCancel",
+      "type": "object"
+    },
+    "UtteranceOpen": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "utterance.open",
+          "default": "utterance.open",
+          "title": "Type",
+          "type": "string"
+        },
+        "utterance": {
+          "$ref": "#/$defs/Utterance"
+        }
+      },
+      "required": [
+        "utterance"
+      ],
+      "title": "UtteranceOpen",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "error": "#/$defs/ProtocolError",
+      "hello.ack": "#/$defs/HelloAck",
+      "pong": "#/$defs/Pong",
+      "pref.set": "#/$defs/PrefSet",
+      "utterance.body": "#/$defs/UtteranceBody",
+      "utterance.cancel": "#/$defs/UtteranceCancel",
+      "utterance.open": "#/$defs/UtteranceOpen"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/HelloAck"
+    },
+    {
+      "$ref": "#/$defs/UtteranceOpen"
+    },
+    {
+      "$ref": "#/$defs/UtteranceBody"
+    },
+    {
+      "$ref": "#/$defs/UtteranceCancel"
+    },
+    {
+      "$ref": "#/$defs/PrefSet"
+    },
+    {
+      "$ref": "#/$defs/Pong"
+    },
+    {
+      "$ref": "#/$defs/ProtocolError"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Kind": {
+      "description": "What sort of event an utterance is. Selects the arrival cue and the\ntail after the name mark; the mapping lives in the timing spec.",
+      "enum": [
+        "message",
+        "reminder",
+        "error",
+        "system"
+      ],
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "``POST /schedule``. ``text`` plays as written; ``intent`` is composed by the\nagent when it fires.",
+  "properties": {
+    "expires_after_s": {
+      "default": 3600,
+      "maximum": 86400,
+      "minimum": 60,
+      "title": "Expires After S",
+      "type": "integer"
+    },
+    "fire_at": {
+      "format": "date-time",
+      "title": "Fire At",
+      "type": "string"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Intent"
+    },
+    "kind": {
+      "$ref": "#/$defs/Kind",
+      "default": "reminder"
+    },
+    "text": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Text"
+    }
+  },
+  "required": [
+    "fire_at"
+  ],
+  "title": "ScheduleBody",
+  "type": "object"
+}

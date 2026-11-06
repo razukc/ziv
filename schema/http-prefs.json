@@ -1,0 +1,78 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Advance": {
+      "description": "Who starts the next utterance after a close: the device, or the wearer.",
+      "enum": [
+        "auto",
+        "tap"
+      ],
+      "title": "Advance",
+      "type": "string"
+    },
+    "Late": {
+      "description": "What to do with an utterance that passed ``expires`` before playing.",
+      "enum": [
+        "drop",
+        "play"
+      ],
+      "title": "Late",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The wearer's preferences, as they travel on the wire. The relay clamps\n``pace_ms`` into the spec's envelope; the device applies it.",
+  "properties": {
+    "advance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Advance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "history": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "History"
+    },
+    "late": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Late"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "pace_ms": {
+      "anyOf": [
+        {
+          "maximum": 2000,
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pace Ms"
+    }
+  },
+  "title": "Prefs",
+  "type": "object"
+}

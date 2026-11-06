@@ -1,0 +1,61 @@
+{
+  "$comment": "GENERATED from ziv/wire.py \u2014 do not edit; run: python -m ziv.wire schema/",
+  "$defs": {
+    "Profile": {
+      "description": "How a device encodes a cell. The reference renderer knows every one.",
+      "enum": [
+        "six_actuator",
+        "single_actuator"
+      ],
+      "title": "Profile",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "connected": {
+      "title": "Connected",
+      "type": "boolean"
+    },
+    "device": {
+      "pattern": "^[0-9A-Za-z_-]{1,64}$",
+      "title": "Device",
+      "type": "string"
+    },
+    "last_seen": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Seen"
+    },
+    "name": {
+      "maxLength": 40,
+      "title": "Name",
+      "type": "string"
+    },
+    "primary": {
+      "title": "Primary",
+      "type": "boolean"
+    },
+    "profile": {
+      "$ref": "#/$defs/Profile"
+    }
+  },
+  "required": [
+    "device",
+    "name",
+    "profile",
+    "primary",
+    "connected"
+  ],
+  "title": "DeviceView",
+  "type": "object"
+}
