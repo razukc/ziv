@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "id": "golden-budget-six-actuator",
+  "wearer": "w_1",
+  "kind": "message",
+  "from": {
+    "sender": "mira",
+    "label": "Mira"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "double-tap"
+  },
+  "words": [
+    "the",
+    "nurse",
+    "comes",
+    "at"
+  ],
+  "spec_version": 4
+}

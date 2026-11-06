@@ -1,0 +1,13 @@
+{"t_ms":0,"dot_mask":53,"buzz_ms":290,"label":"prefix:z"}
+{"t_ms":710,"dot_mask":10,"buzz_ms":170,"label":"prefix:i"}
+{"t_ms":1300,"dot_mask":39,"buzz_ms":290,"label":"prefix:v"}
+{"t_ms":2140,"dot_mask":0,"buzz_ms":70,"label":"tail"}
+{"t_ms":2370,"dot_mask":0,"buzz_ms":70,"label":"tail"}
+{"t_ms":2860,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":3090,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":3580,"dot_mask":0,"buzz_ms":70,"label":"working"}
+{"t_ms":4000,"dot_mask":0,"buzz_ms":70,"label":"working"}
+{"t_ms":4490,"dot_mask":0,"buzz_ms":200,"label":"close"}
+{"t_ms":4810,"dot_mask":0,"buzz_ms":140,"label":"close"}
+{"t_ms":5070,"dot_mask":0,"buzz_ms":90,"label":"close"}
+{"t_ms":5280,"dot_mask":0,"buzz_ms":50,"label":"close"}

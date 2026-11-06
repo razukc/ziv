@@ -1,0 +1,16 @@
+{"t_ms":0,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":230,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":720,"dot_mask":1,"buzz_ms":50,"label":"cell:y"}
+{"t_ms":880,"dot_mask":4,"buzz_ms":50,"label":"cell:y"}
+{"t_ms":1040,"dot_mask":8,"buzz_ms":50,"label":"cell:y"}
+{"t_ms":1120,"dot_mask":16,"buzz_ms":50,"label":"cell:y"}
+{"t_ms":1200,"dot_mask":32,"buzz_ms":50,"label":"cell:y"}
+{"t_ms":1670,"dot_mask":1,"buzz_ms":50,"label":"cell:e"}
+{"t_ms":2070,"dot_mask":16,"buzz_ms":50,"label":"cell:e"}
+{"t_ms":2700,"dot_mask":2,"buzz_ms":50,"label":"cell:s"}
+{"t_ms":2780,"dot_mask":4,"buzz_ms":50,"label":"cell:s"}
+{"t_ms":2940,"dot_mask":8,"buzz_ms":50,"label":"cell:s"}
+{"t_ms":3570,"dot_mask":0,"buzz_ms":200,"label":"close"}
+{"t_ms":3890,"dot_mask":0,"buzz_ms":140,"label":"close"}
+{"t_ms":4150,"dot_mask":0,"buzz_ms":90,"label":"close"}
+{"t_ms":4360,"dot_mask":0,"buzz_ms":50,"label":"close"}

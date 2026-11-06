@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "id": "golden-reply-no-prefix",
+  "wearer": "w_1",
+  "kind": "message",
+  "from": {
+    "sender": "agent"
+  },
+  "words": [
+    "yes"
+  ],
+  "source": "live",
+  "spec_version": 4
+}

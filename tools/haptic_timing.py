@@ -9,6 +9,9 @@ band play identical patterns by construction:
   - docs/haptic-name-marks.html        generated JS timing block + gap slider
   - firmware/haptic_out/haptic_timing.h  generated C constants + pattern tables
   - tools/haptic_timing_gen.py         generated Python timing module (relay, tests, tools)
+  - ziv/haptics/tables.py              the same module at its home in the ziv package
+                                       (the reference renderer and the conformance
+                                       harness read KINDS / PROFILES / constants from it)
   - docs/HAPTIC_TIMING_SPEC.md         generated readable tables section
   - firmware/app/ziv_qemu/main/ziv_demo_sequence.{h,c}
                                        generated scripted boot demo (the stage
@@ -65,7 +68,16 @@ REQUIRED_CONSTANTS = [
     "cell_base_ms", "cell_per_dot_ms", "cell_gap_default_ms", "cell_gap_min_ms",
     "cell_gap_max_ms", "tick_ms", "tick_gap_ms", "long_buzz_ms", "tail_gap_ms",
     "prefix_breath_ms",
+    # spec v4: the word boundary, the working cadence, the conformance tolerance
+    "word_gap_ms", "working_every_ms", "conformance_tolerance_ms",
 ]
+# Renderer profiles the reference renderer knows (ziv.wire.Profile names them
+# too; the spec is the source and the wire enum is checked against it in the
+# ziv suite).  A slots profile is the single-actuator encoding: six time slots
+# per cell, one per dot, in `order`.
+REQUIRED_PROFILES = {"six_actuator": "chord", "single_actuator": "slots"}
+SLOT_COUNT = 6
+SLOT_FIELDS = ("slot_ms", "slot_gap_ms", "column_gap_ms")
 REQUIRED_UI = ["play_lead_ms", "loop_restart_ms", "cell_gap_step_ms", "spell_max_letters"]
 
 
@@ -213,6 +225,145 @@ def validate(spec, problems):
     if prefix.get("breath_after_mark_ms_ref") != "prefix_breath_ms":
         problems.append("prefix.breath_after_mark_ms_ref: must be 'prefix_breath_ms'")
 
+    validate_v4(spec, pattern_ids, problems)
+
+
+def pattern_total_ms(pattern):
+    """Buzz plus silence of every beat: how long one play of the pattern takes."""
+    return sum(b.get("buzz_ms", 0) + b.get("gap_after_ms", 0) for b in pattern.get("beats", []))
+
+
+def validate_v4(spec, pattern_ids, problems):
+    """Spec v4: word gap, working cadence, conformance tolerance, kinds, profiles.
+
+    Ranges encode the reasoning in the spec's `rationale` block, so an
+    accidental edit that breaks the argument fails here instead of on a
+    wrist: the word gap sits strictly between the default cell gap and the
+    prefix breath; the working cadence is at least one full `processing`
+    play; the tolerance is below the shortest silence anywhere in the spec.
+    """
+    c = spec.get("constants", {})
+    patterns = {p.get("id"): p for p in spec.get("attention_patterns", [])}
+
+    def pos_int(value):
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    if all(pos_int(c.get(k)) for k in ("word_gap_ms", "cell_gap_default_ms", "prefix_breath_ms")):
+        if not (c["cell_gap_default_ms"] < c["word_gap_ms"] < c["prefix_breath_ms"]):
+            problems.append(
+                f"constants.word_gap_ms={c['word_gap_ms']}: must sit strictly between "
+                f"cell_gap_default_ms ({c['cell_gap_default_ms']}) and prefix_breath_ms "
+                f"({c['prefix_breath_ms']}) — a word boundary is longer than a cell gap and "
+                f"never outranks the who/why breath")
+    if pos_int(c.get("working_every_ms")):
+        working = patterns.get("processing")
+        if working is None:
+            problems.append("constants.working_every_ms: needs a 'processing' pattern to repeat")
+        elif c["working_every_ms"] < pattern_total_ms(working):
+            problems.append(
+                f"constants.working_every_ms={c['working_every_ms']}: shorter than one play of "
+                f"'processing' ({pattern_total_ms(working)} ms) — repeats would overlap")
+        if c["working_every_ms"] > 10000:
+            problems.append(f"constants.working_every_ms={c['working_every_ms']}: above 10000 — "
+                            f"waiting must stay legible (plan §4 invariant 3)")
+    if pos_int(c.get("conformance_tolerance_ms")):
+        silences = [b["gap_after_ms"] for p in patterns.values() for b in p.get("beats", [])
+                    if isinstance(b.get("gap_after_ms"), int)]
+        silences += [c[k] for k in ("cell_gap_min_ms", "tail_gap_ms", "prefix_breath_ms", "word_gap_ms")
+                     if pos_int(c.get(k))]
+        for prof in spec.get("profiles", {}).values():
+            if isinstance(prof, dict):
+                silences += [prof[k] for k in ("slot_gap_ms", "column_gap_ms") if pos_int(prof.get(k))]
+        buzzes = [b["buzz_ms"] for p in patterns.values() for b in p.get("beats", [])
+                  if isinstance(b.get("buzz_ms"), int)]
+        if pos_int(c.get("cell_base_ms")):
+            buzzes.append(c["cell_base_ms"])
+        shortest = min(silences + buzzes) if (silences or buzzes) else None
+        if shortest is not None and c["conformance_tolerance_ms"] >= shortest:
+            problems.append(
+                f"constants.conformance_tolerance_ms={c['conformance_tolerance_ms']}: must be below "
+                f"the shortest buzz or silence in the spec ({shortest} ms) or a tolerance could hide "
+                f"a merged or missing beat")
+
+    kinds = spec.get("kinds")
+    if not isinstance(kinds, dict) or not kinds:
+        problems.append("kinds: missing or empty — every utterance kind needs a cue and a tail")
+        kinds = {}
+    for kind, entry in kinds.items():
+        if not re.fullmatch(r"[a-z][a-z_]*", kind):
+            problems.append(f"kinds.{kind!r}: kind ids are lower-case words")
+        if not isinstance(entry, dict) or set(entry) != {"cue", "tail"}:
+            problems.append(f"kinds.{kind}: expected exactly {{cue, tail}}")
+            continue
+        for role in ("cue", "tail"):
+            if entry[role] not in pattern_ids:
+                problems.append(f"kinds.{kind}.{role}: pattern {entry[role]!r} not found")
+    tails = spec.get("prefix", {}).get("tails", {})
+    for tail_name, pat_id in tails.items():
+        if tail_name not in kinds:
+            problems.append(f"prefix.tails.{tail_name}: not a kind in `kinds`")
+        elif isinstance(kinds[tail_name], dict) and kinds[tail_name].get("tail") != pat_id:
+            problems.append(
+                f"prefix.tails.{tail_name}={pat_id!r} disagrees with kinds.{tail_name}.tail="
+                f"{kinds[tail_name].get('tail')!r} — one mapping, two views")
+
+    profiles = spec.get("profiles")
+    if not isinstance(profiles, dict):
+        problems.append("profiles: missing — the reference renderer must know every profile")
+        profiles = {}
+    for pid, encoding in REQUIRED_PROFILES.items():
+        if pid not in profiles:
+            problems.append(f"profiles.{pid}: missing")
+        elif profiles[pid].get("encoding") != encoding:
+            problems.append(f"profiles.{pid}.encoding: expected {encoding!r}")
+    for pid, prof in profiles.items():
+        if not isinstance(prof, dict):
+            problems.append(f"profiles.{pid}: expected an object")
+            continue
+        encoding = prof.get("encoding")
+        if encoding == "chord":
+            extra = set(prof) - {"encoding"}
+            if extra:
+                problems.append(f"profiles.{pid}: a chord profile carries no slot timing ({sorted(extra)})")
+        elif encoding == "slots":
+            for field in SLOT_FIELDS:
+                v = prof.get(field)
+                if not pos_int(v) or v > 5000:
+                    problems.append(f"profiles.{pid}.{field}={v!r}: expected a positive integer ≤ 5000")
+            order = prof.get("order")
+            is_permutation = (isinstance(order, list)
+                              and all(isinstance(d, int) and not isinstance(d, bool) for d in order)
+                              and sorted(order) == list(range(1, SLOT_COUNT + 1)))
+            if not is_permutation:
+                problems.append(f"profiles.{pid}.order={order!r}: must be a permutation of 1..{SLOT_COUNT}")
+            extra = set(prof) - {"encoding", "order", *SLOT_FIELDS}
+            if extra:
+                problems.append(f"profiles.{pid}: unknown fields {sorted(extra)}")
+        else:
+            problems.append(f"profiles.{pid}.encoding={encoding!r}: expected 'chord' or 'slots'")
+
+
+def slot_cell_ms(spec, profile_id="single_actuator"):
+    """Fixed duration of one cell on a slots profile: every slot, every slot
+    gap but the last, and the column break after the third slot."""
+    prof = spec["profiles"][profile_id]
+    return (SLOT_COUNT * prof["slot_ms"] + (SLOT_COUNT - 1) * prof["slot_gap_ms"]
+            + prof["column_gap_ms"])
+
+
+def slot_offsets_ms(spec, profile_id="single_actuator"):
+    """Start offset of each slot inside a cell, in `order` order."""
+    prof = spec["profiles"][profile_id]
+    out, t = [], 0
+    for i in range(SLOT_COUNT):
+        out.append(t)
+        t += prof["slot_ms"]
+        if i < SLOT_COUNT - 1:
+            t += prof["slot_gap_ms"]
+        if i == 2:
+            t += prof["column_gap_ms"]
+    return out
+
 
 # --- JS block (feel-tool) --------------------------------------------------
 
@@ -229,9 +380,9 @@ def js_block(spec):
     L.append(f"var CELL_BASE={c['cell_base_ms']}, CELL_PER_DOT={c['cell_per_dot_ms']};")
     L.append(
         "var TICK={tick},TICK_GAP={tick_gap},LONG={long},TAIL_GAP={tail},"
-        "PREFIX_BREATH={breath};".format(
+        "PREFIX_BREATH={breath},WORD_GAP={word_gap};".format(
             tick=c["tick_ms"], tick_gap=c["tick_gap_ms"], long=c["long_buzz_ms"],
-            tail=c["tail_gap_ms"], breath=c["prefix_breath_ms"],
+            tail=c["tail_gap_ms"], breath=c["prefix_breath_ms"], word_gap=c["word_gap_ms"],
         )
     )
     letters = "abcdefghijklmnopqrstuvwxyz"
@@ -334,6 +485,27 @@ def header(spec):
     A(f"#define TAIL_GAP_MS {c['tail_gap_ms']}")
     A(f"#define PREFIX_BREATH_MS {c['prefix_breath_ms']}")
     A("")
+    A("/* Spec v4: silence between words of one utterance (inside a word the gap is")
+    A(" * the pace); the period at which a device repeats HAPTIC_PROCESSING on its")
+    A(" * own clock while an utterance's body is pending (architecture §5.1). */")
+    A(f"#define WORD_GAP_MS {c['word_gap_ms']}")
+    A(f"#define WORKING_EVERY_MS {c['working_every_ms']}")
+    A("")
+    single = spec["profiles"]["single_actuator"]
+    A("/* single_actuator profile (a phone, architecture §5.2): one cell is")
+    A(" * HAPTIC_SLOT_COUNT time slots, one per dot, in HAPTIC_SLOT_ORDER; a raised dot")
+    A(" * is a SLOT_MS pulse in its slot, an absent dot SLOT_MS of silence; SLOT_GAP_MS")
+    A(" * follows every slot but the last and COLUMN_GAP_MS more follows the third, so")
+    A(f" * every cell lasts {slot_cell_ms(spec)} ms whatever the letter.  The band (six_actuator)")
+    A(" * drives the raised dots together for haptic_cell_ms() instead. */")
+    A(f"#define SLOT_MS {single['slot_ms']}")
+    A(f"#define SLOT_GAP_MS {single['slot_gap_ms']}")
+    A(f"#define COLUMN_GAP_MS {single['column_gap_ms']}")
+    A(f"#define HAPTIC_SLOT_COUNT {SLOT_COUNT}")
+    A(f"#define HAPTIC_SLOT_CELL_MS {slot_cell_ms(spec)}")
+    A("static const uint8_t HAPTIC_SLOT_ORDER[HAPTIC_SLOT_COUNT] = { "
+      + ", ".join(str(d) for d in single["order"]) + " }; /* dot numbers, 1..6 */")
+    A("")
     A("/* One haptic beat: buzz for buzz_ms, then stay silent for gap_after_ms. */")
     A("typedef struct {")
     A("    uint16_t buzz_ms;")
@@ -423,6 +595,23 @@ def header(spec):
     A("};")
     A(f"#define HAPTIC_PREFIX_MARK_INDEX {list(spec['marks']).index(spec['prefix']['mark'])}  /* {spec['prefix']['mark']} — index into HAPTIC_MARK_TABLE */")
     A("")
+    A("/* --- Utterance kinds (architecture §2): the arrival cue and the prefix tail per kind. --- */")
+    A("/* Order follows the spec's `kinds` block; the wire's Kind enum names the same ids. */")
+    kinds = spec["kinds"]
+    A("typedef enum {")
+    for i, kind in enumerate(kinds):
+        suffix = " = 0" if i == 0 else ""
+        A(f"    HAPTIC_KIND_{kind.upper()}{suffix},")
+    A("    HAPTIC_KIND_COUNT")
+    A("} haptic_kind;")
+    A("")
+    A("static const haptic_pattern HAPTIC_KIND_CUE_TABLE[HAPTIC_KIND_COUNT] = {")
+    A("    " + ", ".join("HAPTIC_PAT_" + e["cue"].upper().replace("-", "_") for e in kinds.values()))
+    A("};")
+    A("static const haptic_pattern HAPTIC_KIND_TAIL_TABLE[HAPTIC_KIND_COUNT] = {")
+    A("    " + ", ".join("HAPTIC_PAT_" + e["tail"].upper().replace("-", "_") for e in kinds.values()))
+    A("};")
+    A("")
     A("#ifdef __cplusplus")
     A("}")
     A("#endif")
@@ -445,6 +634,12 @@ def doc_tables(spec):
         ("long_buzz_ms", "the error buzz"),
         ("tail_gap_ms", "silence after a pattern's last beat"),
         ("prefix_breath_ms", "silence between the name mark and its attention tail"),
+        ("word_gap_ms", "silence between two words of one utterance (inside a word: the pace) — "
+                        "longer than the default cell gap, shorter than the prefix breath"),
+        ("working_every_ms", "period at which a device repeats `processing` on its own clock while "
+                             "an utterance's body is pending"),
+        ("conformance_tolerance_ms", "per-beat start-time drift (±) a real renderer may show against "
+                                     "the reference timeline; dot mask and buzz length must match exactly"),
     ]
     L = [DOC_BEGIN, ""]
     L.append(f"### Constants — spec v{spec['version']}")
@@ -522,6 +717,36 @@ def doc_tables(spec):
     L.append("### Prefix composition (plan §4)")
     L.append("")
     L.append(f"The {p['mark']} mark ({arc}) → silence {c['prefix_breath_ms']} ms → attention tail: {tails}.")
+    L.append("")
+    L.append("### Kinds — arrival cue and prefix tail (architecture §2)")
+    L.append("")
+    L.append("| Kind | Cue | Tail after the mark |")
+    L.append("|---|---|---|")
+    for kind, e in spec["kinds"].items():
+        L.append(f"| `{kind}` | `{e['cue']}` | `{e['tail']}` |")
+    L.append("")
+    L.append("### Renderer profiles (architecture §5.2)")
+    L.append("")
+    single = spec["profiles"]["single_actuator"]
+    chord_ms = [cell_ms(spec, ch) for ch in "abcdefghijklmnopqrstuvwxyz"]
+    mean_chord = sum(chord_ms) / len(chord_ms)
+    L.append(
+        f"- `six_actuator` (`chord`): a cell is its raised dots driven together for "
+        f"`cell_ms` ({min(chord_ms)}–{max(chord_ms)} ms, mean {mean_chord:.0f} ms over the alphabet).")
+    L.append(
+        f"- `single_actuator` (`slots`): a cell is {SLOT_COUNT} time slots in dot order "
+        f"{'-'.join(str(d) for d in single['order'])}; a raised dot is a `slot_ms` = {single['slot_ms']} ms "
+        f"pulse in its slot, an absent dot {single['slot_ms']} ms of silence; `slot_gap_ms` = "
+        f"{single['slot_gap_ms']} ms follows every slot but the last and `column_gap_ms` = "
+        f"{single['column_gap_ms']} ms more follows the third. Every cell lasts "
+        f"{SLOT_COUNT} × {single['slot_ms']} + {SLOT_COUNT - 1} × {single['slot_gap_ms']} + "
+        f"{single['column_gap_ms']} = **{slot_cell_ms(spec)} ms** whatever the letter "
+        f"({slot_cell_ms(spec) / mean_chord:.1f} × the mean chord cell).")
+    L.append("")
+    L.append("| Slot | Dot | Pulse starts at (ms into the cell) |")
+    L.append("|---:|---:|---:|")
+    for i, (dot, off) in enumerate(zip(single["order"], slot_offsets_ms(spec)), start=1):
+        L.append(f"| {i} | {dot} | {off} |")
     L.append("")
     L.append(DOC_END)
     return "\n".join(L)
@@ -620,6 +845,28 @@ def py_module(spec):
         A("    '%s': '%s'," % (tail_name, pat_id))
     A("}")
     A("")
+    A("# Spec v4: the silence between words (inside a word the gap is the pace), the")
+    A("# period at which a device repeats 'processing' while a body is pending, and")
+    A("# the per-beat |Δt| the conformance harness allows a real renderer.")
+    A("WORD_GAP_MS = %d" % c["word_gap_ms"])
+    A("WORKING_EVERY_MS = %d" % c["working_every_ms"])
+    A("CONFORMANCE_TOLERANCE_MS = %d" % c["conformance_tolerance_ms"])
+    A("")
+    A("# Utterance kind -> arrival cue and prefix tail pattern ids (architecture §2).")
+    A("KINDS = {")
+    for kind, e in spec["kinds"].items():
+        A("    '%s': {'cue': '%s', 'tail': '%s'}," % (kind, e["cue"], e["tail"]))
+    A("}")
+    A("")
+    A("# Renderer profiles (architecture §5.2), verbatim from the spec. A 'chord'")
+    A("# profile drives a cell's dots together for cell_ms(); a 'slots' profile plays")
+    A("# one cell as SLOT_COUNT time slots in `order`, a slot_ms pulse per raised dot.")
+    A("SLOT_COUNT = %d" % SLOT_COUNT)
+    A("PROFILES = {")
+    for pid, prof in spec["profiles"].items():
+        A("    '%s': %r," % (pid, prof))
+    A("}")
+    A("")
     A("")
     A("def cell_ms(letter: str) -> int:")
     A("    \"\"\"Cell buzz duration for a letter 'a'..'z'.\"\"\"")
@@ -629,6 +876,18 @@ def py_module(spec):
     A("def pattern_beats(pattern_id: str) -> tuple:")
     A("    \"\"\"The (buzz_ms, gap_after_ms) beats of one attention pattern.\"\"\"")
     A("    return PATTERN_BEATS[pattern_id]")
+    A("")
+    A("")
+    A("def pattern_ms(pattern_id: str) -> int:")
+    A("    \"\"\"How long one play of a pattern takes: every buzz and every gap, tail included.\"\"\"")
+    A("    return sum(buzz + gap for buzz, gap in PATTERN_BEATS[pattern_id])")
+    A("")
+    A("")
+    A("def slot_cell_ms(profile_id: str = 'single_actuator') -> int:")
+    A("    \"\"\"Fixed duration of one cell on a slots profile (every slot, every slot gap")
+    A("    but the last, and the column break after the third slot).\"\"\"")
+    A("    p = PROFILES[profile_id]")
+    A("    return SLOT_COUNT * p['slot_ms'] + (SLOT_COUNT - 1) * p['slot_gap_ms'] + p['column_gap_ms']")
     A("")
     return "\n".join(L) + "\n"
 

@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define HAPTIC_SPEC_VERSION 3
+#define HAPTIC_SPEC_VERSION 4
 
 /* Vibro-braille cell: buzz_ms = CELL_BASE_MS + CELL_PER_DOT_MS * dot_count */
 #define CELL_BASE_MS 50
@@ -34,6 +34,25 @@ extern "C" {
 #define LONG_BUZZ_MS 600
 #define TAIL_GAP_MS 420
 #define PREFIX_BREATH_MS 550
+
+/* Spec v4: silence between words of one utterance (inside a word the gap is
+ * the pace); the period at which a device repeats HAPTIC_PROCESSING on its
+ * own clock while an utterance's body is pending (architecture §5.1). */
+#define WORD_GAP_MS 520
+#define WORKING_EVERY_MS 2000
+
+/* single_actuator profile (a phone, architecture §5.2): one cell is
+ * HAPTIC_SLOT_COUNT time slots, one per dot, in HAPTIC_SLOT_ORDER; a raised dot
+ * is a SLOT_MS pulse in its slot, an absent dot SLOT_MS of silence; SLOT_GAP_MS
+ * follows every slot but the last and COLUMN_GAP_MS more follows the third, so
+ * every cell lasts 530 ms whatever the letter.  The band (six_actuator)
+ * drives the raised dots together for haptic_cell_ms() instead. */
+#define SLOT_MS 50
+#define SLOT_GAP_MS 30
+#define COLUMN_GAP_MS 80
+#define HAPTIC_SLOT_COUNT 6
+#define HAPTIC_SLOT_CELL_MS 530
+static const uint8_t HAPTIC_SLOT_ORDER[HAPTIC_SLOT_COUNT] = { 1, 2, 3, 4, 5, 6 }; /* dot numbers, 1..6 */
 
 /* One haptic beat: buzz for buzz_ms, then stay silent for gap_after_ms. */
 typedef struct {
@@ -151,6 +170,23 @@ static const haptic_pattern HAPTIC_PREFIX_TAIL_TABLE[HAPTIC_TAIL_COUNT] = {
     HAPTIC_PAT_DOUBLE_TAP, HAPTIC_PAT_TRIPLE_PULSE, HAPTIC_PAT_LONG_BUZZ
 };
 #define HAPTIC_PREFIX_MARK_INDEX 0  /* ziv — index into HAPTIC_MARK_TABLE */
+
+/* --- Utterance kinds (architecture §2): the arrival cue and the prefix tail per kind. --- */
+/* Order follows the spec's `kinds` block; the wire's Kind enum names the same ids. */
+typedef enum {
+    HAPTIC_KIND_MESSAGE = 0,
+    HAPTIC_KIND_REMINDER,
+    HAPTIC_KIND_ERROR,
+    HAPTIC_KIND_SYSTEM,
+    HAPTIC_KIND_COUNT
+} haptic_kind;
+
+static const haptic_pattern HAPTIC_KIND_CUE_TABLE[HAPTIC_KIND_COUNT] = {
+    HAPTIC_PAT_DOUBLE_TAP, HAPTIC_PAT_TRIPLE_PULSE, HAPTIC_PAT_LONG_BUZZ, HAPTIC_PAT_HEARTBEAT
+};
+static const haptic_pattern HAPTIC_KIND_TAIL_TABLE[HAPTIC_KIND_COUNT] = {
+    HAPTIC_PAT_DOUBLE_TAP, HAPTIC_PAT_TRIPLE_PULSE, HAPTIC_PAT_LONG_BUZZ, HAPTIC_PAT_HEARTBEAT
+};
 
 #ifdef __cplusplus
 }

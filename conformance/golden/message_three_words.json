@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "id": "golden-message-three-words",
+  "wearer": "w_1",
+  "kind": "message",
+  "from": {
+    "sender": "agent",
+    "label": "brief"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "double-tap"
+  },
+  "words": [
+    "meds",
+    "at",
+    "nine"
+  ],
+  "source": "live",
+  "spec_version": 4
+}

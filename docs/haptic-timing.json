@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "constants": {
     "cell_base_ms": 50,
     "cell_per_dot_ms": 60,
@@ -10,7 +10,10 @@
     "tick_gap_ms": 160,
     "long_buzz_ms": 600,
     "tail_gap_ms": 420,
-    "prefix_breath_ms": 550
+    "prefix_breath_ms": 550,
+    "word_gap_ms": 520,
+    "working_every_ms": 2000,
+    "conformance_tolerance_ms": 10
   },
   "ui": {
     "play_lead_ms": 500,
@@ -53,6 +56,23 @@
       "reminder": "triple-pulse",
       "error": "long-buzz"
     }
+  },
+  "kinds": {
+    "message": { "cue": "double-tap", "tail": "double-tap" },
+    "reminder": { "cue": "triple-pulse", "tail": "triple-pulse" },
+    "error": { "cue": "long-buzz", "tail": "long-buzz" },
+    "system": { "cue": "heartbeat", "tail": "heartbeat" }
+  },
+  "profiles": {
+    "six_actuator": { "encoding": "chord" },
+    "single_actuator": { "encoding": "slots", "slot_ms": 50, "slot_gap_ms": 30, "column_gap_ms": 80, "order": [1, 2, 3, 4, 5, 6] }
+  },
+  "rationale": {
+    "word_gap_ms": "The silence between two words of one utterance (inside a word the cell gap is the wearer's pace). 520 ms is about a quarter longer than the 420 ms default cell gap - above the ~20% Weber fraction for empty tactile intervals, so a word boundary is felt as a boundary at the default pace - and 30 ms under the 550 ms prefix breath, the one silence that already means 'a boundary between events' (who, then why), so a word boundary never outranks it. It cannot read as an ending because nothing ends on silence any more: only end-of-message ends an utterance (plan s4 invariant 2). Known limit, to validate on the feel-tool: the gap is a constant while the pace is tunable 250-700 ms, so at paces of 520 ms and slower the word boundary is no longer longer than a cell gap; if slow readers need it, v5 defines the word gap relative to the pace.",
+    "working_every_ms": "How often a device repeats the processing pattern on its own clock while a body is pending (architecture s5.1). 2000 ms is the relay's old cadence (PROCESSING_EVERY_S = 2.0) and the plan's '~2 s' (s4 invariant 3: waiting is legible). The pattern itself lasts 910 ms, so each repeat is followed by about a second of silence - a pulse, not a drone. The reference renderer models the header part only (one pattern); the repeats are device time, not utterance time.",
+    "conformance_tolerance_ms": "Per-beat |delta t| a real renderer may drift from the reference timeline and still conform (dot mask and buzz length must match exactly). 10 ms matches tools/qemu_timeline.py's HAP differ and sits well under the shortest silence in the spec (the 30 ms slot gap), so a tolerance can never hide a merged or missing beat.",
+    "kinds": "Kind -> arrival cue and prefix tail. Both are the same pattern per kind on purpose: the cue a wearer feels mid-read ('something of this kind is waiting') and the tail after the name mark ('this is why I am speaking') are one vocabulary item each, so there are four things to learn, not eight. prefix.tails is the firmware's older view of the same mapping and must agree with it; validate() enforces that.",
+    "profiles.single_actuator": "A phone has one motor, so a cell is six time slots in column order (dots 1, 2, 3, then 4, 5, 6): a raised dot is a 50 ms pulse in its slot, an absent dot is 50 ms of silence; 30 ms of silence follows every slot but the last and 80 ms more follows the third slot (the column break), so the cell's duration is fixed at 6 x 50 + 5 x 30 + 80 = 530 ms whatever the letter - the letter lives in where the pulses fall, not in how many there are. 530 ms is about 2.2 x the mean chord cell (244 ms over the alphabet) and 1.5 x the heaviest (350 ms), the 'roughly twice' architecture s5.2 budgets for. The 50 ms pulse is the shortest buzz already in the vocabulary (ramp-up's first beat, cell_base_ms); the 30/80 ms gaps make the column break (110 ms of silence) almost four times the in-column gap. All three numbers are provisional until validated on the feel-tool with braille readers: the trade is legibility of pulse position against the time budget, and a slower slot (e.g. 70/40/100) is the first thing to try if positions blur."
   },
 "play_lead_ms": 500,
   "loop_restart_ms": 700,

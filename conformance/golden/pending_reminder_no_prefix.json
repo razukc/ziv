@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "id": "golden-pending-reminder-no-prefix",
+  "wearer": "w_1",
+  "kind": "reminder",
+  "from": {
+    "sender": "agent",
+    "label": "pills"
+  },
+  "words": [],
+  "body_pending": true,
+  "spec_version": 4
+}

@@ -1,0 +1,9 @@
+{"t_ms":0,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":230,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":460,"dot_mask":0,"buzz_ms":70,"label":"cue"}
+{"t_ms":950,"dot_mask":0,"buzz_ms":70,"label":"working"}
+{"t_ms":1370,"dot_mask":0,"buzz_ms":70,"label":"working"}
+{"t_ms":1860,"dot_mask":0,"buzz_ms":200,"label":"close"}
+{"t_ms":2180,"dot_mask":0,"buzz_ms":140,"label":"close"}
+{"t_ms":2440,"dot_mask":0,"buzz_ms":90,"label":"close"}
+{"t_ms":2650,"dot_mask":0,"buzz_ms":50,"label":"close"}

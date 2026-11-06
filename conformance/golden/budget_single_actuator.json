@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "id": "golden-budget-single-actuator",
+  "wearer": "w_1",
+  "kind": "message",
+  "from": {
+    "sender": "mira",
+    "label": "Mira"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "double-tap"
+  },
+  "words": [
+    "the",
+    "nursea"
+  ],
+  "spec_version": 4
+}

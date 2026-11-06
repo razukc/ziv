@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "id": "golden-word-32-letters",
+  "wearer": "w_1",
+  "kind": "message",
+  "from": {
+    "sender": "mira",
+    "label": "Mira"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "double-tap"
+  },
+  "words": [
+    "abcdefghijklmnopqrstuvwxyzabcdef"
+  ],
+  "spec_version": 4
+}

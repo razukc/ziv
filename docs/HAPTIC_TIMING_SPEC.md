@@ -2,18 +2,18 @@
 
 **Purpose:** every buzz and silence the Ziv haptic channel plays lives in exactly one place — [docs/haptic-timing.json](./haptic-timing.json). The phone feel-tool ([haptic-name-marks.html](./haptic-name-marks.html)) and the band firmware (`haptic_out`, plan §5) are *generated* consumers of that file, so the pattern you feel on the phone is the pattern the motors play — by construction, not by convention.
 
-**Status:** spec v3. Implements plan §4 (attention vocabulary — five attention patterns + two lifecycle patterns) and the vibro-braille cell rule (protocol §0: duration = 50 + 60 × dots ms). Research/screening tool: no clinical claims (§9).
+**Status:** spec v4. Implements plan §4 (attention vocabulary — five attention patterns + two lifecycle patterns), the vibro-braille cell rule (protocol §0: duration = 50 + 60 × dots ms) and, since v4, the utterance layer of [ARCHITECTURE.md](./ARCHITECTURE.md) §2/§5/§10: the word gap, the working cadence, the kind → cue/tail table, the two renderer profiles (chords on the band, time slots on a phone) and the conformance tolerance. Research/screening tool: no clinical claims (§9).
 
 ## How the single source works
 
-- `docs/haptic-timing.json` — canonical constants, the 26-letter Grade-1 dot table (counts *and* dot positions — the Unicode glyphs and the firmware's per-letter motor bitmask are derived from the positions), the five candidate marks, pre-validated rename examples (protocol §5 option B), the seven attention/lifecycle patterns (each beat annotated with the constant it references), and the prefix composition. Edit here, and only here.
-- `python tools/haptic_timing.py --write` — regenerates: the feel-tool's timing block + gap slider, [firmware/haptic_out/haptic_timing.h](../firmware/haptic_out/haptic_timing.h), and the tables below.
+- `docs/haptic-timing.json` — canonical constants, the 26-letter Grade-1 dot table (counts *and* dot positions — the Unicode glyphs and the firmware's per-letter motor bitmask are derived from the positions), the five candidate marks, pre-validated rename examples (protocol §5 option B), the seven attention/lifecycle patterns (each beat annotated with the constant it references), the prefix composition, and (v4) the `kinds` table, the renderer `profiles` and the word-gap / working-cadence / tolerance constants, each with its reasoning under `rationale`. Edit here, and only here.
+- `python tools/haptic_timing.py --write` — regenerates: the feel-tool's timing block + gap slider, [firmware/haptic_out/haptic_timing.h](../firmware/haptic_out/haptic_timing.h) (constants, pattern tables, `haptic_kind` cue/tail tables, the slot order), the Python timing module ([tools/haptic_timing_gen.py](../tools/haptic_timing_gen.py) and its home in the package, [ziv/haptics/tables.py](../ziv/haptics/tables.py), which the reference renderer and the conformance harness read at call time), the scripted boot demo pair, the QEMU ladder's demo-chain block, and the tables below.
 - `python tools/haptic_timing.py` — verifies every consumer against the JSON (generated block text, slider envelope, the HTML's LETTERS/MARKS tables, the M1 distractor pool ids) and exits non-zero on any drift. Run it after touching either side; the JSON itself self-validates (beat ranges, constant references, the tail rule, mark letters).
 - **Drift cannot be committed** — the same verify runs in the pre-commit hook ([hooks/pre-commit](../hooks/pre-commit), installed with `git config core.hooksPath hooks`) and in the agent's Ziv hermetic suite ([tests/test_haptic_timing.py](../agent/tests/test_haptic_timing.py), which also proves the checker detects drift).
 
 <!-- haptic-timing:begin (generated — do not edit; regenerate with tools/haptic_timing.py --write) -->
 
-### Constants — spec v3
+### Constants — spec v4
 
 | Constant | ms | Feeds |
 |---|---:|---|
@@ -25,6 +25,9 @@
 | `long_buzz_ms` | 600 | the error buzz |
 | `tail_gap_ms` | 420 | silence after a pattern's last beat |
 | `prefix_breath_ms` | 550 | silence between the name mark and its attention tail |
+| `word_gap_ms` | 520 | silence between two words of one utterance (inside a word: the pace) — longer than the default cell gap, shorter than the prefix breath |
+| `working_every_ms` | 2000 | period at which a device repeats `processing` on its own clock while an utterance's body is pending |
+| `conformance_tolerance_ms` | 10 | per-beat start-time drift (±) a real renderer may show against the reference timeline; dot mask and buzz length must match exactly |
 
 ### UI vs. runtime limits — do not unify
 
@@ -98,6 +101,29 @@ Same dot-count arc as **raz** (4-1-4): **zar** — arc-validated only; legal scr
 
 The ziv mark (290/420 · 170/420 · 290) → silence 550 ms → attention tail: message = `double-tap` · reminder = `triple-pulse` · error = `long-buzz`.
 
+### Kinds — arrival cue and prefix tail (architecture §2)
+
+| Kind | Cue | Tail after the mark |
+|---|---|---|
+| `message` | `double-tap` | `double-tap` |
+| `reminder` | `triple-pulse` | `triple-pulse` |
+| `error` | `long-buzz` | `long-buzz` |
+| `system` | `heartbeat` | `heartbeat` |
+
+### Renderer profiles (architecture §5.2)
+
+- `six_actuator` (`chord`): a cell is its raised dots driven together for `cell_ms` (110–350 ms, mean 244 ms over the alphabet).
+- `single_actuator` (`slots`): a cell is 6 time slots in dot order 1-2-3-4-5-6; a raised dot is a `slot_ms` = 50 ms pulse in its slot, an absent dot 50 ms of silence; `slot_gap_ms` = 30 ms follows every slot but the last and `column_gap_ms` = 80 ms more follows the third. Every cell lasts 6 × 50 + 5 × 30 + 80 = **530 ms** whatever the letter (2.2 × the mean chord cell).
+
+| Slot | Dot | Pulse starts at (ms into the cell) |
+|---:|---:|---:|
+| 1 | 1 | 0 |
+| 2 | 2 | 80 |
+| 3 | 3 | 160 |
+| 4 | 4 | 320 |
+| 5 | 5 | 400 |
+| 6 | 6 | 480 |
+
 <!-- haptic-timing:end -->
 
 ## Why the numbers are what they are
@@ -108,13 +134,30 @@ The ziv mark (290/420 · 170/420 · 290) → silence 550 ms → attention tail: 
 - **Ramp up** ascends in duration (50 → 90 → 140 → 200) because the Android Vibration API has no amplitude control — duration is the only ramp the phone can play, so it is the ramp the band must match.
 - **Cell gap is the speed control** (250–700 ms, default 420): the same envelope on the page's slider and in the band's config, so M1 reaction times measured on the phone transfer to the wrist (protocol §3).
 - **Prefix breath (550 ms)** separates the name mark from its attention tail so the wearer hears two events — *who*, then *why* — not one merged blob.
+- **Word gap (520 ms, v4)** is the silence between two words of one utterance; inside a word the gap is the wearer's pace. It is about a quarter longer than the 420 ms default cell gap — above the ~20 % Weber fraction for empty tactile intervals, so a word boundary is *felt* as a boundary — and 30 ms under the breath, the one silence that already means "a boundary between events", so a word boundary never outranks *who / why*. It cannot read as an ending: since v3 nothing ends on silence, only `end-of-message` does (plan §4 invariant 2). Note that the literal envelope "between the cell gap and the tail gap" is empty at v4 (`tail_gap_ms` = `cell_gap_default_ms` = 420); the breath is the upper bound that matters, and `validate()` enforces `cell_gap_default_ms < word_gap_ms < prefix_breath_ms`. **Known limit, to validate on the feel-tool:** the gap is a constant while the pace is tunable 250–700 ms, so at paces of 520 ms and slower a word boundary is no longer longer than a cell gap. If slow readers need it, v5 defines the word gap relative to the pace; the renderer contract does not change.
+- **Working cadence (2000 ms, v4)** is how often a device repeats `processing` on its own clock while an utterance's body is pending (architecture §5.1) — the relay's old `PROCESSING_EVERY_S = 2.0` and the plan's "~2 s" (§4 invariant 3). One play of the pattern lasts 910 ms, so each repeat is followed by about a second of silence: a pulse, not a drone. `validate()` refuses a cadence shorter than one play. The reference renderer models the header only (one `processing` play); the repeats are device time, not utterance time, and do not count against the budget.
+- **Single-actuator slots (50 / 30 / 80 ms → 530 ms per cell, v4)** carry *letters* on a phone's one motor, not dot counts: a cell is six time slots in dot order 1-2-3 · 4-5-6; a raised dot is a 50 ms pulse in its slot, an absent dot 50 ms of silence; 30 ms separates slots and 80 ms more separates the two columns, so the column break (110 ms) is almost four times the in-column gap and every cell lasts 6 × 50 + 5 × 30 + 80 = **530 ms** whatever the letter — the letter lives in *where* the pulses fall. That is 2.2 × the mean chord cell (244 ms over the alphabet) and 1.5 × the heaviest (350 ms): the "roughly twice" architecture §5.2 budgets for, and the time budget is computed per profile so a phone is never asked to play what it cannot fit. The 50 ms pulse is the shortest buzz already in the vocabulary (ramp-up's first beat, `cell_base_ms`). **All three numbers are provisional until validated on the feel-tool with braille readers**: the trade is legibility of pulse *position* against the budget; a slower slot (e.g. 70 / 40 / 100) is the first thing to try if positions blur, and the table above (pulse start per slot) is what a reader is asked to recognise.
+- **Conformance tolerance (10 ms, v4)** is the per-beat start-time drift a real renderer may show against the reference timeline; dot masks and buzz lengths must match exactly. It equals the HAP differ's tolerance in `tools/qemu_timeline.py` and sits well under the shortest silence in the spec (the 30 ms slot gap), so a tolerance can never hide a merged or missing beat — `validate()` checks that too.
+
+## The reference renderer and the conformance harness
+
+`ziv/haptics/reference.py` turns an utterance (`ziv.wire.Utterance`) into the timeline every real renderer is measured against: `timeline(utterance, profile, pace_ms)` → a list of `Beat(t_ms, dot_mask, buzz_ms, label)`, `duration_ms(...)` → the time budget admission charges. It adds structure only; every number comes from `ziv/haptics/tables.py`. The shape of a turn, in order:
+
+1. the prefix, when present: the mark's cells with the pace between them, `prefix_breath_ms` after the last, then the kind's tail pattern;
+2. the kind's cue pattern;
+3. one `processing` play when `body_pending` and no words have arrived;
+4. the words: the pace between cells inside a word, `word_gap_ms` between words;
+5. `tail_gap_ms` of silence after the last cell, then `end-of-message`.
+
+On `six_actuator` a cell is one beat (`dot_mask` = the letter's mask, `buzz_ms` = `cell_ms`); on `single_actuator` it is one beat per raised dot (`dot_mask` = that dot's bit, `buzz_ms` = `slot_ms`) at the slot offsets above. Pace is clamped into the spec envelope. [conformance/](../conformance/README.md) holds the golden utterances, the expected timelines the reference produces for them (`conformance/run.py --write`, guarded by `--check`), and the player interface the C sequencer and the phone client plug into (`--player "<command>" --profile P`).
 
 ## Change discipline
 
 1. Edit `docs/haptic-timing.json` (bump `version`).
 2. `python tools/haptic_timing.py --write`.
-3. Re-feel every pattern on the phone; re-run an M1 session.
-4. Commit the JSON and both consumers together — they are one artifact.
+3. `agent/venv/bin/python conformance/run.py --write` when any timeline changes, and read the diff of `conformance/expected/` — it is the felt change, beat by beat.
+4. Re-feel every pattern on the phone; re-run an M1 session.
+5. Commit the JSON and every consumer together — they are one artifact.
 
 Enforced: the pre-commit hook and the hermetic suite refuse a commit that
 violates steps 1–2.

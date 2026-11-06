@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "id": "golden-error-one-word",
+  "wearer": "w_1",
+  "kind": "error",
+  "from": {
+    "sender": "relay",
+    "label": "compose"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "long-buzz"
+  },
+  "words": [
+    "failed"
+  ],
+  "spec_version": 4
+}

@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "id": "golden-system-one-word",
+  "wearer": "w_1",
+  "kind": "system",
+  "from": {
+    "sender": "relay"
+  },
+  "prefix": {
+    "mark": "ziv",
+    "tail": "heartbeat"
+  },
+  "words": [
+    "online"
+  ],
+  "spec_version": 4
+}
