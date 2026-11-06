@@ -46,43 +46,16 @@ Thumbs.db
 .freebuff/
 .codebuff/
 
-# The wearer's own data (relay v1: memory files + persistent inbox) and
-# local demo recordings (regenerate with agent/record_beat.py) — never
+# The wearer's own data (relay v1: memory files + persistent inbox) — never
 # repo state.
 agent/ziv_data/
-agent/demo_beat.webm
-agent/demo_beat_narrated.mp4
-agent/demo_beat_trace.zip
-agent/narration/
-agent/demo_full.webm
-agent/demo_full_narrated.mp4
-agent/narration_full/
-agent/ziv_data_gallery_tmp/
-agent/gallery_shots/
 
-# Local demo captures and operator scratch (regenerated, never repo state)
+# Local captures and operator scratch (never repo state)
 _tmp/
 .vscode/
 screenshots/
-bg_solid.mp4
-review_single.html
-screenshot_ziv_client.png
-todo_next_steps.json
-ziv_client_index_check.py
-ziv_server_withhelper_tmp.py
-agent/_start_relay_for_preview.py
-agent/_start_relay_and_keep.py
-agent/ziv_server_withhelper.py
-agent/ziv_server_withhelper_tmp.py
-agent/test_ziv_demo_redial.py
-agent/demo_live*
-agent/demo_full_frame.png
-agent/page@*.webm
-agent/narration_live*/
-tools/live_cutoff_probe*.py
-scripts/ziv_vm_schedule_smoke_report.md
 
-# Historical planning and design drafts (kept locally; not part of the submission)
+# Historical planning and design drafts (kept locally; not part of the repo)
 docs/AGENT_VIBRO_TACTILE_BUILD.md
 docs/Mermaid-Architecture-Diagram.md
 docs/PHONE_PROTOTYPE_PLAN.md

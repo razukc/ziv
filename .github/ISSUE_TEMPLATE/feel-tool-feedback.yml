@@ -1,5 +1,5 @@
 name: Tried it — feedback report
-description: You tried the feel-tool, ran the judge repro, or watched the demo — tell us what worked and what didn't.
+description: You tried the feel-tool or ran the relay on your own phone — tell us what worked and what didn't.
 title: "[feedback] "
 labels: ["feedback"]
 body:
@@ -23,8 +23,7 @@ body:
       label: What did you try?
       options:
         - The hosted feel-tool (https://site-5505fea77ec84b4f8e1a5d70c82d5877.freebuff.page)
-        - The demo video (https://youtu.be/t9ovgEjm8i8)
-        - The judge repro (JUDGE_REPRO.md — hermetic tests or a live run-through)
+        - The relay + phone PWA, run locally (README quick start)
         - Something else (describe below)
     validations:
       required: true
